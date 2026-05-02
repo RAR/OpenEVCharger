@@ -28,6 +28,7 @@ set(STDP_SRCS
     ${STDP_SRC}/gd32f20x_usart.c
     ${STDP_SRC}/gd32f20x_adc.c
     ${STDP_SRC}/gd32f20x_dma.c
+    ${STDP_SRC}/gd32f20x_timer.c
 )
 
 # ---------- FreeRTOS ----------
@@ -54,6 +55,7 @@ set(APP_SRCS
     src/hal/uart.c
     src/hal/gpio.c
     src/hal/adc_scan.c
+    src/hal/cp_pwm.c
     src/ui/buttons.c
     src/tasks/safety_task.c
     src/tasks/io_task.c
