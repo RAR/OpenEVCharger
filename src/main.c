@@ -11,6 +11,7 @@
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
 #include "hal/cp_pwm.h"
+#include "hal/adc_inject.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -56,6 +57,8 @@ int main(void)
     printk("ADC scan armed: 11 ranks @ ~3.6 kHz\n");
     cp_pwm_init();
     printk("CP PWM armed: TIMER0 1 kHz, PE13 idle HIGH\n");
+    adc_inject_init();
+    printk("CP injected ADC armed: PA4 sampled on each PWM rising edge\n");
 
     safety_task_create();
     io_task_create();
