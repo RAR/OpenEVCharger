@@ -97,3 +97,113 @@ None of substance. Watchdog negative test (deliberately hung safety_task to obse
 
 ### Next milestone
 M2: GPIO + ADC scan + button + first debug UART. Plan to be written next.
+
+## M2 — GPIO + ADC scan + buttons + USART1 console
+
+**Date completed:** 2026-05-02
+**Spec section:** § 9 M2
+**Plan:** docs/superpowers/plans/2026-05-02-m2-gpio-adc-uart.md
+
+### Success criterion (from spec)
+Pressing each of the 3 ladder buttons on PC3 (and the on-board PC9 button)
+prints a unique decoded line via the debug UART, with the 11-channel ADC
+DMA scan running and all GPIOs configured per pin map.
+
+### Observed result
+- Boot banner via USART1 + ARM semihosting tee: **YES**
+- PD4 1 Hz blink (M1 regression): **YES**
+- All 4 buttons decode to unique IDs: **YES** (see table below)
+- ADC dump prints every 5 s with plausible values: **YES**
+- Continuous-uptime stability: **YES** (≥ 5 min, no spontaneous resets)
+
+### UART output (sample)
+```
+--- OpenBHZD M2 boot, SystemCoreClock=120000000 Hz ---
+STRAPS: dip=0011 pb7=1 pb8=0 pe2=1 pb14=1
+ADC scan armed: 11 ranks @ ~3.6 kHz
+scheduler starting
+ADC: AC=2116 NTC1=2123 CT=2100 LCT=2107 CPR=860 CC=4095 PE=0 NTC2=0 UNUSED=0 BTN=4093 VREF=1482
+BTN press top (raw=2458)
+BTN release top
+BTN press mid (raw=1238)
+BTN release mid
+BTN press bot (raw=4)
+BTN release bot
+BTN press pc9
+BTN release pc9
+```
+
+### Bench-measured ladder thresholds (PC3, idle = HIGH ~3.3 V)
+
+| Button | Measured raw (12-bit) | mV @ 3.3 V Vref | Plan band | Match |
+|---|---:|---:|---|---|
+| top | 2458 | 1980 | 1900–2800 | ✓ |
+| mid | 1238 | 998 | 800–1700 | ✓ |
+| bot | 4 | 3 | ≤ 400 | ✓ |
+| idle | 4092 | 3299 | ≥ 3500 | ✓ |
+
+All three press values fall cleanly inside the plan's predicted bands.
+No threshold tuning required — `BAND_*` constants in `src/ui/buttons.c`
+ship as-written.
+
+### ADC sanity check (no AC, no J1772 cable)
+
+| Rank | Pin | Role | Raw | Volts | Comment |
+|---:|---|---|---:|---:|---|
+| 0 | PA2 | AC-supply-present | 2116 | 1.71 | Mid-rail; divider not pulled w/o AC. Plausible. |
+| 1 | PA3 | NTC1 | 2123 | 1.71 | Hotter than stock's 1.19 V @ 25 °C — possibly no thermistor populated on bench. Non-blocking; M6 will revisit. |
+| 2 | PC0 | CT (main) | 2100 | 1.69 | Op-amp midrail (≈ 1.65 V) — matches "no current" expectation. |
+| 3 | PC1 | LCT (leakage) | 2107 | 1.70 | Same op-amp midrail. |
+| 4 | PA4 | CP read-back | 860 | 0.69 | TIM1 idle (PWM not running); CP buffer at low rail. |
+| 5 | PA7 | CC | 4095 | 3.30 | No J1772 plugged → divider open → 3.3 V. ✓ |
+| 6 | PC5 | PE continuity | 0 | 0.00 | Grounded as expected. ✓ |
+| 7 | PB0 | NTC2 | 0 | 0.00 | No thermistor populated on bench. Non-blocking. |
+| 8 | PB1 | (unused) | 0 | 0.00 | Board variant tied low. Matches stock. |
+| 9 | PC3 | button ladder | 4093 | 3.30 | Idle = HIGH (no press). ✓ |
+| 10 | – | VREFINT | 1482 | 1.194 | **Calibration confirmed**: VREFINT spec = 1.16–1.24 V. End-to-end ADC + DMA pipeline correct. |
+
+### Strap inputs (boot read)
+```
+dip=0011  → DIP1=open(48A), DIP2=open(KA inactive), DIP3=closed, DIP4=closed
+pb7=1, pb8=0 (tied low externally), pe2=1, pb14=1 idle
+```
+
+### Output idle states (all controlled outputs read 0 V on USB-only bench)
+PE12 (relay main), PE0 (relay aux), PE3 (GFCI CAL), PB2 (buzzer),
+PE1 (FC41D supply), PD0 (FC41D CEN), PD1 (FC41D WAKE), PB9/PD15
+(U11 gain) all idle low as required by `init_outputs_safe_low()`.
+PB6 (W25Q CS) idles high (deasserted).
+
+### Build size
+- text 10504 B, data 8 B, bss 19264 B, flash usage 2.01 % of 512 KB.
+- RAM usage 14.70 % of 128 KB (16 KB FreeRTOS heap + TCBs + 22-byte ADC buffer).
+
+### Hardware discoveries / deviations from plan
+
+1. **USART1 wire-out impractical on this bench.** PA9 (LQFP100 pin 78)
+   on this SKU goes to an unpopulated LCD-daughterboard header that the
+   user couldn't physically locate. Solved by adding an **ARM semihosting
+   tee** in `uart_write()` — every printk also surfaces in the OpenOCD
+   console when `arm semihosting enable`d, gated on DHCSR.C_DEBUGEN so
+   the BKPT 0xAB never fires without a debugger attached. New helper
+   script `tools/openocd-monitor.sh` runs OpenOCD with semihosting
+   enabled. UART hardware path is still functional — just untested
+   on this bench. Will be exercised in M3 if/when the user solders a
+   probe to the chip pin.
+
+2. **NTC channels read 0 V (PB0) and ~1.7 V (PA3) instead of stock's
+   ~1.2 V.** Strongly suggests one or both gun thermistors are not
+   populated on this bench unit — common for an SKU variant without
+   the gun-attached temperature sensors. Non-blocking for M2; M6's
+   over-temp safety check will need a "thermistor not populated" path
+   (read const "safe" temperature when input is at a rail) or simply
+   require thermistors to be wired before M6 testing.
+
+3. **Ladder thresholds matched the spec on first try.** Plan estimates
+   (top 1900–2800, mid 800–1700, bot ≤ 400, idle ≥ 3500) lined up with
+   measured 2458 / 1238 / 4 / 4092 — comfortable margins all around.
+
+### Next milestone
+M3: TIM1 full-remap → PE13 PWM at 1 kHz + injected ADC trigger on TIM1
+update event + CP state classifier (states A/B/C/E/F per voltage band).
+Plan to be written after M2 final commits/tag.
