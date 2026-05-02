@@ -7,10 +7,13 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "hal/uart.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
 #include "tasks/persist_task.h"
+
+extern uint32_t SystemCoreClock;
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. */
@@ -38,13 +41,18 @@ void vApplicationMallocFailedHook(void)
 int main(void)
 {
     /* Vendor SystemInit() has already run from startup_gd32f20x_cl.S
-     * (clock tree at 120 MHz). No further pre-scheduler init needed. */
+     * (clock tree at 120 MHz). */
+
+    uart_init();
+    printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
+           (unsigned)SystemCoreClock);
 
     safety_task_create();
     io_task_create();
     comms_task_create();
     persist_task_create();
 
+    printk("scheduler starting\n");
     vTaskStartScheduler();
 
     /* Should never return. If we get here, the scheduler ran out of
