@@ -50,6 +50,7 @@ set(APP_SRCS
     src/main.c
     src/hal/wdg.c
     src/hal/uart.c
+    src/hal/gpio.c
     src/tasks/safety_task.c
     src/tasks/io_task.c
     src/tasks/comms_task.c

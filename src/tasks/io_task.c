@@ -1,29 +1,16 @@
 #include "io_task.h"
+#include "core/pin_map.h"
 #include "gd32f20x.h"
-
-#define HEARTBEAT_PORT GPIOD
-#define HEARTBEAT_PIN  GPIO_PIN_4
-#define HEARTBEAT_RCU  RCU_GPIOD
-
-static void heartbeat_init(void)
-{
-    rcu_periph_clock_enable(HEARTBEAT_RCU);
-    gpio_init(HEARTBEAT_PORT,
-              GPIO_MODE_OUT_PP,
-              GPIO_OSPEED_2MHZ,
-              HEARTBEAT_PIN);
-    gpio_bit_reset(HEARTBEAT_PORT, HEARTBEAT_PIN);
-}
 
 static void io_task_run(void *arg)
 {
     (void)arg;
-    heartbeat_init();
+    /* GPIO already configured by gpio_init_all() in main(). */
 
     for (;;) {
-        gpio_bit_set(HEARTBEAT_PORT, HEARTBEAT_PIN);
+        gpio_bit_set(PIN_HEARTBEAT_PORT, PIN_HEARTBEAT_PIN);
         vTaskDelay(pdMS_TO_TICKS(500));
-        gpio_bit_reset(HEARTBEAT_PORT, HEARTBEAT_PIN);
+        gpio_bit_reset(PIN_HEARTBEAT_PORT, PIN_HEARTBEAT_PIN);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }

@@ -8,6 +8,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "hal/uart.h"
+#include "hal/gpio.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -46,6 +47,9 @@ int main(void)
     uart_init();
     printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
            (unsigned)SystemCoreClock);
+
+    gpio_init_all();
+    gpio_log_straps();
 
     safety_task_create();
     io_task_create();
