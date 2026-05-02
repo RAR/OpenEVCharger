@@ -21,10 +21,14 @@ set(CMAKE_C_FLAGS_INIT
     "${CPU_FLAGS} -ffunction-sections -fdata-sections -fno-common -fmessage-length=0 \
     -Wall -Wextra -Wshadow -Wundef -Werror=implicit-function-declaration \
     -Werror=incompatible-pointer-types -Werror=return-type \
-    -fstack-usage -specs=nano.specs -specs=nosys.specs")
+    -fstack-usage")
 
 set(CMAKE_CXX_FLAGS_INIT
     "${CMAKE_C_FLAGS_INIT} -fno-exceptions -fno-rtti -fno-use-cxa-atexit")
+
+# Note: -specs=nano.specs and -specs=nosys.specs go on the link line only.
+# Putting them on compile flags causes "attempt to rename spec" errors
+# when GCC processes the same spec file twice during link.
 
 set(CMAKE_ASM_FLAGS_INIT "${CPU_FLAGS} -x assembler-with-cpp")
 

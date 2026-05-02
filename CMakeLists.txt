@@ -1,0 +1,83 @@
+cmake_minimum_required(VERSION 3.20)
+
+# The toolchain file MUST be set on the cmake command line via
+# -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
+project(openbhzd C ASM)
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
+endif()
+
+set(VENDOR_LIB ${CMAKE_SOURCE_DIR}/third_party/GD32F20x_Firmware_Library)
+set(CMSIS_CORE ${VENDOR_LIB}/cmsis/cores/gd32)
+set(GD_HEADERS ${VENDOR_LIB}/cmsis/variants/gd32f20x)
+set(GD_STARTUP ${VENDOR_LIB}/cmsis/startup_files)
+set(STDP_INC   ${VENDOR_LIB}/spl/inc)
+set(STDP_SRC   ${VENDOR_LIB}/spl/src)
+
+# ---------- Vendor sources we always want ----------
+
+set(GD_STARTUP_SRC ${GD_STARTUP}/startup_gd32f20x_cl.S)
+set(GD_SYSTEM_SRC  ${GD_HEADERS}/system_gd32f20x.c)
+
+# Standard peripheral library — only the modules we use in M0 (GPIO, RCU, MISC).
+# Add more here as later milestones consume them.
+set(STDP_SRCS
+    ${STDP_SRC}/gd32f20x_gpio.c
+    ${STDP_SRC}/gd32f20x_rcu.c
+    ${STDP_SRC}/gd32f20x_misc.c
+)
+
+# ---------- Application sources ----------
+
+set(APP_SRCS
+    src/main.c
+)
+
+# ---------- Target ----------
+
+set(TARGET ${PROJECT_NAME})
+
+add_executable(${TARGET}
+    ${APP_SRCS}
+    ${GD_STARTUP_SRC}
+    ${GD_SYSTEM_SRC}
+    ${STDP_SRCS}
+)
+
+target_include_directories(${TARGET} PRIVATE
+    src
+    ${CMSIS_CORE}
+    ${GD_HEADERS}
+    ${STDP_INC}
+)
+
+# Vendor expects:
+#   GD32F20X_CL  selects the connectivity-line family (F205/F207)
+#   HXTAL_VALUE  overrides vendor's default 25 MHz; bench unit has 8 MHz crystal
+# The 120 MHz-from-HXTAL clock tree is already vendor-enabled by default
+# (line 60 of system_gd32f20x.c — `__SYSTEM_CLOCK_120M_PLL_HXTAL` is the
+# only `#define __SYSTEM_CLOCK_*` not commented out). Don't redefine it.
+target_compile_definitions(${TARGET} PRIVATE
+    GD32F20X_CL=1
+    HXTAL_VALUE=8000000
+)
+
+set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/gd32f205vc.ld)
+target_link_options(${TARGET} PRIVATE
+    -T${LINKER_SCRIPT}
+    -Wl,-Map=${TARGET}.map,--cref
+)
+set_target_properties(${TARGET} PROPERTIES
+    SUFFIX ".elf"
+    LINK_DEPENDS ${LINKER_SCRIPT}
+)
+
+# Generate .bin and .hex alongside .elf
+add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${TARGET}> ${TARGET}.bin
+    COMMAND ${CMAKE_OBJCOPY} -O ihex   $<TARGET_FILE:${TARGET}> ${TARGET}.hex
+    COMMAND ${CMAKE_SIZE}   $<TARGET_FILE:${TARGET}>
+    BYPRODUCTS ${TARGET}.bin ${TARGET}.hex
+    COMMENT "Generating ${TARGET}.bin/.hex and printing size"
+)

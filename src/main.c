@@ -10,6 +10,13 @@
 
 #include "gd32f20x.h"
 
+/* Newlib's __libc_init_array (called from startup before main) walks
+ * the .init_array section and also references _init/_fini. We have no
+ * C++ static constructors, so these can be empty stubs.
+ */
+void _init(void) {}
+void _fini(void) {}
+
 #define HEARTBEAT_PORT  GPIOD
 #define HEARTBEAT_PIN   GPIO_PIN_4
 #define HEARTBEAT_RCU   RCU_GPIOD
