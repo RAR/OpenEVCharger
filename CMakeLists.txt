@@ -8,6 +8,8 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
 
+# ---------- Vendor lib paths ----------
+
 set(VENDOR_LIB ${CMAKE_SOURCE_DIR}/third_party/GD32F20x_Firmware_Library)
 set(CMSIS_CORE ${VENDOR_LIB}/cmsis/cores/gd32)
 set(GD_HEADERS ${VENDOR_LIB}/cmsis/variants/gd32f20x)
@@ -15,23 +17,41 @@ set(GD_STARTUP ${VENDOR_LIB}/cmsis/startup_files)
 set(STDP_INC   ${VENDOR_LIB}/spl/inc)
 set(STDP_SRC   ${VENDOR_LIB}/spl/src)
 
-# ---------- Vendor sources we always want ----------
-
 set(GD_STARTUP_SRC ${GD_STARTUP}/startup_gd32f20x_cl.S)
 set(GD_SYSTEM_SRC  ${GD_HEADERS}/system_gd32f20x.c)
 
-# Standard peripheral library — only the modules we use in M0 (GPIO, RCU, MISC).
-# Add more here as later milestones consume them.
 set(STDP_SRCS
     ${STDP_SRC}/gd32f20x_gpio.c
     ${STDP_SRC}/gd32f20x_rcu.c
     ${STDP_SRC}/gd32f20x_misc.c
+    ${STDP_SRC}/gd32f20x_fwdgt.c
+)
+
+# ---------- FreeRTOS ----------
+
+set(FREERTOS_DIR ${CMAKE_SOURCE_DIR}/third_party/FreeRTOS-Kernel)
+set(FREERTOS_PORT_DIR ${FREERTOS_DIR}/portable/GCC/ARM_CM3)
+
+set(FREERTOS_SRCS
+    ${FREERTOS_DIR}/tasks.c
+    ${FREERTOS_DIR}/queue.c
+    ${FREERTOS_DIR}/list.c
+    ${FREERTOS_DIR}/timers.c
+    ${FREERTOS_DIR}/event_groups.c
+    ${FREERTOS_DIR}/stream_buffer.c
+    ${FREERTOS_PORT_DIR}/port.c
+    ${FREERTOS_DIR}/portable/MemMang/heap_4.c
 )
 
 # ---------- Application sources ----------
 
 set(APP_SRCS
     src/main.c
+    src/hal/wdg.c
+    src/tasks/safety_task.c
+    src/tasks/io_task.c
+    src/tasks/comms_task.c
+    src/tasks/persist_task.c
 )
 
 # ---------- Target ----------
@@ -40,6 +60,7 @@ set(TARGET ${PROJECT_NAME})
 
 add_executable(${TARGET}
     ${APP_SRCS}
+    ${FREERTOS_SRCS}
     ${GD_STARTUP_SRC}
     ${GD_SYSTEM_SRC}
     ${STDP_SRCS}
@@ -50,14 +71,10 @@ target_include_directories(${TARGET} PRIVATE
     ${CMSIS_CORE}
     ${GD_HEADERS}
     ${STDP_INC}
+    ${FREERTOS_DIR}/include
+    ${FREERTOS_PORT_DIR}
 )
 
-# Vendor expects:
-#   GD32F20X_CL  selects the connectivity-line family (F205/F207)
-#   HXTAL_VALUE  overrides vendor's default 25 MHz; bench unit has 8 MHz crystal
-# The 120 MHz-from-HXTAL clock tree is already vendor-enabled by default
-# (line 60 of system_gd32f20x.c — `__SYSTEM_CLOCK_120M_PLL_HXTAL` is the
-# only `#define __SYSTEM_CLOCK_*` not commented out). Don't redefine it.
 target_compile_definitions(${TARGET} PRIVATE
     GD32F20X_CL=1
     HXTAL_VALUE=8000000
@@ -73,7 +90,6 @@ set_target_properties(${TARGET} PROPERTIES
     LINK_DEPENDS ${LINKER_SCRIPT}
 )
 
-# Generate .bin and .hex alongside .elf
 add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${TARGET}> ${TARGET}.bin
     COMMAND ${CMAKE_OBJCOPY} -O ihex   $<TARGET_FILE:${TARGET}> ${TARGET}.hex

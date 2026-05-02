@@ -1,66 +1,53 @@
-/* OpenBHZD M0 — heartbeat LED on PD4.
+/* OpenBHZD M1 — FreeRTOS scaffold + 4-task skeleton.
  *
- * Sets up the system clock at 120 MHz (handled by the vendor's SystemInit
- * called from startup_gd32f20x_cl.S) and toggles PD4 once per second using
- * SysTick as the time base.
- *
- * Once M1 introduces FreeRTOS, this file becomes the kernel-bringup
- * entry point and the blink moves into io_task.
+ * main() does no real work: it creates the four safety-core tasks then
+ * starts the scheduler. PD4 heartbeat moves into io_task. safety_task
+ * arms the watchdog as its first action.
  */
 
-#include "gd32f20x.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "tasks/safety_task.h"
+#include "tasks/io_task.h"
+#include "tasks/comms_task.h"
+#include "tasks/persist_task.h"
 
-/* Newlib's __libc_init_array (called from startup before main) walks
- * the .init_array section and also references _init/_fini. We have no
- * C++ static constructors, so these can be empty stubs.
- */
+/* Newlib's __libc_init_array references _init/_fini; we have no C++
+ * static ctors so empty stubs are fine. */
 void _init(void) {}
 void _fini(void) {}
 
-#define HEARTBEAT_PORT  GPIOD
-#define HEARTBEAT_PIN   GPIO_PIN_4
-#define HEARTBEAT_RCU   RCU_GPIOD
+/* FreeRTOS hooks. configCHECK_FOR_STACK_OVERFLOW = 2 means this fires
+ * if any task touches a low-water canary. configUSE_MALLOC_FAILED_HOOK = 1
+ * means this fires if pvPortMalloc returns NULL. We trap into an infinite
+ * loop in both cases — a debugger session can break in and inspect. */
 
-static volatile uint32_t systick_ms;
-
-void SysTick_Handler(void)
+void vApplicationStackOverflowHook(TaskHandle_t task, char *task_name)
 {
-    systick_ms++;
+    (void)task; (void)task_name;
+    __asm volatile("cpsid i");
+    for (;;) {}
 }
 
-static void systick_init(void)
+void vApplicationMallocFailedHook(void)
 {
-    /* SystemCoreClock is set by SystemInit() in system_gd32f20x.c */
-    SysTick_Config(SystemCoreClock / 1000U);   /* 1 ms tick */
-}
-
-static void delay_ms(uint32_t ms)
-{
-    uint32_t start = systick_ms;
-    while ((systick_ms - start) < ms) {
-        __WFI();
-    }
-}
-
-static void heartbeat_init(void)
-{
-    rcu_periph_clock_enable(HEARTBEAT_RCU);
-    gpio_init(HEARTBEAT_PORT,
-              GPIO_MODE_OUT_PP,
-              GPIO_OSPEED_2MHZ,
-              HEARTBEAT_PIN);
-    gpio_bit_reset(HEARTBEAT_PORT, HEARTBEAT_PIN);
+    __asm volatile("cpsid i");
+    for (;;) {}
 }
 
 int main(void)
 {
-    systick_init();
-    heartbeat_init();
+    /* Vendor SystemInit() has already run from startup_gd32f20x_cl.S
+     * (clock tree at 120 MHz). No further pre-scheduler init needed. */
 
-    for (;;) {
-        gpio_bit_set(HEARTBEAT_PORT, HEARTBEAT_PIN);
-        delay_ms(500);
-        gpio_bit_reset(HEARTBEAT_PORT, HEARTBEAT_PIN);
-        delay_ms(500);
-    }
+    safety_task_create();
+    io_task_create();
+    comms_task_create();
+    persist_task_create();
+
+    vTaskStartScheduler();
+
+    /* Should never return. If we get here, the scheduler ran out of
+     * heap before creating the idle task. Trap. */
+    for (;;) {}
 }
