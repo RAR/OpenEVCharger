@@ -68,6 +68,7 @@ add_executable(${TARGET}
 
 target_include_directories(${TARGET} PRIVATE
     src
+    src/core
     ${CMSIS_CORE}
     ${GD_HEADERS}
     ${STDP_INC}
