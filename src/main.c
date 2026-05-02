@@ -9,6 +9,7 @@
 #include "task.h"
 #include "hal/uart.h"
 #include "hal/gpio.h"
+#include "hal/adc_scan.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -50,6 +51,8 @@ int main(void)
 
     gpio_init_all();
     gpio_log_straps();
+    adc_scan_init();
+    printk("ADC scan armed: 11 ranks @ ~3.6 kHz\n");
 
     safety_task_create();
     io_task_create();

@@ -26,6 +26,8 @@ set(STDP_SRCS
     ${STDP_SRC}/gd32f20x_misc.c
     ${STDP_SRC}/gd32f20x_fwdgt.c
     ${STDP_SRC}/gd32f20x_usart.c
+    ${STDP_SRC}/gd32f20x_adc.c
+    ${STDP_SRC}/gd32f20x_dma.c
 )
 
 # ---------- FreeRTOS ----------
@@ -51,6 +53,7 @@ set(APP_SRCS
     src/hal/wdg.c
     src/hal/uart.c
     src/hal/gpio.c
+    src/hal/adc_scan.c
     src/tasks/safety_task.c
     src/tasks/io_task.c
     src/tasks/comms_task.c
