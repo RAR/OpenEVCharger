@@ -54,6 +54,7 @@ set(APP_SRCS
     src/hal/uart.c
     src/hal/gpio.c
     src/hal/adc_scan.c
+    src/ui/buttons.c
     src/tasks/safety_task.c
     src/tasks/io_task.c
     src/tasks/comms_task.c
