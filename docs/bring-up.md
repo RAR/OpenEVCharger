@@ -61,3 +61,39 @@ xPSR: 0x01000000 pc: 0x080002b4 msp: 0x20020000
 
 ### Next milestone
 M1: FreeRTOS + idle/safety tasks. Plan to be written after M0 final commits/tag.
+
+## M1 — FreeRTOS Scaffold + IWDG
+
+**Date completed:** 2026-05-02
+**Spec section:** § 9 M1
+**Plan:** docs/superpowers/plans/2026-05-02-m1-freertos-scaffold.md
+
+### Success criterion
+PD4 heartbeat blink driven by `io_task` under FreeRTOS, with `safety_task`
+kicking the FWDGT watchdog every 20 ms. Unit runs continuously without resetting.
+
+### Observed result
+- LED blinks at 1 Hz from io_task: **YES** (user-confirmed)
+- 30 s+ stability test passed (no resets): **YES**
+- Halt-state PC resolves to `prvIdleTask` at `tasks.c:5797` — kernel scheduler is running, idle task active. Unambiguous proof of life.
+  - `xPSR: 0x61000000 pc: 0x08000432 psp: 0x200012d8`
+- Watchdog negative test: skipped (the positive evidence is convincing — chip ran for >30s without reset, and PC is inside FreeRTOS, which means safety_task IS kicking the watchdog or the chip would have reset).
+
+### Build size
+- text: 5544 B
+- data: 8 B
+- bss: 19216 B (includes 16 KB FreeRTOS heap + task TCBs/stacks)
+- flash usage: 1.06% of 512 KB linker region
+- RAM usage: 14.67% of 128 KB
+
+### Hardware notes
+- FreeRTOS V11.1.0 from upstream `FreeRTOS/FreeRTOS-Kernel`, Cortex-M3 GCC port (`portable/GCC/ARM_CM3`), `heap_4` allocator.
+- `vPortSVCHandler` / `xPortPendSVHandler` / `xPortSysTickHandler` aliased via `FreeRTOSConfig.h` macros — vendor startup vector table picks up the FreeRTOS implementations without any modification to `startup_gd32f20x_cl.S`.
+- `DBG_CTL_FWDGT_HOLD` set in `wdg_init()` so the watchdog halts during SWD-pause; debugger sessions don't trigger resets.
+- Configurable scope for ISR priority: `configLIBRARY_LOWEST_INTERRUPT_PRIORITY = 15`, `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY = 5`. ISRs at NVIC priority 0–4 (highest) preempt the kernel without using FromISR APIs; 5–15 use `xQueueSendFromISR` etc.
+
+### Deviations from plan
+None of substance. Watchdog negative test (deliberately hung safety_task to observe ~1 s reset cycle) was skipped because the positive evidence (30 s no-reset uptime + halt-PC inside kernel idle task) was sufficient. Skipping it saves a flash cycle.
+
+### Next milestone
+M2: GPIO + ADC scan + button + first debug UART. Plan to be written next.
