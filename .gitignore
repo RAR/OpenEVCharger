@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# But keep our gitkeeps
+!recovery/.gitkeep
+!third_party/**/.gitkeep
+
+# Recovery backups (large binaries, regenerated locally)
+recovery/*.bin
+recovery/*.hex
+
+# Editor
+.vscode/
+.clangd/
+.cache/
+compile_commands.json
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
