@@ -1113,9 +1113,61 @@ attach cycle. Documented for future bench scripts.
 Build size: text 21804 / data 20 / bss 27596 — flash 4.16%, RAM 21.07%.
 Cost vs M6.3: +204 B text.
 
+## M6.5 — CP=E classifier → FAULT_CP_NO_PILOT (2026-05-02)
+
+`safety_task` now raises `FAULT_CP_NO_PILOT` when the J1772 classifier
+returns state E for ≥3 consecutive ticks (60 ms) AND
+`evse_state != EVSE_FAULT`. Spec § 4 #5.
+
+The `evse_state != EVSE_FAULT` gate is essential because the M3 CP
+read-back calibration is one-sided (slope-fit > 0 V only): when we
+drive state F (CCR=0 → CP -12 V), `cp_high_mv()` reads ~+725 mV which
+the classifier reports as state E. Without the gate, raising
+state F as a fault output would re-raise CP_NO_PILOT in a feedback
+loop. The gate suppresses re-raise once we're in FAULT for any
+reason.
+
+Bench validation:
+
+```
+[clean boot, fast_restart=2]
+EVSE state BOOT -> SELF_TEST
+EVSE state SELF_TEST -> READY
+relay sense: open (cmd=open)
+J1772 state=A cp=12000 mV
+```
+
+No spurious CP_NO_PILOT raised at idle (CP +12 V → state A). Negative
+test passes.
+
+Then ramped fast_restart to 5 to re-trip safe-fail; observed:
+
+```
+crash_state: SAFE-FAIL ENTERED (fast_restart=5)
+EVSE state BOOT -> SELF_TEST
+FAULT raised: CRASH_LOOP_SAFE_FAIL (first=CRASH_LOOP_SAFE_FAIL)
+EVSE state SELF_TEST -> FAULT
+J1772 state=E cp=725 mV
+```
+
+Despite J1772=E for many ticks during the FAULT phase, no
+`FAULT raised: CP_NO_PILOT` line — the gate held. Confirms the
+calibration carve-out is contained.
+
+**Positive test deferred.** Provoking a real CP=E condition needs a
+CP↔PE jumper on the bench-side connector. The classifier already
+returns E for cp_mv ∈ [-1500, +1500] (verified during M3 bench), so
+shorting CP to PE will make `j1772_step()` return E for >3 ticks
+which our new check will turn into a fault. Will be exercised during
+M9-era bench validation when a J1772 dummy plug is on hand.
+
+Build size: text 21988 / data 20 / bss 27596 — flash 4.20%, RAM 21.07%.
+Cost vs M6.4: +184 B text.
+
 ### Next milestone
-M6.5 — CP=E classifier → `FAULT_CP_NO_PILOT`. Sustained J1772 state E
-(say, 5 ticks = 100 ms) with `evse_state != EVSE_FAULT` raises the
-fault. Bench-validatable by shorting CP↔PE manually if a probe is
-on hand; otherwise the classifier-driven path will fire the next
-time a real EV pilot is broken. Per spec § 4 #5.
+M6.6 — boot self-test gate. Real check matrix between SELF_TEST and
+READY: ADC sanity (configured ranks return non-rail values within
+100 ms of init), relay sense reads "open" at boot, and W25Q boot_config
+load succeeded. Pass → READY; fail → FAULT with FAULT_BOOT_SELF_TEST.
+GFCI self-test pulse + relay actuation self-test deferred to a future
+M6.b cycle that needs morning-hours supervision.

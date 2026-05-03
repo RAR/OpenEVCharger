@@ -20,6 +20,10 @@
  * open for >= 200 ms (10 ticks at 50 Hz). Spec § 4 #2. */
 #define WELD_PERSIST_TICKS  10U
 
+/* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
+ * (60 ms). Spec § 4 #5. */
+#define CP_E_PERSIST_TICKS  3U
+
 /* Map EVSE state -> CP output. Called once per transition.
  *
  * - FAULT      : drive CP to -12 V (J1772 state F, "EVSE not ready")
@@ -133,6 +137,39 @@ static void check_relay_weld(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+static void check_cp_e(fault_state_t *fs, evse_state_t *es,
+                       j1772_state_t js, int32_t cp_mv,
+                       int *cp_e_streak)
+{
+    /* Don't run while we're driving state F ourselves: the M3
+     * read-back calibration is one-sided (slope fit > 0 V only) so
+     * cp_high_mv() reads ~+725 mV when we set CCR=0 → CP physically
+     * -12 V. The classifier reports E in that case, which would
+     * spuriously re-raise CP_NO_PILOT. Once we've already entered
+     * EVSE_FAULT for any reason, suppress this check. */
+    if (*es == EVSE_FAULT) {
+        *cp_e_streak = 0;
+        return;
+    }
+
+    if (js == J1772_STATE_E) {
+        if (*cp_e_streak < (int)CP_E_PERSIST_TICKS) ++(*cp_e_streak);
+    } else {
+        *cp_e_streak = 0;
+    }
+
+    if (*cp_e_streak >= (int)CP_E_PERSIST_TICKS &&
+        !fault_is_active(fs, FAULT_CP_NO_PILOT)) {
+        if (fault_raise(fs, FAULT_CP_NO_PILOT) == 1) {
+            printk("FAULT raised: %s (J1772=E for >=%u ticks, cp=%d mV)\n",
+                   fault_name(FAULT_CP_NO_PILOT),
+                   (unsigned)CP_E_PERSIST_TICKS, (int)cp_mv);
+            post_fault_event(FAULT_CP_NO_PILOT, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
 static void safety_task_run(void *arg)
 {
     (void)arg;
@@ -147,6 +184,7 @@ static void safety_task_run(void *arg)
     evse_state_t  es = EVSE_BOOT;
     int weld_streak = 0;
     int last_logged_sense = -1;     /* force initial print */
+    int cp_e_streak = 0;
 
     /* Prime cp_mv + j1772 read before boot path so any fault we raise
      * during BOOT->SELF_TEST->FAULT has live context. */
@@ -178,6 +216,7 @@ static void safety_task_run(void *arg)
         check_relay_weld(&fs, &es, relay_sense_closed(),
                          &weld_streak, &last_logged_sense,
                          s, cp_mv);
+        check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SAFETY_TASK_PERIOD_MS));
     }
