@@ -703,3 +703,63 @@ M5.b.4 — session_log. Same scan + append shape, smaller ring (8 sectors,
 ~1024 records). Should extract a generic ring helper from event_log.c
 to avoid duplicating the scan logic — refactor + new module in one
 commit.
+
+---
+
+## M5.b.4 — session_log scan-on-boot + append
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6 (session_log)
+**Plan:** docs/superpowers/plans/2026-05-02-m5b4-session-log.md
+
+### Success criteria
+1. First boot (region pristine): `session_log: scan complete, head=0x044000 slot=0`.
+2. 2 self-test appends → head_slot=2.
+3. Reset → scan finds 2 valid records, head_slot=2 still.
+4. `session_log_read_nth(0..1)` returns the test records with correct
+   boot_count + start_ts + mwh_delivered + end_reason.
+
+### Observed result
+
+```
+Boot N (post-flash, region pristine):
+  session_log: scan complete: valid=0 corrupt=0 blank=1024 head=0x044000 slot=0
+  ses[0..3]: rc=1 (all 0xFF)
+  session_log: 2 self-test records appended; head_slot=2
+
+Boot N+1 (reset):
+  session_log: scan complete: valid=2 corrupt=0 blank=1022 head=0x044040 slot=2
+  ses[0]: rc=0 boot=28 start=0x20000000 mwh=7000  end=0xc0
+  ses[1]: rc=0 boot=28 start=0x200003e8 mwh=14000 end=0xc1
+  ses[2..3]: rc=1 (blank)
+
+Boot N+2 (clean main, test+dump removed):
+  session_log: scan complete: valid=2 corrupt=0 blank=1022 head=0x044040 slot=2
+```
+
+### Build size
+- text 17048 B (+368 vs M5.b.3: session_log code only),
+  data 20 B, bss 27556 B (+4104 — second 4 KB static sector_buf for
+  session_log_init), flash 3.25 % of 512 KB. RAM 21.04 %.
+
+### Implementation notes
+1. **Spec drift — added u16 boot_count field.** Spec's session_record
+   had no monotonic key; without one, the scan can't reliably pick a
+   "latest" across power cycles before RTC sync. Adding `u16 boot_count`
+   (matching event_record) is the cheapest fix; reserved bytes
+   adjusted to keep total at 32 B.
+2. **No generic ring helper.** event_log.c and session_log.c are 95%
+   identical — same scan, classify, append, sector-erase logic. The
+   difference is the tiebreak key inside the scan loop (start_ts vs
+   timestamp) and the constants (region base/size/total). With only
+   two callers, abstraction overhead exceeds the duplication cost.
+   Revisit if a third ring buffer lands.
+3. **Two static 4 KB sector buffers now.** event_log + session_log
+   each carry their own. RAM crept to 21 %. Acceptable.
+
+### Next milestone
+M5.b.5 — `persist_task` FreeRTOS queue. Wraps event_log_append +
+session_log_append in a queue drained by persist_task. safety_task and
+other producers post a write request and continue without blocking on
+W25Q I/O. Required before M6 fault-state-machine raises faults at
+real-time pace.
