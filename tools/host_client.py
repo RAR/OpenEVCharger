@@ -146,11 +146,13 @@ def show_frame(cmd: int, seq: int, payload: bytes) -> str:
     extra = ""
     if cmd == EVT_BUILD_INFO:
         extra = f"  build={payload.rstrip(b'\\x00').decode('ascii', errors='replace')!r}"
-    elif cmd == EVT_STATE_REPORT and len(payload) >= 28:
+    elif cmd == EVT_STATE_REPORT and len(payload) >= 30:
+        # See src/core/system_state.h openbhzd_state — 30 B packed.
         j, e, amps, ccmd = struct.unpack_from("<BBBB", payload, 0)
         cp_hi = struct.unpack_from("<h", payload, 4)[0]
-        fbits, ffid = struct.unpack_from("<II", payload, 16)
-        extra = f"  j1772={j} evse={e} amps={amps} relay={ccmd} cp_hi={cp_hi}mV faults=0x{fbits:08x} first={ffid}"
+        ac = payload[16]
+        fbits, ffid = struct.unpack_from("<II", payload, 18)
+        extra = f"  j1772={j} evse={e} amps={amps} relay={ccmd} cp_hi={cp_hi}mV ac={ac} faults=0x{fbits:08x} first={ffid}"
     elif cmd == EVT_FAULT_RAISED and len(payload) >= 8:
         fid, j, e, mv = struct.unpack("<IBBh", payload[:8])
         extra = f"  fault_id={fid} j1772={j} evse={e} cp={mv}mV"
