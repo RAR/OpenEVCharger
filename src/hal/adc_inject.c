@@ -35,7 +35,15 @@ void ADC0_1_IRQHandler(void)
         uint16_t raw = adc_inserted_data_read(ADC0, ADC_INSERTED_CHANNEL_0);
         s_cp_raw = raw;
 
-        int32_t mv = ((int32_t)raw - 2048) * 24000 / 4095;
+        /* Empirical two-point calibration on the bench Rippleon ROC001:
+         *   raw=0    → CP = -12 V  (PA4 saturated low when buffer at -12 V)
+         *   raw=1462 → CP = +12 V  (scope-verified 2026-05-02)
+         * The spec assumed the divider would map ±12 V onto the full
+         * 0..3.3 V ADC range (raw 0..4095); on this PCB the swing only
+         * reaches ~1.18 V at +12 V. Linear interpolation between the
+         * two anchors. M5.b will replace this with a calibration record
+         * stored in W25Q so other units can have their own anchors. */
+        int32_t mv = (int32_t)raw * 24000 / 1462 - 12000;
         if (mv >  12000) mv =  12000;
         if (mv < -12000) mv = -12000;
         s_cp_mv = mv;
