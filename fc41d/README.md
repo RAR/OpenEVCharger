@@ -64,17 +64,27 @@ flashes hang or corrupt.
 
 **DIP4 = "FC41D flash mode" strap.** Slide DIP4 to the GND ("ON")
 position before powering up. At boot the MCU prints
-`MODE: FC41D flash (DIP4 held) — comms_task suppressed`, leaves
-PC12/PD2 tri-stated, and never starts the comms task. With the bus
-quiet, run the flash:
 
-```sh
-esphome run openbhzd.yaml
+```
+MODE: FC41D flash (DIP4 held) — comms_task suppressed
+fc41d-flash: VEN=1 CEN=1 — module released; press PC9 to pulse CEN for ltchiptool handshake
 ```
 
-After the flash completes, slide DIP4 back to OPEN and power-cycle
-the unit. The MCU brings comms_task up normally and the FC41D
-attaches to it on the next boot.
+PC12/PD2 stay tri-stated, comms_task never starts, and a small helper
+task takes over: it powers up the FC41D (VEN+CEN high) and watches
+the internal **PC9** button. With the bus quiet, run the flash and
+then tap PC9 to drop CEN — that lands the FC41D in bootloader-
+handshake territory while ltchiptool is already listening:
+
+```sh
+esphome run openbhzd.yaml          # ltchiptool starts and waits for the chip
+# in another window or after the prompt: tap PC9 once
+```
+
+The helper logs `fc41d-flash: PC9 pressed → CEN pulse` on each tap;
+press again if the first handshake misses. After the flash completes,
+slide DIP4 back to OPEN and power-cycle the unit. The MCU brings
+comms_task up normally and the FC41D attaches to it on the next boot.
 
 Subsequent updates go OTA over Wi-Fi from the same `esphome run`
 command — DIP4 doesn't need to move again unless you're re-doing the

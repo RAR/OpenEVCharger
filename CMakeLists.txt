@@ -83,6 +83,7 @@ set(APP_SRCS
     src/tasks/safety_task.c
     src/tasks/io_task.c
     src/tasks/comms_task.c
+    src/tasks/fc41d_flash_helper.c
     src/tasks/persist_task.c
     src/diag/stack_watch.c
 )

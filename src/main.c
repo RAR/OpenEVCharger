@@ -25,6 +25,7 @@
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
+#include "tasks/fc41d_flash_helper.h"
 #include "tasks/persist_task.h"
 
 extern uint32_t SystemCoreClock;
@@ -124,10 +125,15 @@ int main(void)
      * uart5_init() never runs and PC12/PD2 stay tri-stated. The
      * BK7231N's serial bootloader on the same wires (its UART1
      * P10/P11) then has the bus to itself for ltchiptool flash.
-     * Slide DIP4 back open + power-cycle to resume normal TLV
-     * traffic. Detection is gpio_dip4_held() — see hal/gpio.h. */
+     *
+     * Spawn the flash helper instead — it powers up the FC41D
+     * (VEN+CEN high) and watches PC9 for a button press, pulsing
+     * CEN low to drop the module back into bootloader mode for
+     * ltchiptool's handshake. Slide DIP4 back open + power-cycle
+     * to resume normal TLV traffic. */
     if (gpio_dip4_held()) {
         printk("MODE: FC41D flash (DIP4 held) — comms_task suppressed\n");
+        fc41d_flash_helper_create();
     } else {
         comms_task_create();
     }
