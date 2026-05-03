@@ -156,11 +156,20 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       last_state_ms_ = millis();  // any reply counts as "alive"
       break;
 
-    case EVT_STATE_REPORT:
     case EVT_STATE_CHANGED: {
-      // Layout matches src/core/system_state.h openbhzd_state (packed,
-      // 30 bytes). STATE_CHANGED is unsolicited but reuses STATE_REPORT's
-      // payload format (the MCU emits both via system_state_t).
+      // Lightweight unsolicited event from safety_task: 1 byte =
+      // new j1772 state. Pull the full snapshot on next tick so the
+      // STATE_REPORT path drives all the entity publishes.
+      uint8_t s = (plen >= 1) ? p[0] : 0;
+      ESP_LOGD(TAG, "STATE_CHANGED j1772=%s", j1772_state_name(s));
+      send_get_state();
+      last_state_ms_ = millis();
+      break;
+    }
+
+    case EVT_STATE_REPORT: {
+      // Layout matches src/core/system_state.h openbhzd_state
+      // (packed, 30 bytes). Response to GET_STATE.
       if (plen < 30) {
         ESP_LOGW(TAG, "STATE_REPORT short (plen=%u)", (unsigned) plen);
         break;
