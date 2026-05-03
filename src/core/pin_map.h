@@ -21,12 +21,16 @@
 #define PIN_HEARTBEAT_PIN       GPIO_PIN_4
 #define PIN_HEARTBEAT_RCU       RCU_GPIOD
 
-/* ----- Debug UART: USART1 PA9 TX / PA10 RX (no remap) ----- */
-#define PIN_USART1_TX_PORT      GPIOA
-#define PIN_USART1_TX_PIN       GPIO_PIN_9
-#define PIN_USART1_RX_PORT      GPIOA
-#define PIN_USART1_RX_PIN       GPIO_PIN_10
-#define PIN_USART1_RCU          RCU_GPIOA
+/* ----- Debug UART: USART1 (SPL macro, = STM32 USART2) on PD5 TX /
+ * PD6 RX via GPIO_USART1_REMAP. These are the silk-screened RFID/NFC
+ * reader port pins — empty on the bench unit so we co-opt them for
+ * printk. (SPL USART0 = chip pin PA9/PA10 which are physically
+ * inaccessible on this PCB; that's why we don't use those.) */
+#define PIN_USART1_TX_PORT      GPIOD
+#define PIN_USART1_TX_PIN       GPIO_PIN_5
+#define PIN_USART1_RX_PORT      GPIOD
+#define PIN_USART1_RX_PIN       GPIO_PIN_6
+#define PIN_USART1_RCU          RCU_GPIOD
 
 /* ----- ADC analog inputs (rank order matches DMA buffer layout) ----- */
 #define PIN_ADC_AC_PORT         GPIOA

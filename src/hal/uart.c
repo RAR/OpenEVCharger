@@ -51,7 +51,13 @@ static void semihost_write(const void *buf, size_t len)
 void uart_init(void)
 {
     rcu_periph_clock_enable(PIN_USART1_RCU);
+    rcu_periph_clock_enable(RCU_AF);
     rcu_periph_clock_enable(RCU_USART1);
+
+    /* SPL USART1 default pins are PA2/PA3; the bench routes the same
+     * peripheral to PD5/PD6 via this remap (RFID/NFC reader port —
+     * empty on bench, free for printk). */
+    gpio_pin_remap_config(GPIO_USART1_REMAP, ENABLE);
 
     gpio_init(PIN_USART1_TX_PORT, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ,
               PIN_USART1_TX_PIN);
