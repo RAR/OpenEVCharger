@@ -21,17 +21,24 @@ void led_override_get(uint8_t *mode, uint8_t rgb_out[3])
     *mode      = s_override_mode;
 }
 
-/* Triangle wave 0..255..0 every period_ms ms. Cheap stand-in for sin(); the
- * eye doesn't really care about waveform shape at a few Hz. */
+/* Triangle wave that oscillates between BREATHE_MIN..255 every period_ms.
+ * The min floor keeps the strip visibly lit even at the bottom of the
+ * dim phase — without it, gamma compression turns the lowest ~30
+ * input values into a flat "off" segment that visibly snaps on at
+ * each cycle. 48 → after scaled_gamma(48, 60) = (48²/255)*60/100 ≈ 5,
+ * which is dim but clearly lit. */
+#define BREATHE_MIN  48u
+
 static uint8_t breathe(uint32_t t_ms, uint32_t period_ms)
 {
     if (period_ms == 0) return 255;
     uint32_t phase = (t_ms * 2u) % (period_ms * 2u);
     if (phase >= period_ms * 2u) phase = 0; /* belt + braces */
-    /* phase ∈ [0, period_ms*2). map to triangle 0..period_ms..0 */
     uint32_t pos = (phase < period_ms) ? phase : (period_ms * 2u - phase);
-    /* scale to 0..255 */
-    return (uint8_t)((pos * 255u) / period_ms);
+    /* Map pos ∈ [0, period_ms] linearly into [BREATHE_MIN, 255]. */
+    uint32_t v = BREATHE_MIN +
+                 (pos * (255u - BREATHE_MIN)) / period_ms;
+    return (uint8_t)v;
 }
 
 /* Square wave: on for first half, off for second, period in ms. */
@@ -41,25 +48,23 @@ static uint8_t flash(uint32_t t_ms, uint32_t period_ms)
     return ((t_ms % period_ms) < (period_ms / 2u)) ? 255u : 0u;
 }
 
-static uint8_t scale(uint8_t v, uint8_t pct)
+/* Combined gamma 2.0 + percent scale.  Earlier `gamma8(scale(v, pct))`
+ * lost ~5 bits of precision at the bottom: scale(60%) of 0..30 is
+ * 0..18, gamma8(18) = 1, gamma8(0..13) = 0 — so a ramp-up from
+ * black sat at "0" for many frames in a row before jumping.  Doing
+ * gamma first in 32-bit intermediates and only then scaling preserves
+ * the bottom of the curve. */
+static uint8_t scaled_gamma(uint8_t v, uint8_t pct)
 {
-    return (uint8_t)(((uint32_t)v * pct) / 100u);
-}
-
-/* Gamma 2.0 approximation: (v² / 255).  Spec § 7 calls for gamma-
- * corrected brightness; true 2.2 wants a 256-entry LUT but at the
- * 800-Hz update rate the eye doesn't notice the difference between
- * 2.0 and 2.2.  This costs one multiply + one divide per channel. */
-static uint8_t gamma8(uint8_t v)
-{
-    return (uint8_t)(((uint32_t)v * v) / 255u);
+    uint32_t g = ((uint32_t)v * v) / 255u;     /* full-range gamma 2.0 */
+    return (uint8_t)((g * pct) / 100u);
 }
 
 static void fill_all(uint8_t r, uint8_t g, uint8_t b, uint8_t pct)
 {
-    uint8_t rg = gamma8(scale(r, pct));
-    uint8_t gg = gamma8(scale(g, pct));
-    uint8_t bg = gamma8(scale(b, pct));
+    uint8_t rg = scaled_gamma(r, pct);
+    uint8_t gg = scaled_gamma(g, pct);
+    uint8_t bg = scaled_gamma(b, pct);
     for (unsigned i = 0; i < OPENBHZD_WS2812_LEDS; ++i) {
         ws2812_set_pixel(i, rg, gg, bg);
     }
@@ -116,9 +121,9 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
                                   OPENBHZD_WS2812_LEDS);
         ws2812_clear();
         ws2812_set_pixel(pos,
-                         scale(255, in->brightness_pct),
-                         scale(255, in->brightness_pct),
-                         scale(255, in->brightness_pct));
+                         scaled_gamma(255, in->brightness_pct),
+                         scaled_gamma(255, in->brightness_pct),
+                         scaled_gamma(255, in->brightness_pct));
         break;
     }
     case EVSE_READY:
