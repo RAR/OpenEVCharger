@@ -2,14 +2,38 @@
 #include "../core/pin_map.h"
 #include "gd32f20x.h"
 
-/* Standard WS2812B timing (1.25 µs/bit). Bench 2026-05-03: tried
- * WS2811 (2.5 µs/bit) too — same uniform-blue result. Neither
- * timing+pack combination produced visibly differentiable colour.
- * See "M9 LED strip mystery" carve-out in projectstate.txt for
- * unresolved questions. */
-#define WS_PERIOD_TICKS   74U   /* ARR — 75 timer ticks @ 60 MHz = 1.25 µs */
-#define WS_T0H_TICKS      24U   /* T0H = 0.40 µs */
-#define WS_T1H_TICKS      48U   /* T1H = 0.80 µs */
+/* Strip protocol family.  All families share the single-wire DIN /
+ * daisy-chain DOUT topology; they differ in bit timing, byte order,
+ * and (for SK6812-RGBW) bit count.  Runtime keying is via the
+ * OPENBHZD_LED_PROTOCOL_* build flags; default is WS2812B. */
+#ifndef OPENBHZD_LED_PROTOCOL_UCS1903
+#define OPENBHZD_LED_PROTOCOL_UCS1903 0
+#endif
+#ifndef OPENBHZD_LED_PROTOCOL_APA106
+#define OPENBHZD_LED_PROTOCOL_APA106  0
+#endif
+
+#if OPENBHZD_LED_PROTOCOL_UCS1903
+/* UCS1903 / TM1804: 400 kHz, RGB byte order.
+ *   T0H = 0.5 µs, T1H = 2.0 µs, period = 2.5 µs, reset ≥24 µs. */
+#define WS_PERIOD_TICKS  149U   /* 2.5 µs @ 60 MHz */
+#define WS_T0H_TICKS      30U   /* 0.5 µs */
+#define WS_T1H_TICKS     120U   /* 2.0 µs */
+#define WS_PACK_RGB        1    /* R, G, B (vs WS2812B's G, R, B) */
+#elif OPENBHZD_LED_PROTOCOL_APA106
+/* APA106: 800 kHz-ish, RGB, asymmetric T1H = 1.36 µs.
+ *   T0H = 0.35 µs, T1H = 1.36 µs, period = 1.71 µs, reset ≥50 µs. */
+#define WS_PERIOD_TICKS  102U   /* 1.71 µs @ 60 MHz */
+#define WS_T0H_TICKS      21U   /* 0.35 µs */
+#define WS_T1H_TICKS      82U   /* 1.36 µs */
+#define WS_PACK_RGB        1
+#else
+/* WS2812B default: 800 kHz, GRB byte order. */
+#define WS_PERIOD_TICKS   74U   /* 1.25 µs @ 60 MHz */
+#define WS_T0H_TICKS      24U   /* 0.40 µs */
+#define WS_T1H_TICKS      48U   /* 0.80 µs */
+#define WS_PACK_RGB        0
+#endif
 
 #define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
 #define WS_RESET_PADDING  60U   /* 60 × 1.25 µs = 75 µs latch (≥ 50 µs spec) */
@@ -38,9 +62,15 @@ void ws2812_set_pixel(unsigned idx, uint8_t r, uint8_t g, uint8_t b)
 {
     if (idx >= OPENBHZD_WS2812_LEDS) return;
     uint16_t *p = &s_buf[idx * WS_BITS_PER_LED];
+#if WS_PACK_RGB
+    load_byte_at(p +  0, r);
+    load_byte_at(p +  8, g);
+    load_byte_at(p + 16, b);
+#else
     load_byte_at(p +  0, g);
     load_byte_at(p +  8, r);
     load_byte_at(p + 16, b);
+#endif
 }
 
 void ws2812_clear(void)
@@ -131,9 +161,24 @@ void ws2812_init(void)
     timer_channel_output_struct_para_init(&oc);
     oc.outputstate  = TIMER_CCX_ENABLE;
     oc.outputnstate = TIMER_CCXN_DISABLE;
+    /* OPENBHZD_WS2812_INVERT=1 flips the OC polarity so the line idles
+     * HIGH and pulses LOW. Use this if the bench has an inverting
+     * level-shifter / buffer between PA15 and the strip's DIN pad —
+     * which is a strong candidate for the "uniform white-ish blue"
+     * symptom: an inverter would turn every bit-period into a
+     * ~0.45 µs HIGH (from T0L=0.85 µs) which the strip likely treats
+     * as timing-marginal junk. Idle-LOW polarity also flips: that
+     * means we still need ws2812_clear() (all zeros) to look like the
+     * inactive 50 µs latch from the strip's perspective — done by the
+     * tail padding which is always zero. */
+#if defined(OPENBHZD_WS2812_INVERT) && OPENBHZD_WS2812_INVERT
+    oc.ocpolarity   = TIMER_OC_POLARITY_LOW;
+    oc.ocidlestate  = TIMER_OC_IDLE_STATE_HIGH;
+#else
     oc.ocpolarity   = TIMER_OC_POLARITY_HIGH;
-    oc.ocnpolarity  = TIMER_OCN_POLARITY_HIGH;
     oc.ocidlestate  = TIMER_OC_IDLE_STATE_LOW;
+#endif
+    oc.ocnpolarity  = TIMER_OCN_POLARITY_HIGH;
     oc.ocnidlestate = TIMER_OCN_IDLE_STATE_LOW;
     timer_channel_output_config(TIMER1, TIMER_CH_0, &oc);
 

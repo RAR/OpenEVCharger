@@ -125,6 +125,18 @@ if(DEFINED OPENBHZD_WS2812_LEDS)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_WS2812_LEDS=${OPENBHZD_WS2812_LEDS})
 endif()
+if(DEFINED OPENBHZD_WS2812_INVERT)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_WS2812_INVERT=${OPENBHZD_WS2812_INVERT})
+endif()
+if(DEFINED OPENBHZD_LED_PROTOCOL_UCS1903)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_LED_PROTOCOL_UCS1903=${OPENBHZD_LED_PROTOCOL_UCS1903})
+endif()
+if(DEFINED OPENBHZD_LED_PROTOCOL_APA106)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_LED_PROTOCOL_APA106=${OPENBHZD_LED_PROTOCOL_APA106})
+endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
 # Default ON for bench builds; pass -DOPENBHZD_STACK_WATCH=0 for production.
