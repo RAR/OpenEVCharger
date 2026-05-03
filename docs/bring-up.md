@@ -468,3 +468,76 @@ M5.b — full persistence: ping-pong helper for boot_config +
 calibration, event_log + session_log scan-on-boot + append, integrate
 writes via persist_task's queue. M5.b is a hard prerequisite for M6
 because M6 writes a fault event on every latched fault raise.
+
+---
+
+## M5.b.1 — ping-pong helper + boot_config record
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6 (records, ping-pong scheme)
+**Plan:** docs/superpowers/plans/2026-05-02-m5b1-pingpong-boot-config.md
+
+### Success criteria
+1. First flash → defaults written to slot A (counter=1, advertised_amps=0).
+2. Reset → load from slot A unchanged.
+3. Programmatic `boot_config_set_advertised_amps(32)` → store to slot B (counter=2).
+4. Reset → load from slot B (counter=2, advertised_amps=32).
+5. boot_count keeps incrementing across reboots (M5 chain unbroken).
+
+### Observed result
+
+```
+=== boot N (post-flash, slots blank) ===
+W25Q: JEDEC ID = 0xc84017
+boot_count = 17
+boot_config: defaults written -> slot A (counter=1, advertised_amps=0)
+                                                         (printed during flash.sh's reset run)
+
+=== boot N+1 (monitor reset) ===
+boot_count = 17
+boot_config: loaded from slot A (counter=1, advertised_amps=0)
+
+=== boot N+2 (after re-flash with one-shot set(32)) ===
+boot_count = 18
+boot_config: loaded from slot A (counter=1, advertised_amps=0)
+boot_config: stored -> slot B (counter=2, advertised_amps=32)
+
+=== boot N+3 (monitor reset) ===
+boot_count = 19
+boot_config: loaded from slot B (counter=2, advertised_amps=32)
+```
+
+The set-when-already-32 path (idempotent) is implicitly validated by
+boot N+3: the test gate `if (advertised_amps == 0)` was false, so the
+store correctly skipped.
+
+### Build size
+- text 15592 B (+1372 B vs M5: pingpong + boot_config),
+  data 8 B, bss 19312 B, flash 2.98 % of 512 KB.
+
+### Implementation notes
+1. **Spec drift — boot_config_record adds a `monotonic_counter` field.**
+   The spec's record was 28 B as written (1+3+1+3+16+4); the spec also
+   calls for a "monotonic counter" used by the ping-pong reader. The
+   helper enforces a fixed envelope (counter @ offset 4, CRC at end),
+   so the record was extended to 32 B by adding `u32 monotonic_counter`
+   at offset 4 and growing `reserved` to 16 B. Calibration record will
+   follow the same shape in M5.b.2.
+2. **Helper is record-agnostic.** `pingpong_load/store` only see a buffer
+   pointer + size; the convention is hardcoded (counter @ 4, CRC @ end).
+   Callers do not pass offsets — every persisted record in this codebase
+   follows this shape.
+3. **First-write tie-break.** If both slots are blank, helper writes to
+   slot A (target_slot = (cur_slot == 0) ? 1 : 0; cur_slot = -1 means
+   "no current valid record" → target = 0).
+4. **Verify-read.** After program, helper reads back and `memcmp`s
+   against the source bytes; mismatch returns -5.
+5. **w25q_read returns void.** Original plan checked rc; updated to
+   match the actual HAL signature.
+
+### Next milestone
+M5.b.2 — calibration record. Same record convention, slots
+0x002000 / 0x003000. Migrate the M3 hard-coded CP anchors
+(slope = 3540/459, anchor_raw = 1462) into a `calibration_record`,
+read at boot into a RAM cache that `adc_inject.c`'s ISR consumes via
+`volatile` cached integers.
