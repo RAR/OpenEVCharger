@@ -120,7 +120,17 @@ int main(void)
 
     safety_task_create();
     io_task_create();
-    comms_task_create();
+    /* DIP4 held LOW at boot = "FC41D flash mode": skip comms_task so
+     * uart5_init() never runs and PC12/PD2 stay tri-stated. The
+     * BK7231N's serial bootloader on the same wires (its UART1
+     * P10/P11) then has the bus to itself for ltchiptool flash.
+     * Slide DIP4 back open + power-cycle to resume normal TLV
+     * traffic. Detection is gpio_dip4_held() — see hal/gpio.h. */
+    if (gpio_dip4_held()) {
+        printk("MODE: FC41D flash (DIP4 held) — comms_task suppressed\n");
+    } else {
+        comms_task_create();
+    }
     persist_task_create();
 
     printk("scheduler starting\n");

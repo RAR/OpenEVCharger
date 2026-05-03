@@ -12,4 +12,12 @@ void gpio_init_all(void);
  * after gpio_init_all() to printk a single line summarising boot config. */
 void gpio_log_straps(void);
 
+/* DIP4 held LOW at boot: "FC41D flash mode" — main() skips
+ * comms_task_create() so uart5_init() never runs and the UART4 wires
+ * (PC12 TX / PD2 RX, also FC41D's UART1 P10/P11) stay tri-stated. The
+ * FC41D's serial bootloader can then handshake without contention.
+ * Caller must read this after gpio_init_all() (pull-up settled).
+ * Returns 1 if held (active-low), 0 if released. */
+int  gpio_dip4_held(void);
+
 #endif

@@ -133,3 +133,9 @@ void gpio_log_straps(void)
     printk("STRAPS: dip=%d%d%d%d pb7=%d pb8=%d pe2=%d pb14=%d\n",
            dip1, dip2, dip3, dip4, pb7, pb8, pe2, pb14);
 }
+
+int gpio_dip4_held(void)
+{
+    /* Active-low: 0 = held to GND (slid to "ON"), 1 = open (pull-up). */
+    return (gpio_input_bit_get(PIN_DIP4_PORT, PIN_DIP4_PIN) == SET) ? 0 : 1;
+}

@@ -54,13 +54,31 @@ ln -sfn "$(pwd)/boards/generic-bk7231n-qfn32-quectel.json" \
 cp secrets.yaml.example secrets.yaml && $EDITOR secrets.yaml
 ```
 
-Build + serial flash (first time):
+### First serial flash — silence the MCU first
+
+The MCU's UART4 (PC12 TX / PD2 RX) shares wires with the BK7231N's UART1
+(P10 / P11), the same UART that ltchiptool drives during a serial flash.
+With OpenBHZD running, the MCU pushes a STATE_REPORT every 5 s plus
+event traffic — that collides with the BK's bootloader handshake and
+flashes hang or corrupt.
+
+**DIP4 = "FC41D flash mode" strap.** Slide DIP4 to the GND ("ON")
+position before powering up. At boot the MCU prints
+`MODE: FC41D flash (DIP4 held) — comms_task suppressed`, leaves
+PC12/PD2 tri-stated, and never starts the comms task. With the bus
+quiet, run the flash:
 
 ```sh
 esphome run openbhzd.yaml
 ```
 
-Subsequent updates go OTA over Wi-Fi from the same command.
+After the flash completes, slide DIP4 back to OPEN and power-cycle
+the unit. The MCU brings comms_task up normally and the FC41D
+attaches to it on the next boot.
+
+Subsequent updates go OTA over Wi-Fi from the same `esphome run`
+command — DIP4 doesn't need to move again unless you're re-doing the
+serial flash.
 
 ## Surfaced HA entities
 
