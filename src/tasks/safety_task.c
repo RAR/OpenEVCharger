@@ -2,6 +2,7 @@
 #include "../hal/wdg.h"
 #include "../hal/uart.h"
 #include "../hal/adc_inject.h"
+#include "../hal/adc_scan.h"
 #include "../hal/cp_pwm.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
@@ -23,6 +24,14 @@
 /* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
  * (60 ms). Spec § 4 #5. */
 #define CP_E_PERSIST_TICKS  3U
+
+/* Boot self-test ADC rail thresholds. spec § 4.1.1 says "non-rail
+ * values"; we use 100..3995 / 4095 to leave headroom for noise. */
+#define ST_ADC_MIN  100U
+#define ST_ADC_MAX  3995U
+
+/* CP state-A floor in mV; spec § 3 state table threshold for A. */
+#define ST_CP_STATE_A_MIN_MV  10500
 
 /* Map EVSE state -> CP output. Called once per transition.
  *
@@ -137,6 +146,79 @@ static void check_relay_weld(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* --- Boot self-test (spec § 4.1, scoped subset) --------------------------
+ *
+ * Runs once between EVSE_SELF_TEST and EVSE_READY. Returns 0 on pass,
+ * non-zero (number of failed sub-checks) on fail. On fail, the caller
+ * raises FAULT_BOOT_SELF_TEST and routes to EVSE_FAULT.
+ *
+ * Sub-checks landed:
+ *   1. ADC sanity on AC, CT, LCT, CPR ranks. NTC1/NTC2/CC/PE/BTN
+ *      excluded — bench has those at rail by design (NTCs not
+ *      populated, CC/PE high-impedance idle, BTN ladder rail when
+ *      idle). Carve-out documented in pin_map / projectstate.
+ *   2. PB12 (relay sense) reads "open" at boot.
+ *   3. CP at idle reads in state-A band (≥ 10.5 V).
+ *
+ * Sub-checks deferred (need risk-controlled bench supervision):
+ *   - GFCI CAL pulse + EXTI fire (no GFCI sense pin in pin map).
+ *   - Relay actuate-and-readback (PE12 close + PB12 confirm) — risks
+ *     contactor click on AC; M7 territory.
+ *
+ * boot_config CRC validation runs synchronously in main() pre-scheduler
+ * via boot_config_load(); we treat that as already covered. */
+
+static int self_test_adc_sanity(void)
+{
+    uint16_t b[ADC_RANKS];
+    adc_scan_latest(b);
+    static const uint8_t ranks[] = {
+        ADC_RANK_AC, ADC_RANK_CT, ADC_RANK_LCT, ADC_RANK_CP,
+    };
+    int fails = 0;
+    for (size_t i = 0; i < sizeof(ranks)/sizeof(ranks[0]); ++i) {
+        unsigned r = ranks[i];
+        if (b[r] < ST_ADC_MIN || b[r] > ST_ADC_MAX) {
+            printk("self-test: ADC rank %u out of band (%u)\n", r, b[r]);
+            ++fails;
+        }
+    }
+    return fails;
+}
+
+static int self_test_relay_open(void)
+{
+    if (relay_sense_closed()) {
+        printk("self-test: PB12 reads CLOSED at boot\n");
+        return 1;
+    }
+    return 0;
+}
+
+static int self_test_cp_state_a(int32_t cp_mv)
+{
+    if (cp_mv < ST_CP_STATE_A_MIN_MV) {
+        printk("self-test: CP idle not in state-A band (cp=%d mV)\n",
+               (int)cp_mv);
+        return 1;
+    }
+    return 0;
+}
+
+static int run_boot_self_test(int32_t cp_mv)
+{
+    int fails = 0;
+    fails += self_test_adc_sanity();
+    fails += self_test_relay_open();
+    fails += self_test_cp_state_a(cp_mv);
+    if (fails) {
+        printk("self-test: %d sub-check(s) failed\n", fails);
+    } else {
+        printk("self-test: PASS\n");
+    }
+    return fails;
+}
+
 static void check_cp_e(fault_state_t *fs, evse_state_t *es,
                        j1772_state_t js, int32_t cp_mv,
                        int *cp_e_streak)
@@ -186,14 +268,31 @@ static void safety_task_run(void *arg)
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
 
-    /* Prime cp_mv + j1772 read before boot path so any fault we raise
-     * during BOOT->SELF_TEST->FAULT has live context. */
-    int32_t cp_mv0 = cp_high_mv();
-    j1772_state_t js0 = j1772_step(&cp, cp_mv0, J1772_DEBOUNCE_N);
-
-    /* Boot path: BOOT -> SELF_TEST -> (FAULT if safe-fail else READY).
-     * SELF_TEST is a placeholder until M6.6 lands the real self-test. */
+    /* Boot path: BOOT -> SELF_TEST -> READY (or FAULT on failure /
+     * safe-fail). 100 ms warm-up gives ADC scan + injected ADC time to
+     * converge and the J1772 classifier time to clear its 3-tick
+     * debounce so the self-test reads stable values. Spec § 4.1
+     * timing budget. */
     evse_transition(&es, EVSE_SELF_TEST);
+
+    int32_t cp_mv0 = 0;
+    j1772_state_t js0 = J1772_STATE_INVALID;
+    for (int i = 0; i < 5; ++i) {
+        cp_mv0 = cp_high_mv();
+        js0 = j1772_step(&cp, cp_mv0, J1772_DEBOUNCE_N);
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    int st_fails = run_boot_self_test(cp_mv0);
+    if (st_fails > 0 && !fault_is_active(&fs, FAULT_BOOT_SELF_TEST)) {
+        if (fault_raise(&fs, FAULT_BOOT_SELF_TEST) == 1) {
+            printk("FAULT raised: %s (%d sub-check fails)\n",
+                   fault_name(FAULT_BOOT_SELF_TEST), st_fails);
+            post_fault_event(FAULT_BOOT_SELF_TEST, js0, es, cp_mv0);
+        }
+        evse_transition(&es, EVSE_FAULT);
+    }
+
     check_safe_fail(&fs, &es, js0, cp_mv0);
     if (es != EVSE_FAULT) {
         evse_transition(&es, EVSE_READY);

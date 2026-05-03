@@ -1164,10 +1164,133 @@ M9-era bench validation when a J1772 dummy plug is on hand.
 Build size: text 21988 / data 20 / bss 27596 — flash 4.20%, RAM 21.07%.
 Cost vs M6.4: +184 B text.
 
+## M6.6 — Minimal boot self-test gate (2026-05-02)
+
+`safety_task` runs a scoped boot self-test between EVSE_SELF_TEST and
+EVSE_READY. 100 ms warm-up window (5 × 20 ms `vTaskDelay`) lets the
+ADC scan + injected ADC converge and the J1772 classifier clear its
+3-tick debounce before the test reads stable values.
+
+Sub-checks landed:
+
+1. **ADC sanity** — ranks AC, CT, LCT, CPR (CP-readback) must read in
+   100..3995 (non-rail). NTC1/NTC2/CC/PE/BTN excluded because the
+   bench has those at rail by design (NTCs not populated, CC/PE
+   high-impedance idle, BTN ladder rail when idle).
+2. **PB12 relay sense reads "open"** at boot — pre-flight half of
+   spec § 4.1.3.
+3. **CP idle in state-A band** — `cp_high_mv() ≥ 10500` confirms
+   PE13 PWM at idle and the +12 V rail intact.
+
+`boot_config` CRC validation runs synchronously in main()
+pre-scheduler via `boot_config_load()` and is treated as already
+covered (spec § 4.1.6).
+
+Sub-checks deferred to M6.b (need morning-hours risk-controlled bench
+supervision):
+
+- GFCI CAL pulse + EXTI fire (no GFCI sense pin in pin map yet).
+- Relay actuate-and-readback (PE12 close + PB12 confirm) — closing
+  the contactor on AC clicks the J1772 plug.
+
+If any sub-check fails, raise `FAULT_BOOT_SELF_TEST` (latched) and
+transition to EVSE_FAULT. Self-test runs **before** the safe-fail
+check, so both faults can co-raise on a degraded boot.
+
+### Bench validation
+
+Clean boot at fast_restart=2:
+
+```
+EVSE state BOOT -> SELF_TEST
+self-test: PASS
+EVSE state SELF_TEST -> READY
+J1772 state=A cp=12000 mV
+relay sense: open (cmd=open)
+```
+
+Provoked safe-fail at fast_restart=5 to confirm self-test + safe-fail
+co-raise correctly:
+
+```
+crash_state: SAFE-FAIL ENTERED (fast_restart=5)
+EVSE state BOOT -> SELF_TEST
+self-test: PASS
+FAULT raised: CRASH_LOOP_SAFE_FAIL (first=CRASH_LOOP_SAFE_FAIL)
+EVSE state SELF_TEST -> FAULT
+J1772 state=A cp=12000 mV
+J1772 state=E cp=725 mV
+```
+
+Self-test passed (bench is healthy). Safe-fail check then raised
+CRASH_LOOP_SAFE_FAIL. EVSE transitioned to FAULT. CP driven to state
+F → classifier reports E (cp=725 mV, M3 calibration carve-out).
+M6.5 gate held — no secondary CP_NO_PILOT. End-to-end fault path
+intact.
+
+Build size: text 22464 / data 20 / bss 27596 — flash 4.29%, RAM 21.07%.
+Cost vs M6.5: +476 B text.
+
+## M6 — Safety supervisor + faults: roll-up
+
+Six sub-milestones landed safely overnight, all bench-validated on the
+Rippleon ROC001 unit at /dev/serial/by-id/.../STLINK-V2:
+
+| Sub-milestone | What | Tag |
+|---|---|---|
+| M6.1 | fault catalog + EVSE state machine | m6-1-fault-catalog |
+| M6.2 | PB12 relay-sense readback + weld detection | m6-2-relay-sense |
+| M6.3 | EVSE_FAULT → CP state F output | m6-3-fault-cp-output |
+| M6.4 | fault persistence to event_log | m6-4-fault-persist |
+| M6.5 | CP=E classifier → FAULT_CP_NO_PILOT | m6-5-cp-no-pilot |
+| M6.6 | minimal boot self-test gate | m6-6-boot-self-test |
+
+What's now wired end-to-end:
+
+- 19-fault catalog + bitmap state.
+- Boot path: BOOT → SELF_TEST (with real check matrix) → READY/FAULT.
+- Safe-fail crash-loop latch (M5.b.6) feeds straight into FAULT.
+- Three real fault detectors active: relay weld, CP=E, boot self-test.
+- Two latent fault paths in catalog (relay stuck-open, GFCI etc.) —
+  enums and persist hooks ready, detectors deferred.
+- Every fault-raise edge persists an event_record to the W25Q ring.
+- EVSE_FAULT drives CP to state F (-12 V) via single-writer
+  TIM1_CCR3 owner discipline.
+
+Deferred / known carve-outs:
+
+- M3 CP read-back calibration is one-sided (slope-fit > 0 V only):
+  CP -12 V reads as ~+725 mV. Causes the classifier to label our own
+  fault output as E; M6.5 has a `evse_state != EVSE_FAULT` gate to
+  keep the loop safe. Real fix lives in a future calibration session
+  with a proper 5-point fit covering the negative half-range.
+- ADC sanity check skips NTC1/NTC2/CC/PE/BTN ranks because bench
+  hardware has those at rail by design. Per-rank enable mask comes
+  with M6.b once bench has populated NTCs and a J1772 dummy plug.
+- GFCI self-test pulse + EXTI handler: pin map needs the GFCI sense
+  pin identified before this can land.
+- Relay actuate-and-readback (boot self-test step 4): closes the
+  contactor on AC, needs supervised bench session — M7 territory.
+
+OpenOCD bench-state-machine quirk: `reset run` from bare openocd often
+fails to fully reboot. The reliable pattern is
+`init → reset halt → sleep 500..800 → reset run → sleep 1500..4000 →
+shutdown`. Documented in M6.4 entry.
+
+Recovery one-shot: a `#if 1` guarded sector-erase of
+`0x04D000`/`0x04E000` in main() wipes the crash_state ping-pong slots
+and restores fast_restart=0 from a safe-fail latch. The
+projectstate.txt M5.b.6 recovery technique held up across all six
+M6 sub-milestones.
+
 ### Next milestone
-M6.6 — boot self-test gate. Real check matrix between SELF_TEST and
-READY: ADC sanity (configured ranks return non-rail values within
-100 ms of init), relay sense reads "open" at boot, and W25Q boot_config
-load succeeded. Pass → READY; fail → FAULT with FAULT_BOOT_SELF_TEST.
-GFCI self-test pulse + relay actuation self-test deferred to a future
-M6.b cycle that needs morning-hours supervision.
+
+M7 — relay control under load. safety_task gains the right to
+actuate PE12 / PE0 based on J1772 state + advertised amps. Closes the
+charging cycle. Risk: needs AC + supervised bench session because
+closing the contactor on AC clicks audibly and energises the J1772
+plug. M7 is morning-hours work, not overnight.
+
+Optional M6.b before M7 if bench prep allows: identify GFCI sense
+pin via PE3-CAL probe + scope, then wire the EXTI handler. Until that
+pin is identified, GFCI cannot latch a fault.
