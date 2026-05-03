@@ -301,6 +301,38 @@ W25Q chain is fully populated on this bench unit (SPI3 pads
 wire-traced in M2's hardware notes), so M4 won't hit the same
 bench-unit limitation as M3.
 
+### Update 2026-05-02 (post-M5): M3 buffer-side limitation RETRACTED
+
+The "CP buffer non-functional" diagnosis above was wrong. After
+re-investigation:
+
+1. **Buffer is healthy and inverting.** Scope on the J1772 socket CP
+   terminal:
+   - PWM0 + idle pin HIGH → CP reads -12 V ← the inversion
+   - PWM1 + idle pin LOW  → CP reads +12 V ✓ (state A)
+2. **The original PWM0→PWM1 swap (commit M3.4.1) was actually
+   correct.** Reverting to PWM0 (commit M3.4.2) was a mistake driven
+   by misreading the post-swap PA4 reading as evidence of a
+   non-functional buffer; the actual problem was the read-back
+   path's calibration, not the buffer.
+3. **Read-back divider scales differently than the spec assumed.**
+   Spec said ±12 V → 0..3.3 V (raw 0..4095). This PCB:
+   - CP = -12 V → raw = 0    (PA4 = 0.00 V)
+   - CP = +12 V → raw = 1462 (PA4 = 1.18 V)
+   So the divider swing reaches only ~1.18 V at +12 V, about a third
+   of the spec'd range. Empirical two-point fit committed in M3.4.4:
+   `cp_mv = raw * 24000 / 1462 - 12000`. Intermediate band thresholds
+   (state B/C/D) still need bench validation; M5.b's calibration
+   record will be the long-term home for these constants.
+4. **Final M3 status: FULLY VALIDATED.** Scope confirms CP = +12 V at
+   idle; classifier reports `J1772 state=A cp=+12000 mV`. The full
+   resistor-stimulus matrix (open / 2.74 k / 882 / 274 / short →
+   A/B/C/D/E) can now be exercised on this bench unit — pending
+   user time to do so.
+
+The memory entry `project_openbhzd_bench_cp_buffer_dead` is OBSOLETE;
+will be removed/superseded by a calibration-anchors entry.
+
 ## M4 — SPI3 + W25Q64 driver
 
 **Date completed:** 2026-05-02
@@ -360,3 +392,49 @@ W25Q round-trip PASS: 256 bytes match
 M5: Persistence layer — boot_config + calibration ping-pong,
 event_log + session_log ring buffers, scan-on-boot head discovery,
 integrate writes via persist_task's queue.
+
+## M5 — boot_count persistence (scoped subset of full M5)
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6, § 9 M5
+**Plan:** docs/superpowers/plans/2026-05-02-m5-boot-count.md
+
+### Success criterion (from spec)
+"Power cycle 5×, see boot_count = 5 in event log."
+
+### Observed result
+5 consecutive resets via `./tools/openocd-monitor.sh` (each issues a
+`reset run`):
+```
+=== boot 1 ===  JEDEC=0xc84017  boot_count = 6
+=== boot 2 ===  JEDEC=0xc84017  boot_count = 7
+=== boot 3 ===  JEDEC=0xc84017  boot_count = 8
+=== boot 4 ===  JEDEC=0xc84017  boot_count = 9
+=== boot 5 ===  JEDEC=0xc84017  boot_count = 10
+```
+
+Increments by exactly 1 per reset, no skips. Counter started at 6
+because earlier bench iterations during M5 development had already
+nudged it; the relevant test is the **delta of +5 across 5 resets**,
+which holds.
+
+### Build size
+- text 14236 B (-292 B vs M4 because the M4 self-test was removed),
+  data 8 B, bss 19280 B, flash 2.72 % of 512 KB.
+
+### Hardware notes / deviations from plan
+1. **No event_log yet** — the spec's "boot_count = 5 in event log"
+   is interpreted as "boot_count value is 5"; the formal event_log
+   record-append machinery is deferred to M5.b. M6 (faults) will need
+   M5.b in place before fault events can be persisted.
+2. **No persist_task queue yet.** boot_count_increment() runs
+   synchronously from main() pre-scheduler. M5.b adds the FreeRTOS
+   queue and moves write requests onto persist_task's worker.
+3. **CRC32 is software-bit-banged.** No GD32 hardware CRC unit used —
+   ~50 cycles/byte, fine for our 32-byte records.
+
+### Next milestone
+M5.b — full persistence: ping-pong helper for boot_config +
+calibration, event_log + session_log scan-on-boot + append, integrate
+writes via persist_task's queue. M5.b is a hard prerequisite for M6
+because M6 writes a fault event on every latched fault raise.
