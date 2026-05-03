@@ -51,10 +51,10 @@ int ws2812_busy(void)
  * versions; spell out the manipulation directly. */
 static void dma_arm_channel(void)
 {
-    DMA_CHCTL(DMA1, DMA_CH4) &= ~DMA_CHXCTL_CHEN;            /* disable to reload */
-    DMA_CHMADDR(DMA1, DMA_CH4) = (uint32_t)s_buf;
-    DMA_CHCNT(DMA1, DMA_CH4)   = (uint32_t)WS_BUF_HALFWORDS;
-    DMA_CHCTL(DMA1, DMA_CH4)  |= DMA_CHXCTL_CHEN;
+    DMA_CHCTL(DMA0, DMA_CH1) &= ~DMA_CHXCTL_CHEN;            /* disable to reload */
+    DMA_CHMADDR(DMA0, DMA_CH1) = (uint32_t)s_buf;
+    DMA_CHCNT(DMA0, DMA_CH1)   = (uint32_t)WS_BUF_HALFWORDS;
+    DMA_CHCTL(DMA0, DMA_CH1)  |= DMA_CHXCTL_CHEN;
 }
 
 void ws2812_show(void)
@@ -70,15 +70,15 @@ void ws2812_show(void)
     timer_enable(TIMER1);
 }
 
-/* DMA1 channel 4 is TIMER1_UP per GD32F20x reference manual table.
- * NB: we use vendor channel index DMA_CH4 (zero-based — same as
- * RM "channel 5" 1-indexed). */
-void DMA1_Channel4_IRQHandler(void)
+/* DMA0 channel 1 is TIMER1_UP per GD32F20x RM Table 67. (DMA0 = first
+ * controller, vendor CH1 = 0-indexed channel 1 = "channel 2" in 1-
+ * indexed RM language.) */
+void DMA0_Channel1_IRQHandler(void)
 {
-    if (dma_interrupt_flag_get(DMA1, DMA_CH4, DMA_INT_FLAG_FTF)) {
-        dma_interrupt_flag_clear(DMA1, DMA_CH4, DMA_INT_FLAG_G);
+    if (dma_interrupt_flag_get(DMA0, DMA_CH1, DMA_INT_FLAG_FTF)) {
+        dma_interrupt_flag_clear(DMA0, DMA_CH1, DMA_INT_FLAG_G);
         timer_disable(TIMER1);
-        DMA_CHCTL(DMA1, DMA_CH4) &= ~DMA_CHXCTL_CHEN;
+        DMA_CHCTL(DMA0, DMA_CH1) &= ~DMA_CHXCTL_CHEN;
         s_dma_busy = 0;
     }
 }
@@ -88,9 +88,14 @@ void ws2812_init(void)
     rcu_periph_clock_enable(RCU_GPIOA);
     rcu_periph_clock_enable(RCU_AF);
     rcu_periph_clock_enable(RCU_TIMER1);
-    rcu_periph_clock_enable(RCU_DMA1);
+    rcu_periph_clock_enable(RCU_DMA0);
 
-    /* TIM2_CH0 → PA15 via partial-remap-1 (spec § 7). */
+    /* PA15 is JTDI on reset (Cortex-M3 SWJ default), unusable as GPIO
+     * or AF until JTAG is disabled. SWDPENABLE keeps SWD live (for
+     * our openocd probe) but releases JTAG pins (PA15, PB3, PB4) for
+     * peripheral use. Required before TIMER1 partial-remap-1 routes
+     * its CH0 to PA15. */
+    gpio_pin_remap_config(GPIO_SWJ_SWDPENABLE_REMAP, ENABLE);
     gpio_pin_remap_config(GPIO_TIMER1_PARTIAL_REMAP1, ENABLE);
     gpio_init(PIN_WS2812_PORT, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ,
               PIN_WS2812_PIN);
@@ -126,7 +131,7 @@ void ws2812_init(void)
     timer_auto_reload_shadow_enable(TIMER1);
     timer_dma_enable(TIMER1, TIMER_DMA_UPD);
 
-    /* DMA1 channel 4 = TIMER1_UP (per RM). Memory → peripheral, halfword,
+    /* DMA0 channel 1 = TIMER1_UP. Memory → peripheral, halfword,
      * memory-incr, no circular. */
     dma_parameter_struct dp;
     dma_struct_para_init(&dp);
@@ -139,12 +144,12 @@ void ws2812_init(void)
     dp.direction    = DMA_MEMORY_TO_PERIPHERAL;
     dp.number       = WS_BUF_HALFWORDS;
     dp.priority     = DMA_PRIORITY_HIGH;
-    dma_deinit(DMA1, DMA_CH4);
-    dma_init(DMA1, DMA_CH4, &dp);
-    dma_circulation_disable(DMA1, DMA_CH4);
-    dma_memory_to_memory_disable(DMA1, DMA_CH4);
-    dma_interrupt_enable(DMA1, DMA_CH4, DMA_INT_FTF);
-    nvic_irq_enable(DMA1_Channel4_IRQn, 6U, 0U);
+    dma_deinit(DMA0, DMA_CH1);
+    dma_init(DMA0, DMA_CH1, &dp);
+    dma_circulation_disable(DMA0, DMA_CH1);
+    dma_memory_to_memory_disable(DMA0, DMA_CH1);
+    dma_interrupt_enable(DMA0, DMA_CH1, DMA_INT_FTF);
+    nvic_irq_enable(DMA0_Channel1_IRQn, 6U, 0U);
 
     /* Start with a black frame to silence any garbage on the line. */
     ws2812_clear();
