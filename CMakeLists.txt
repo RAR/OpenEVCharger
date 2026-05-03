@@ -61,6 +61,8 @@ set(APP_SRCS
     src/hal/cp_pwm.c
     src/hal/spi3.c
     src/hal/w25q.c
+    src/persist/crc.c
+    src/persist/boot_count.c
     src/ui/buttons.c
     src/tasks/safety_task.c
     src/tasks/io_task.c
