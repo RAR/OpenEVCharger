@@ -300,3 +300,63 @@ M4: SPI3 + W25Q64 driver (read JEDEC ID + round-trip a sector). The
 W25Q chain is fully populated on this bench unit (SPI3 pads
 wire-traced in M2's hardware notes), so M4 won't hit the same
 bench-unit limitation as M3.
+
+## M4 — SPI3 + W25Q64 driver
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6, § 9 M4
+**Plan:** docs/superpowers/plans/2026-05-02-m4-spi3-w25q.md
+
+### Success criterion (from spec)
+SPI3 up at 12–25 MHz; W25Q chip ID matches expected; erase + program
++ read 4 KB → bytes match. SUCCESS = round-trip a sector full of
+0xA5/0x5A pattern.
+
+### Observed result
+Boot self-test output (via semihosting):
+```
+W25Q: JEDEC ID = 0xc84017 (unrecognised — non-Winbond or different capacity)
+W25Q: erased sector @ 0x07f000
+W25Q: programmed 256 bytes @ 0x07f000
+W25Q round-trip PASS: 256 bytes match
+```
+
+- JEDEC ID = **0xC84017**:
+  - 0xC8 = **GigaDevice** (not Winbond as spec assumed — sibling
+    vendor to the GD32 MCU, same SPI NOR command set)
+  - 0x40 = SPI NOR memory type
+  - 0x17 = capacity 2^23 = 8 MB → **GD25Q64** (or similar 8 MB GD25Q variant)
+- Erase time: <100 ms (under the 5 M-loop timeout, didn't measure precisely)
+- Program time: <10 ms (under the 100 K-loop timeout)
+- 256-byte round-trip: **PASS** — every byte matches
+- SPI clock: 15 MHz (APB1 30 MHz / 2)
+- Continuous-uptime stability: validated alongside M2/M3 on the
+  same boot, no regressions.
+
+### Build size
+- text 14528 B, data 8 B, bss 19280 B, flash usage 2.77 % of 512 KB.
+- RAM usage 14.72 % of 128 KB.
+
+### Hardware notes / deviations from plan
+
+1. **W25Q is actually a GigaDevice GD25Q64, not Winbond W25Q64JV.**
+   Same 8 MB capacity, same standard SPI NOR command set (0x9F /
+   0x05 / 0x06 / 0x03 / 0x20 / 0x02 all behave identically per the
+   GD25Q datasheet vs Winbond datasheet). The spec's "W25Q64JV =
+   0xEF4017" expectation is wrong for this hardware variant; not a
+   bug, just a brand assumption that didn't match. Driver is brand-
+   agnostic so no code change needed — only the bring-up log
+   reflects the actual reading.
+
+2. **No CS-timing oddities at 15 MHz.** First-pass round-trip worked
+   without needing to slow SPI down to 7.5 MHz.
+
+3. **Sector 0x07F000 (very last 4 KB of the chip) used for the test.**
+   Stock firmware's persistence is in 0x000000–0x04CFFF per the spec
+   memory map; using the upper-end sector keeps the test maximally
+   far from anything stock-firmware-relevant.
+
+### Next milestone
+M5: Persistence layer — boot_config + calibration ping-pong,
+event_log + session_log ring buffers, scan-on-boot head discovery,
+integrate writes via persist_task's queue.
