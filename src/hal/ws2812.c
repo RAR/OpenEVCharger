@@ -96,7 +96,13 @@ void ws2812_init(void)
      * peripheral use. Required before TIMER1 partial-remap-1 routes
      * its CH0 to PA15. */
     gpio_pin_remap_config(GPIO_SWJ_SWDPENABLE_REMAP, ENABLE);
-    gpio_pin_remap_config(GPIO_TIMER1_PARTIAL_REMAP1, ENABLE);
+    /* Vendor SPL is off-by-one from the RM's TIM2_REMAP table:
+     *   GPIO_TIMER1_PARTIAL_REMAP0 (bits=01) = RM "partial 1" → CH0=PA15
+     *   GPIO_TIMER1_PARTIAL_REMAP1 (bits=10) = RM "partial 2" → CH0=PA0
+     * We want CH0 on PA15 → use REMAP0. Confirmed by reading
+     * AFIO_PCFR0 after init: REMAP1 = 0x...0200 (bits=10 = partial2).
+     * Bench probe 2026-05-03: switching to REMAP0 lit the strip. */
+    gpio_pin_remap_config(GPIO_TIMER1_PARTIAL_REMAP0, ENABLE);
     gpio_init(PIN_WS2812_PORT, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ,
               PIN_WS2812_PIN);
 
