@@ -65,6 +65,25 @@ static QueueHandle_t s_safety_inbox;
  * (60 ms). Spec § 4 #5. */
 #define CP_E_PERSIST_TICKS  3U
 
+/* Asymmetric hysteresis on the READY → CHARGING transition: require
+ * J1772 state C confirmed for an additional 10 ticks (200 ms at the
+ * 50 Hz safety tick) before closing the relay. Prevents rapid
+ * relay-cycle / session-log thrash if the CP signal flaps in/out of
+ * state C (e.g. a transient fault on the CP wire, or an EV that's
+ * indecisive about pulling the contactor request).
+ *
+ * The reverse transition (CHARGING → READY when J1772 leaves C) is
+ * deliberately UN-hysteresised — opening the contactor must be
+ * immediate per safety priorities. Spec § 3 / 4. */
+#define EVSE_C_DWELL_TICKS  10U
+
+/* Minimum session duration to persist to session_log (ms). Sessions
+ * shorter than this still emit the SESSION_ENDED TLV event but skip
+ * the W25Q write — protects against flash wear from CP-flap
+ * scenarios. 2 s is a sane bench / production-fault threshold; real
+ * charging sessions are minutes. */
+#define SESSION_MIN_PERSIST_MS  2000U
+
 /* Boot self-test ADC rail thresholds. spec § 4.1.1 says "non-rail
  * values"; we use 100..3995 / 4095 to leave headroom for noise. */
 #define ST_ADC_MIN  100U
@@ -159,6 +178,19 @@ static void session_end(session_end_reason_t reason)
 {
     if (!s_session.active) return;
     uint32_t now = (uint32_t)xTaskGetTickCount();
+    uint32_t dur_ms = (uint32_t)(now - s_session.start_ts) *
+                      portTICK_PERIOD_MS;
+
+    /* Skip the session_log W25Q write for sessions shorter than the
+     * min-persist threshold AND with no faults raised — these are
+     * almost certainly CP-flap artifacts, not real charging. The
+     * SESSION_ENDED TLV event still emits so consumers can see the
+     * activity. Sessions that hit a fault always persist regardless
+     * of duration so the post-mortem trail is intact. */
+    int persist = (dur_ms >= SESSION_MIN_PERSIST_MS) ||
+                  (s_session.fault_count > 0u) ||
+                  (reason == SESSION_END_FAULT);
+
     struct session_record rec = {
         .start_ts             = s_session.start_ts,
         .end_ts               = now,
@@ -168,11 +200,12 @@ static void session_end(session_end_reason_t reason)
         .fault_count          = s_session.fault_count,
         .max_temp_dC          = s_session.max_temp_dC,
     };
-    int rc = persist_post_session(&rec);
-    printk("session: end reason=%u dur_ms=%u faults=%u rc=%d\n",
+    int rc = persist ? persist_post_session(&rec) : 0;
+    printk("session: end reason=%u dur_ms=%u faults=%u %s rc=%d\n",
            (unsigned)reason,
-           (unsigned)(now - s_session.start_ts),
+           (unsigned)dur_ms,
            (unsigned)s_session.fault_count,
+           persist ? "persisted" : "skipped",
            rc);
     /* TLV event: u32 mwh + u32 dur_ms + u8 reason. */
     struct __attribute__((packed)) {
@@ -483,15 +516,23 @@ static void check_relay_stuck_open(fault_state_t *fs, evse_state_t *es,
  * Sticky: BOOT, SELF_TEST, FAULT, USER_PAUSED do not transition out via
  * this path. USER_PAUSED is exited only by safety_request_resume.
  * COOLING_DOWN is M6.b territory, not entered yet. */
-static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js)
+static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js,
+                                   int *c_streak)
 {
     if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST ||
         *es == EVSE_USER_PAUSED) {
+        *c_streak = 0;
         return;
     }
-    if (*es == EVSE_READY && js == J1772_STATE_C) {
+    if (js == J1772_STATE_C) {
+        if (*c_streak < (int)EVSE_C_DWELL_TICKS) ++(*c_streak);
+    } else {
+        *c_streak = 0;
+    }
+    if (*es == EVSE_READY && *c_streak >= (int)EVSE_C_DWELL_TICKS) {
         evse_transition(es, EVSE_CHARGING);
     } else if (*es == EVSE_CHARGING && js != J1772_STATE_C) {
+        /* Open is immediate — no hysteresis on the safety side. */
         evse_transition(es, EVSE_READY);
     }
 }
@@ -672,6 +713,7 @@ static void safety_task_run(void *arg)
     int stuck_open_streak = 0;
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
+    int evse_c_streak = 0;
 
     /* Boot path: BOOT -> SELF_TEST -> READY (or FAULT on failure /
      * safe-fail). 100 ms warm-up gives ADC scan + injected ADC time to
@@ -784,7 +826,7 @@ static void safety_task_run(void *arg)
         /* After all fault checks: classifier-driven EVSE transitions,
          * relay state, and CP output. Faults preempt — helpers honor
          * EVSE_FAULT as sticky. */
-        update_evse_from_j1772(&es, s);
+        update_evse_from_j1772(&es, s, &evse_c_streak);
         apply_relay_state(s, es, &fs);
         apply_cp_for_state(es, s);
 
