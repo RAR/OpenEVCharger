@@ -2,11 +2,31 @@
 #include "../core/pin_map.h"
 #include "gd32f20x.h"
 
-static StreamBufferHandle_t s_rx_stream = NULL;
+/* Bench debug 2026-05-03: xStreamBufferSendFromISR was triggering a
+ * boot loop on the very first byte received. Replaced with a tiny
+ * lockless ring buffer (single-producer ISR / single-consumer
+ * comms_task) until the FreeRTOS-side issue is understood. */
+#define UART5_RX_RING_LEN  256u   /* power of 2 */
+#define UART5_RX_RING_MASK (UART5_RX_RING_LEN - 1u)
+static volatile uint8_t  s_rx_ring[UART5_RX_RING_LEN];
+static volatile uint16_t s_rx_head;   /* ISR writes here */
+static volatile uint16_t s_rx_tail;   /* task reads here */
 
-void uart5_init(StreamBufferHandle_t rx)
+size_t uart5_rx_pop(uint8_t *out, size_t cap)
 {
-    s_rx_stream = rx;
+    size_t n = 0;
+    while (n < cap) {
+        uint16_t h = s_rx_head;
+        uint16_t t = s_rx_tail;
+        if (h == t) break;            /* empty */
+        out[n++] = s_rx_ring[t & UART5_RX_RING_MASK];
+        s_rx_tail = (t + 1u) & UART5_RX_RING_MASK;
+    }
+    return n;
+}
+
+void uart5_init(void)
+{
 
     rcu_periph_clock_enable(PIN_UART4_TX_RCU);
     rcu_periph_clock_enable(PIN_UART4_RX_RCU);
@@ -29,10 +49,12 @@ void uart5_init(StreamBufferHandle_t rx)
     usart_transmit_config(UART4, USART_TRANSMIT_ENABLE);
     usart_enable(UART4);
 
-    /* RX-not-empty interrupt. Priority 5 = configMAX_SYSCALL_INTERRUPT
-     * (matches adc_inject ISR). Allows xStreamBufferSendFromISR. */
+    /* RX-not-empty interrupt. ISR pushes into a lockless ring buffer
+     * (no FreeRTOS API called from ISR) so priority is unconstrained
+     * by configMAX_SYSCALL_INTERRUPT_PRIORITY. We pick 6 — same urgency
+     * tier as adc_inject. */
     usart_interrupt_enable(UART4, USART_INT_RBNE);
-    nvic_irq_enable(UART4_IRQn, 5U, 0U);
+    nvic_irq_enable(UART4_IRQn, 6U, 0U);
 }
 
 size_t uart5_send(const void *buf, size_t len)
@@ -70,11 +92,13 @@ void UART4_IRQHandler(void)
 
     if (stat & (USART_STAT0_RBNE | errs)) {
         uint8_t c = (uint8_t)USART_DATA(UART4);   /* clears RBNE + errs */
-        if ((stat & USART_STAT0_RBNE) && !(stat & errs) &&
-            s_rx_stream != NULL) {
-            BaseType_t hpw = pdFALSE;
-            (void)xStreamBufferSendFromISR(s_rx_stream, &c, 1, &hpw);
-            portYIELD_FROM_ISR(hpw);
+        if ((stat & USART_STAT0_RBNE) && !(stat & errs)) {
+            uint16_t h = s_rx_head;
+            uint16_t next = (h + 1u) & UART5_RX_RING_MASK;
+            if (next != s_rx_tail) {  /* drop on full */
+                s_rx_ring[h & UART5_RX_RING_MASK] = c;
+                s_rx_head = next;
+            }
         }
         (void)c;
     }

@@ -6,7 +6,12 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define COMMS_TASK_STACK_WORDS  384U   /* enough for one TLV frame on stack */
+#define COMMS_TASK_STACK_WORDS  1024U  /* M8.b: bumped after bench resets on
+                                        * inbound TLV. accum(64) + send_frame
+                                        * buf(64) + handler locals + nested
+                                        * call frames + FreeRTOS context save.
+                                        * Generous headroom for now; can trim
+                                        * once high-water-mark survey runs. */
 #define COMMS_TASK_PRIORITY     2U
 
 void comms_task_create(void);

@@ -145,7 +145,7 @@ def show_frame(cmd: int, seq: int, payload: bytes) -> str:
     name = EVT_NAMES.get(cmd, f"cmd=0x{cmd:02x}")
     extra = ""
     if cmd == EVT_BUILD_INFO:
-        extra = f"  build={payload.rstrip(chr(0)).decode('ascii', errors='replace')!r}"
+        extra = f"  build={payload.rstrip(b'\\x00').decode('ascii', errors='replace')!r}"
     elif cmd == EVT_STATE_REPORT and len(payload) >= 28:
         j, e, amps, ccmd = struct.unpack_from("<BBBB", payload, 0)
         cp_hi = struct.unpack_from("<h", payload, 4)[0]

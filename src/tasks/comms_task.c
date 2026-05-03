@@ -11,7 +11,7 @@
 #include "../ui/led_patterns.h"
 #include "../ui/buzzer.h"
 #include "FreeRTOS.h"
-#include "stream_buffer.h"
+#include "task.h"
 #include "semphr.h"
 #include <string.h>
 
@@ -20,10 +20,9 @@
  * pulling in the safety_task tick. */
 #define COMMS_HW_AMPS_MAX  48u
 
-#define RX_STREAM_BYTES   256U   /* well above one max TLV frame (64 B) */
 #define ACCUM_BUF_BYTES   TLV_FRAME_MAX
+#define RX_POLL_MS        5U     /* tick rate while idle; bursts drain faster */
 
-static StreamBufferHandle_t s_rx_stream;
 static SemaphoreHandle_t    s_tx_mutex;
 
 /* TX serialisation. Multiple producers (comms_task itself, plus
@@ -225,18 +224,23 @@ static void comms_task_run(void *arg)
     /* RX path comes alive here so byte traffic only flows after the
      * scheduler is running and we're inside the comms_task. uart5
      * peripheral itself was idle before this. */
-    uart5_init(s_rx_stream);
+    uart5_init();
 
     uint8_t accum[ACCUM_BUF_BYTES];
     size_t  accum_len = 0;
 
     for (;;) {
-        size_t got = xStreamBufferReceive(
-            s_rx_stream,
-            accum + accum_len,
-            sizeof(accum) - accum_len,
-            portMAX_DELAY);
-        if (got == 0) continue;
+        /* Drain whatever the ISR ring has accumulated since the last
+         * tick. Idle tick is RX_POLL_MS (= 5 ms); during a burst the
+         * inner loop processes back-to-back without yielding. At
+         * 115200 a 64-byte TLV frame takes ~5.5 ms so the worst-case
+         * dispatch latency is ~10 ms — well under safety's 20 ms. */
+        size_t got = uart5_rx_pop(accum + accum_len,
+                                  sizeof(accum) - accum_len);
+        if (got == 0) {
+            vTaskDelay(pdMS_TO_TICKS(RX_POLL_MS));
+            continue;
+        }
         accum_len += got;
 
         /* Try to parse from the head; on success consume the frame,
@@ -280,13 +284,11 @@ static void comms_task_run(void *arg)
 
 void comms_task_create(void)
 {
-    /* Create the synchronisation primitives pre-scheduler so any task
-     * (e.g. safety_task) can call comms_publish_event() the moment the
-     * scheduler starts. xStreamBufferCreate / xSemaphoreCreateMutex
-     * use heap_4 which is safe before vTaskStartScheduler. */
-    s_rx_stream = xStreamBufferCreate(RX_STREAM_BYTES, 1);
+    /* TX mutex pre-scheduler so any task can call comms_publish_event()
+     * the moment the scheduler starts. RX side uses a lockless ring
+     * in uart5.c (no kernel object). */
     s_tx_mutex  = xSemaphoreCreateMutex();
-    configASSERT(s_rx_stream && s_tx_mutex);
+    configASSERT(s_tx_mutex);
 
     xTaskCreate(comms_task_run,
                 "comms",
