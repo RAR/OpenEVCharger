@@ -12,6 +12,18 @@
 #ifndef OPENBHZD_LED_PROTOCOL_APA106
 #define OPENBHZD_LED_PROTOCOL_APA106  0
 #endif
+#ifndef OPENBHZD_LED_PROTOCOL_WS2812B
+#define OPENBHZD_LED_PROTOCOL_WS2812B 0
+#endif
+/* SK6812_RGBW is the *default* (matches the bench strip).  Set
+ * OPENBHZD_LED_PROTOCOL_WS2812B=1 (or one of the other family flags)
+ * to override for a different rebadge. */
+#if !OPENBHZD_LED_PROTOCOL_UCS1903 && !OPENBHZD_LED_PROTOCOL_APA106 && \
+    !OPENBHZD_LED_PROTOCOL_WS2812B
+#define OPENBHZD_LED_PROTOCOL_SK6812_RGBW 1
+#else
+#define OPENBHZD_LED_PROTOCOL_SK6812_RGBW 0
+#endif
 
 #if OPENBHZD_LED_PROTOCOL_UCS1903
 /* UCS1903 / TM1804: 400 kHz, RGB byte order.
@@ -20,6 +32,7 @@
 #define WS_T0H_TICKS      30U   /* 0.5 µs */
 #define WS_T1H_TICKS     120U   /* 2.0 µs */
 #define WS_PACK_RGB        1    /* R, G, B (vs WS2812B's G, R, B) */
+#define WS_BITS_PER_LED   24U   /* 3 bytes */
 #elif OPENBHZD_LED_PROTOCOL_APA106
 /* APA106: 800 kHz-ish, RGB, asymmetric T1H = 1.36 µs.
  *   T0H = 0.35 µs, T1H = 1.36 µs, period = 1.71 µs, reset ≥50 µs. */
@@ -27,15 +40,35 @@
 #define WS_T0H_TICKS      21U   /* 0.35 µs */
 #define WS_T1H_TICKS      82U   /* 1.36 µs */
 #define WS_PACK_RGB        1
-#else
-/* WS2812B default: 800 kHz, GRB byte order. */
+#define WS_BITS_PER_LED   24U
+#elif OPENBHZD_LED_PROTOCOL_WS2812B
+/* WS2812B: 800 kHz, GRB byte order. */
 #define WS_PERIOD_TICKS   74U   /* 1.25 µs @ 60 MHz */
 #define WS_T0H_TICKS      24U   /* 0.40 µs */
 #define WS_T1H_TICKS      48U   /* 0.80 µs */
 #define WS_PACK_RGB        0
+#define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
+#else
+/* SK6812 RGBW (DEFAULT for the OpenBHZD bench): 800 kHz, GRBW byte
+ * order, **32 bits per LED** (extra W channel).  T0H = 0.30 µs,
+ * T1H = 0.60 µs, period = 1.25 µs, reset ≥80 µs.
+ *
+ * Bench breakthrough 2026-05-03: stock firmware's PA15 burst measured
+ * 4.4 ms wide.  4400 µs / 1.25 µs/bit = 3520 bits = 110 LEDs ×
+ * 32 bits — exact match.  Earlier guesses of 24-bit GRB at 134 LEDs
+ * were off by both bit-count and pixel-count, which is why no
+ * polarity / timing / byte-order combination ever decoded right. */
+#define WS_PERIOD_TICKS   74U   /* 1.25 µs @ 60 MHz */
+#define WS_T0H_TICKS      18U   /* 0.30 µs */
+#define WS_T1H_TICKS      36U   /* 0.60 µs */
+#define WS_PACK_RGB        0    /* GRBW packing handled below */
+#define WS_PACK_RGBW       1
+#define WS_BITS_PER_LED   32U   /* 4 bytes: G R B W */
 #endif
 
-#define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
+#ifndef WS_PACK_RGBW
+#define WS_PACK_RGBW 0
+#endif
 #define WS_RESET_PADDING  60U   /* 60 × 1.25 µs = 75 µs latch (≥ 50 µs spec) */
 
 #define WS_FRAME_BITS     (OPENBHZD_WS2812_LEDS * WS_BITS_PER_LED)
@@ -62,7 +95,14 @@ void ws2812_set_pixel(unsigned idx, uint8_t r, uint8_t g, uint8_t b)
 {
     if (idx >= OPENBHZD_WS2812_LEDS) return;
     uint16_t *p = &s_buf[idx * WS_BITS_PER_LED];
-#if WS_PACK_RGB
+#if WS_PACK_RGBW
+    /* SK6812 RGBW: G R B W, 4 bytes per LED. White channel left at 0
+     * (pure RGB output) until the pattern engine grows W support. */
+    load_byte_at(p +  0, g);
+    load_byte_at(p +  8, r);
+    load_byte_at(p + 16, b);
+    load_byte_at(p + 24, 0);
+#elif WS_PACK_RGB
     load_byte_at(p +  0, r);
     load_byte_at(p +  8, g);
     load_byte_at(p + 16, b);
