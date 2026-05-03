@@ -1310,8 +1310,77 @@ sense open. No regressions.
 Build: text 22504 / data 20 / bss 27604 — flash 4.30%, RAM 21.08%.
 +40 B text vs M6.6 (the HAL is small, 8 B bss for the cmd state).
 
+## M7.2 — Boot self-test relay actuate-and-readback (2026-05-03)
+
+`safety_task` boot path now implements spec § 4.1.4 step 4: with CP
+gated to state A (no vehicle plugged), command PE12 closed and poll
+PB12 every 5 ms up to 40 ms, then command open and poll up to 30 ms
+for release. Two distinct fault classes:
+
+- PE12 close + PB12 stayed open ≥40 ms → `FAULT_RELAY_OPEN_AT_BOOT`
+- PE12 open + PB12 stayed closed ≥30 ms → `FAULT_RELAY_WELD_AT_BOOT`
+
+Both fault paths wired to `post_fault_event()` so a bench/production
+trip persists to event_log on the boot it occurred.
+
+### Bench finding — gating the test off
+
+First flash with the test enabled tripped `RELAY_OPEN_AT_BOOT`:
+
+```
+self-test: PE12 close cmd but PB12 stayed OPEN -> RELAY_OPEN_AT_BOOT
+FAULT raised: RELAY_OPEN_AT_BOOT
+EVSE state SELF_TEST -> FAULT
+```
+
+Two non-mutually-exclusive explanations (neither yet ruled out by
+bench probe; this work is happening before mains-up):
+
+1. **Coil supply ties to AC primary.** The contactor coil may be
+   driven from the same 120 V AC that runs through the contacts —
+   the bench has 120 V on the buffer rail but no contactor-side
+   load path. PE12 might be a control input to a relay driver that
+   needs AC.
+2. **PB12 sense is current-presence, not coil state.** Even if the
+   coil energised silently, the closed-feedback circuit may only
+   report when AC current flows through the contacts.
+
+Either way, **on a real installation with mains-side current
+flowing, this test should pass**. Gated behind a build flag:
+
+```c
+#ifndef OPENBHZD_RELAY_ACTUATE_SELF_TEST
+#define OPENBHZD_RELAY_ACTUATE_SELF_TEST  0
+#endif
+```
+
+Default OFF (so the bench boots clean). Production builds opt in via
+`cmake -DOPENBHZD_RELAY_ACTUATE_SELF_TEST=1`. Bench follow-up needed:
+
+- Scope/multimeter on the contactor coil terminals while toggling
+  PE12, with mains live, to confirm the coil actually energises.
+- Multimeter across the contactor output while closed, to confirm
+  contact closure (just continuity if no load).
+- Then re-test PB12 to map its sense behavior.
+
+Once the loop is understood the default flips to ON.
+
+Bench post-flash with flag OFF:
+
+```
+EVSE state BOOT -> SELF_TEST
+self-test: PASS
+self-test: relay actuate test DISABLED at build time
+EVSE state SELF_TEST -> READY
+```
+
+Build size: text 22628 / data 20 / bss 27604 — flash 4.32%, RAM 21.08%.
++124 B text vs M7.1 (the actuate routine compiles in but is unreachable
+when the flag is 0).
+
 ### Next sub-milestone
-M7.2 — extend boot self-test with spec § 4.1.4 step 4: command PE12
-closed for ≤50 ms with CP held in state A (idle, no vehicle, no
-load), verify PB12 reads "closed" within the window, then command
-open. First audible bench click.
+M7.3 — J1772 state-driven relay control. Per-tick: J1772=C and no
+fault → close PE12; A/B/E/F/D → open. Closes the runtime side of the
+charging cycle. Bench observable via PE12 toggle on scope; without a
+J1772 dummy plug to drive C, this lands as code-only validation
+until M7.4/M9 bench prep.

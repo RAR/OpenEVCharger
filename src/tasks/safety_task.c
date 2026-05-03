@@ -34,6 +34,40 @@
 /* CP state-A floor in mV; spec § 3 state table threshold for A. */
 #define ST_CP_STATE_A_MIN_MV  10500
 
+/* Relay actuate-and-readback self-test: spec § 4.1.4 step 4. Total
+ * budget 50 ms with CP held in state A. Close, poll PB12 every 5 ms
+ * up to 40 ms (typical mechanical pickup is 10-15 ms), open, poll
+ * again up to 30 ms for release.
+ *
+ * Default OFF until the bench investigation in docs/bring-up.md
+ * (M7.2) resolves: on the bench-tested ROC001 with no AC load, PE12
+ * close cmd does not produce a PB12 = HIGH transition. Two
+ * possibilities, neither yet ruled out:
+ *
+ *  1. Contactor coil is supplied from the AC primary side, so without
+ *     mains the coil cannot energise.
+ *  2. PB12 sense circuit only reports through-current presence, not
+ *     coil state — so even with the coil energised, no AC = no sense
+ *     transition.
+ *
+ * Either way, on a real installation with AC mains live this should
+ * pass, so the spec-correct enable lives behind a compile-time flag
+ * that can flip once the bench has been re-probed with mains live. */
+#ifndef OPENBHZD_RELAY_ACTUATE_SELF_TEST
+#define OPENBHZD_RELAY_ACTUATE_SELF_TEST  0
+#endif
+
+#define ST_RELAY_CLOSE_POLL_MS    5
+#define ST_RELAY_CLOSE_POLLS      8     /* 40 ms */
+#define ST_RELAY_OPEN_POLL_MS     5
+#define ST_RELAY_OPEN_POLLS       6     /* 30 ms */
+
+enum st_relay_result {
+    ST_RELAY_OK              = 0,
+    ST_RELAY_OPEN_AT_BOOT    = 1,
+    ST_RELAY_WELD_AT_BOOT    = 2,
+};
+
 /* Map EVSE state -> CP output. Called once per transition.
  *
  * - FAULT      : drive CP to -12 V (J1772 state F, "EVSE not ready")
@@ -202,6 +236,38 @@ static int run_boot_self_test(int32_t cp_mv)
     return fails;
 }
 
+/* Returns ST_RELAY_OK, _OPEN_AT_BOOT, or _WELD_AT_BOOT. Caller must
+ * gate on CP being in state A (no vehicle plugged) so the brief
+ * close has no load consequence. */
+static int self_test_relay_actuate(void)
+{
+    relay_main_close();
+    int closed_seen = 0;
+    for (int i = 0; i < ST_RELAY_CLOSE_POLLS; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(ST_RELAY_CLOSE_POLL_MS));
+        if (relay_main_sense_closed()) { closed_seen = 1; break; }
+    }
+    relay_main_open();
+
+    if (!closed_seen) {
+        printk("self-test: PE12 close cmd but PB12 stayed OPEN -> RELAY_OPEN_AT_BOOT\n");
+        return ST_RELAY_OPEN_AT_BOOT;
+    }
+
+    int open_seen = 0;
+    for (int i = 0; i < ST_RELAY_OPEN_POLLS; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(ST_RELAY_OPEN_POLL_MS));
+        if (!relay_main_sense_closed()) { open_seen = 1; break; }
+    }
+
+    if (!open_seen) {
+        printk("self-test: PE12 open cmd but PB12 stayed CLOSED -> RELAY_WELD_AT_BOOT\n");
+        return ST_RELAY_WELD_AT_BOOT;
+    }
+    printk("self-test: relay actuate-and-readback OK\n");
+    return ST_RELAY_OK;
+}
+
 static void check_cp_e(fault_state_t *fs, evse_state_t *es,
                        j1772_state_t js, int32_t cp_mv,
                        int *cp_e_streak)
@@ -275,6 +341,39 @@ static void safety_task_run(void *arg)
         }
         evse_transition(&es, EVSE_FAULT);
     }
+
+    /* Spec § 4.1.4 step 4: relay actuate-and-readback. Only run with
+     * CP in state A (no vehicle plugged) so the brief close is a
+     * no-op on the J1772 plug side. Skip if anything is connected. */
+#if OPENBHZD_RELAY_ACTUATE_SELF_TEST
+    if (js0 == J1772_STATE_A) {
+        int relay_st = self_test_relay_actuate();
+        if (relay_st == ST_RELAY_OPEN_AT_BOOT &&
+            !fault_is_active(&fs, FAULT_RELAY_OPEN_AT_BOOT)) {
+            if (fault_raise(&fs, FAULT_RELAY_OPEN_AT_BOOT) == 1) {
+                printk("FAULT raised: %s\n",
+                       fault_name(FAULT_RELAY_OPEN_AT_BOOT));
+                post_fault_event(FAULT_RELAY_OPEN_AT_BOOT, js0, es, cp_mv0);
+            }
+            evse_transition(&es, EVSE_FAULT);
+        } else if (relay_st == ST_RELAY_WELD_AT_BOOT &&
+                   !fault_is_active(&fs, FAULT_RELAY_WELD_AT_BOOT)) {
+            if (fault_raise(&fs, FAULT_RELAY_WELD_AT_BOOT) == 1) {
+                printk("FAULT raised: %s\n",
+                       fault_name(FAULT_RELAY_WELD_AT_BOOT));
+                post_fault_event(FAULT_RELAY_WELD_AT_BOOT, js0, es, cp_mv0);
+            }
+            evse_transition(&es, EVSE_FAULT);
+        }
+    } else {
+        printk("self-test: skipping relay actuate (J1772=%s, not A)\n",
+               j1772_state_name(js0));
+    }
+#else
+    printk("self-test: relay actuate test DISABLED at build time "
+           "(OPENBHZD_RELAY_ACTUATE_SELF_TEST=0; bench carve-out)\n");
+    (void)self_test_relay_actuate;     /* avoid -Wunused-function */
+#endif
 
     check_safe_fail(&fs, &es, js0, cp_mv0);
     if (es != EVSE_FAULT) {
