@@ -1059,9 +1059,63 @@ classifier.
 Build size: text 21600 / data 20 / bss 27596 — flash 4.13%, RAM 21.07%.
 Cost vs M6.2: +48 B text.
 
+## M6.4 — Fault event persistence (2026-05-02)
+
+`safety_task` now posts an `event_record` to `persist_task` on every
+true fault-raise edge (i.e., the moment `fault_raise()` returns 1).
+The record captures fault_id + j1772_state + evse_state + cp_mv +
+timestamp; `event_log_append` fills boot_count + crc16. Both
+`check_safe_fail` and `check_relay_weld` now route through the new
+`post_fault_event()` helper.
+
+Refactor: `check_safe_fail` and `check_relay_weld` take
+`(j1772_state, cp_mv)` so the boot-time and runtime callsites can
+both pass live context. The boot path now primes `cp_high_mv()` +
+`j1772_step()` once before BOOT→SELF_TEST so any fault posted during
+the transition has valid context (the typical fast_restart=5
+safe-fail boot reaches the persist post before the main supervisor
+loop executes its first iteration).
+
+Bench validation:
+
+```
+[after recovering and ramping fast_restart from 1 to 5+]
+event_log: scan complete: valid=38 corrupt=0 blank=8154 head=0x0044c0 slot=38
+crash_state: SAFE-FAIL ENTERED (fast_restart=5)
+EVSE state BOOT -> SELF_TEST
+FAULT raised: CRASH_LOOP_SAFE_FAIL (first=CRASH_LOOP_SAFE_FAIL)
+EVSE state SELF_TEST -> FAULT
+io_task: posted startup event rc=0
+J1772 state=E cp=725 mV
+```
+
+Next reboot's scan-on-init read confirms the fault event landed:
+
+```
+event_log: scan complete: valid=40 corrupt=0 blank=8152 head=0x004500 slot=40
+```
+
+valid count went from 38 → 40 (+2): one io_task startup event
+(unchanged since M5.b.5) plus one new safety_task FAULT
+event-record posted from the safe-fail edge. M6.4 path verified
+end-to-end through the W25Q ring.
+
+### Bench-state-machine quirk worth noting
+
+OpenOCD's `reset run` from a fresh openocd invocation does not always
+re-trigger main() — only ~1 in 4 reset cycles netted a fast_restart
+increment. The reliable pattern is `init` → `reset halt` → `sleep 200`
+→ `reset run` → `sleep ≥1500` → `shutdown`, which gives the chip
+clean halt+go and enough time for the synchronous
+`crash_state_boot_increment()` SPI write to complete before the next
+attach cycle. Documented for future bench scripts.
+
+Build size: text 21804 / data 20 / bss 27596 — flash 4.16%, RAM 21.07%.
+Cost vs M6.3: +204 B text.
+
 ### Next milestone
-M6.4 — persist fault events. On each `fault_raise` edge, post an
-`event_record` to `persist_task` with fault_id + j1772_state +
-evse_state + cp_mv. Closes the loop between fault detection and the
-ring log; FC41D `GET_FAULT_LOG` (M8) will then have a real history to
-return.
+M6.5 — CP=E classifier → `FAULT_CP_NO_PILOT`. Sustained J1772 state E
+(say, 5 ticks = 100 ms) with `evse_state != EVSE_FAULT` raises the
+fault. Bench-validatable by shorting CP↔PE manually if a probe is
+on hand; otherwise the classifier-driven path will fire the next
+time a real EV pilot is broken. Per spec § 4 #5.
