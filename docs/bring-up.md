@@ -763,3 +763,75 @@ session_log_append in a queue drained by persist_task. safety_task and
 other producers post a write request and continue without blocking on
 W25Q I/O. Required before M6 fault-state-machine raises faults at
 real-time pace.
+
+---
+
+## M5.b.5 — persist_task FreeRTOS queue + producer API
+
+**Date completed:** 2026-05-02
+**Spec section:** § 5.5 (persist_task), § 6 (queue drain)
+**Plan:** docs/superpowers/plans/2026-05-02-m5b5-persist-queue.md
+
+### Success criteria
+1. `persist_task_create()` builds a depth-8 queue and starts the worker.
+2. Any task can `persist_post_event(rec)` and continue immediately
+   (non-blocking).
+3. persist_task drains the queue and calls `event_log_append` /
+   `session_log_append`.
+4. After reboot, scan finds the queued events persisted to W25Q.
+5. Queue overflow returns -1 + emits one warning per burst.
+
+### Observed result
+
+```
+=== boot 31 (post-flash with queue+producer) ===
+event_log: scan complete: valid=3 corrupt=0 blank=8189 head=slot 3
+session_log: scan complete: valid=2 ...
+scheduler starting
+io_task: posted startup event rc=0      ← producer succeeded
+
+=== boot 32 (reset) ===
+event_log: scan complete: valid=4 corrupt=0 blank=8188 head=slot 4
+                                ↑  prior boot's io_task post landed
+io_task: posted startup event rc=0
+```
+
+`valid` grows by exactly 1 per boot cycle = io_task's startup post
+flowing through the queue → persist_task → flash → next boot's scan.
+
+### Build size
+- text 19592 B (+2544 vs M5.b.4: queue plumbing + io_task hookup +
+  FreeRTOS queue.c TUs that the linker now pulls in via xQueueCreate /
+  xQueueSend / xQueueReceive references), data 20 B, bss 27564 B.
+  Flash 3.74 % of 512 KB. RAM 21.04 % (queue heap allocation ≈ 370 B
+  is in FreeRTOS heap, not bss).
+
+### Implementation notes
+1. **Single tagged-union queue.** One `QueueHandle_t` carries
+   `struct persist_req { type; union { event; session; }; }`. Queue
+   item ≈ 36 B; depth 8 → ≈ 288 B + ~80 B FreeRTOS overhead.
+2. **Non-blocking producers.** `xQueueSend(..., 0)` — drops on full
+   queue, returns -1, latches a single "queue full" warning per burst.
+   Latch resets on next successful drain. Required behaviour for fault
+   floods that must not block safety_task.
+3. **Boot-time path stays synchronous.** Pre-scheduler init code (none
+   today, but M6 boot self-test events) calls `event_log_append` /
+   `session_log_append` directly. Once `vTaskStartScheduler()` runs,
+   producers switch to `persist_post_*`.
+4. **persist_task priority 1** (lowest of the four tasks) — never
+   starves higher-priority work. SafetyTask (4) > io (3) > comms (2)
+   > persist (1). Spec § 5.5 requirement satisfied.
+5. **No fromISR variant yet.** GFCI is the only spec-defined ISR-driven
+   fault path; M6 will route GFCI EXTI into safety_task via task
+   notification, then safety_task posts to the queue. No producer
+   currently runs in interrupt context.
+6. **io_task post is permanent**, not test-only. Production firmware
+   benefits from a "boot signature" event_record per power cycle —
+   trivial 32 B/boot of W25Q wear, valuable diagnostic when reading
+   the log.
+
+### Next milestone
+M5.b.6 — crash-loop detector. Records boot timestamps; if 5 boots
+happen within 60 s, enter safe-fail mode (refuse to charge until
+FC41D commands clear). Final M5.b sub-milestone, then M6 (safety
+supervisor + faults) becomes possible.
