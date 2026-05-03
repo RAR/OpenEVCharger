@@ -7,6 +7,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "gd32f20x.h"
 #include "hal/uart.h"
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
@@ -59,6 +60,13 @@ int main(void)
     printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
            (unsigned)SystemCoreClock);
 
+    /* Release JTAG pins (PA15, PB3, PB4) so SPI3 (PB3/PB4/PB5) and
+     * TIMER1_CH0 (PA15) can use them. SWDPENABLE keeps SWD alive
+     * (PA13/PA14) for the OpenOCD probe. Must run before any AF init
+     * touches those pins — including spi3_init() / w25q_init(). */
+    rcu_periph_clock_enable(RCU_AF);
+    gpio_pin_remap_config(GPIO_SWJ_SWDPENABLE_REMAP, ENABLE);
+
     gpio_init_all();
     gpio_log_straps();
     adc_scan_init();
@@ -73,6 +81,17 @@ int main(void)
         printk("W25Q: JEDEC init FAIL — boot_count not persisted\n");
     } else {
         printk("W25Q: JEDEC ID = 0x%06x\n", (unsigned)w25q_jedec_id());
+
+#if defined(OPENBHZD_BENCH_CRASH_RESET) && OPENBHZD_BENCH_CRASH_RESET
+        /* One-shot recovery: erase crash_state ping-pong sectors so
+         * fast_restart_count returns to 0. Set during a single
+         * flash cycle when the bench has gotten itself into
+         * CRASH_LOOP_SAFE_FAIL, then unset and re-flash. */
+        extern int w25q_erase_sector(uint32_t addr);
+        w25q_erase_sector(0x04D000U);
+        w25q_erase_sector(0x04E000U);
+        printk("BENCH: crash_state sectors erased (one-shot)\n");
+#endif
         uint32_t bc = boot_count_increment();
         if (bc == 0xFFFFFFFFu) printk("W25Q: boot_count write FAIL\n");
         else                   printk("boot_count = %u\n", (unsigned)bc);

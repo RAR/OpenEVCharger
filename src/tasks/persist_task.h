@@ -6,7 +6,11 @@
 #include "../persist/event_log.h"
 #include "../persist/session_log.h"
 
-#define PERSIST_TASK_STACK_WORDS  384U
+/* 384 W left only ~10 words headroom (374/384 high-water on bench) —
+ * GET_FAULT_LOG plus a TLV publish from inside this task is the worst
+ * case. Bumped to 512 W; trim later from a fresh stack_watch survey
+ * once SPI flash + TLV traffic exercise the path under real load. */
+#define PERSIST_TASK_STACK_WORDS  512U
 #define PERSIST_TASK_PRIORITY     1U
 #define PERSIST_QUEUE_DEPTH       8U
 

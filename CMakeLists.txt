@@ -145,6 +145,13 @@ if(DEFINED OPENBHZD_LED_FORCE_GREEN)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_LED_FORCE_GREEN=${OPENBHZD_LED_FORCE_GREEN})
 endif()
+# One-shot: erase crash_state ping-pong sectors at boot to clear a
+# latched FAST_RESTART / CRASH_LOOP_SAFE_FAIL on the bench. Set =1 for
+# a single flash cycle, then unset and re-flash.
+if(DEFINED OPENBHZD_BENCH_CRASH_RESET)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_BENCH_CRASH_RESET=${OPENBHZD_BENCH_CRASH_RESET})
+endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
 # Default ON for bench builds; pass -DOPENBHZD_STACK_WATCH=0 for production.

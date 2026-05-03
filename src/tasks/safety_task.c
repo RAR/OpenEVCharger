@@ -70,8 +70,13 @@ static QueueHandle_t s_safety_inbox;
 #define ST_ADC_MIN  100U
 #define ST_ADC_MAX  3995U
 
-/* CP state-A floor in mV; spec § 3 state table threshold for A. */
-#define ST_CP_STATE_A_MIN_MV  10500
+/* CP "pilot present" floor in mV. The boot self-test must accept any
+ * J1772 band with a working pilot wire (A/B/C/D — any positive
+ * voltage above ~1.5 V), because the unit may power on with a vehicle
+ * already plugged in. Only states E (cp ≈ 0 V, no diode/no pilot) and
+ * F (cp negative) should trip the self-test. Spec § 3 state-D floor
+ * is 1500 mV. */
+#define ST_CP_PILOT_PRESENT_MV  1500
 
 /* Hardware advertise caps. Spec § 3:
  *   - DIP1 closed → 40 A; DIP1 open → 48 A
@@ -383,11 +388,15 @@ static int self_test_relay_open(void)
     return 0;
 }
 
-static int self_test_cp_state_a(int32_t cp_mv)
+static int self_test_cp_pilot_present(int32_t cp_mv)
 {
-    if (cp_mv < ST_CP_STATE_A_MIN_MV) {
-        printk("self-test: CP idle not in state-A band (cp=%d mV)\n",
-               (int)cp_mv);
+    /* Accept any J1772 band with positive pilot voltage (state A, B,
+     * C, or D). Reject only E (no pilot / diode missing) or F
+     * (negative). This lets the unit boot cleanly with a vehicle
+     * already plugged in. */
+    if (cp_mv < ST_CP_PILOT_PRESENT_MV) {
+        printk("self-test: CP pilot not present (cp=%d mV; expected >= %d mV)\n",
+               (int)cp_mv, ST_CP_PILOT_PRESENT_MV);
         return 1;
     }
     return 0;
@@ -398,7 +407,7 @@ static int run_boot_self_test(int32_t cp_mv)
     int fails = 0;
     fails += self_test_adc_sanity();
     fails += self_test_relay_open();
-    fails += self_test_cp_state_a(cp_mv);
+    fails += self_test_cp_pilot_present(cp_mv);
     if (fails) {
         printk("self-test: %d sub-check(s) failed\n", fails);
     } else {
