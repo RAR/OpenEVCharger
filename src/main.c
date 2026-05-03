@@ -18,6 +18,7 @@
 #include "persist/boot_config.h"
 #include "persist/calibration.h"
 #include "persist/event_log.h"
+#include "persist/session_log.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -84,6 +85,9 @@ int main(void)
 
         event_log_init();
         event_log_set_boot_count((uint16_t)bc);
+
+        session_log_init();
+        session_log_set_boot_count((uint16_t)bc);
     }
 
     safety_task_create();
