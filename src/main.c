@@ -8,6 +8,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "gd32f20x.h"
+#include "hal/clock.h"
 #include "hal/uart.h"
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
@@ -56,9 +57,14 @@ int main(void)
     /* Vendor SystemInit() has already run from startup_gd32f20x_cl.S
      * (clock tree at 120 MHz). */
 
+    /* If built with OPENBHZD_REAL_120M_PLL=1, swap the SDK's broken
+     * 120m_hxtal config for a clean direct chain. No-op otherwise. */
+    clock_real_120m_init();
+
     uart_init();
     printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
            (unsigned)SystemCoreClock);
+    clock_log_status();
 
     /* Release JTAG pins (PA15, PB3, PB4) so SPI3 (PB3/PB4/PB5) and
      * TIMER1_CH0 (PA15) can use them. SWDPENABLE keeps SWD alive

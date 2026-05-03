@@ -55,6 +55,7 @@ set(APP_SRCS
     src/core/fault.c
     src/core/j1772.c
     src/core/system_state.c
+    src/hal/clock.c
     src/hal/wdg.c
     src/hal/uart.c
     src/hal/gpio.c
@@ -151,6 +152,13 @@ endif()
 if(DEFINED OPENBHZD_BENCH_CRASH_RESET)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_BENCH_CRASH_RESET=${OPENBHZD_BENCH_CRASH_RESET})
+endif()
+# Replace the SDK's broken 120m_hxtal PLL chain with a clean direct
+# config (HXTAL/2 * 30 = 120 MHz). Default OFF for rollback safety;
+# enable with -DOPENBHZD_REAL_120M_PLL=1.
+if(DEFINED OPENBHZD_REAL_120M_PLL)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_REAL_120M_PLL=${OPENBHZD_REAL_120M_PLL})
 endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.

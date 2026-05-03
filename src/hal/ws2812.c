@@ -68,22 +68,26 @@
  *   TIMER1: PSC=0, CARL=99, CCR=20 ("0") or 60 ("1")
  * Stock chip's APB1 timer clock is 60 MHz, so this gives:
  *   period = 100/60 = 1.667 µs (600 kHz)
- *   T0H = 20/60 = 0.333 µs
- *   T1H = 60/60 = 1.000 µs
- * Burst length = 110 × 24 × 1.667 µs = 4.4 ms (matches scope).
+ *   T0H    = 20/60  = 0.333 µs
+ *   T1H    = 60/60  = 1.000 µs
+ * Burst length = 134 × 24 × 1.667 µs ≈ 5.4 ms.
  *
- * Our APB1 timer clock measures ~39 MHz (the SDK's 120m_hxtal PLL
- * chain has a known-bug compound divisor — `8/5 × 12/5 × 10` = 38.4
- * MHz, not 120 MHz).  To produce the same wire timing as stock at
- * our slower clock we scale CARL/CCR proportionally:
- *   ARR  = round(99 × 39/60) = 64  → period 65 ticks ≈ 1.667 µs
- *   T0H  = round(20 × 39/60) = 13
- *   T1H  = round(60 × 39/60) = 39
- * Bench measurement 2026-05-03: with old (99,20,60) values our burst
- * was 8.3 ms (vs stock 4.4 ms), confirming the 1.53× clock skew. */
-#define WS_PERIOD_TICKS   64U   /* ARR = 64 → period 65 ticks @ ~39 MHz */
-#define WS_T0H_TICKS      13U   /* 0.333 µs */
-#define WS_T1H_TICKS      39U   /* 1.000 µs */
+ * Two clock branches:
+ *   1. OPENBHZD_REAL_120M_PLL=1 — sysclk is real 120 MHz → APB1 = 60
+ *      MHz → TIMER1 clock = 60 MHz, exactly matching stock. Use the
+ *      stock unscaled values directly.
+ *   2. Default (SDK 120m_hxtal lying) — sysclk ≈ 38.4 MHz → TIMER1
+ *      clock ≈ 39 MHz. Scale ARR/CCR proportionally so the wire
+ *      timing still matches stock. */
+#if defined(OPENBHZD_REAL_120M_PLL) && OPENBHZD_REAL_120M_PLL
+#define WS_PERIOD_TICKS   99U   /* stock ARR @ 60 MHz timer clock */
+#define WS_T0H_TICKS      20U   /* stock 0.333 µs */
+#define WS_T1H_TICKS      60U   /* stock 1.000 µs */
+#else
+#define WS_PERIOD_TICKS   64U   /* scaled ARR @ ~39 MHz timer clock */
+#define WS_T0H_TICKS      13U
+#define WS_T1H_TICKS      39U
+#endif
 #define WS_PACK_RGB        0    /* GRB byte order */
 #define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
 #endif
