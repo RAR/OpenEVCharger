@@ -138,12 +138,12 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
         }
         break;
     case EVSE_CHARGING: {
-        /* Cyan, breathing at 0.3 Hz (period ≈ 3.3 s).  Per spec § 7:
+        /* Cyan, breathing at 0.5 Hz (period 2 s).  Per spec § 7:
          * "brightness ∝ active amps / advertised".  When the CT isn't
          * yet calibrated (active_amps_x10 == 0) we ignore the ratio
          * and run the breathe envelope at full amplitude — otherwise
          * the strip would always be ~dim. */
-        uint8_t v = breathe(t_ms, 3333u);
+        uint8_t v = breathe(t_ms, 2000u);
         if (in->advertised_amps > 0u && in->active_amps_x10 > 0u) {
             uint32_t active = (uint32_t)in->active_amps_x10 / 10u;
             if (active > in->advertised_amps) active = in->advertised_amps;
