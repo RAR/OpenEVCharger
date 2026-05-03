@@ -12,6 +12,13 @@ Usage:
   ./host_client.py /dev/ttyUSB0 ping
   ./host_client.py /dev/ttyUSB0 state
   ./host_client.py /dev/ttyUSB0 buildinfo
+  ./host_client.py /dev/ttyUSB0 amps 32   # SET_ADVERTISED_AMPS
+  ./host_client.py /dev/ttyUSB0 clear 0   # CLEAR_FAULT (0 = all clearable)
+  ./host_client.py /dev/ttyUSB0 faultlog 16
+  ./host_client.py /dev/ttyUSB0 lifetime
+  ./host_client.py /dev/ttyUSB0 stop      # REQUEST_STOP
+  ./host_client.py /dev/ttyUSB0 resume    # REQUEST_START_RESUME
+  ./host_client.py /dev/ttyUSB0 cal 1462 3540 459   # WRITE_CALIBRATION (anchor num den)
 """
 
 import struct
@@ -37,6 +44,9 @@ CMD_REQUEST_START_RESUME = 0x05
 CMD_CLEAR_FAULT = 0x06
 CMD_GET_FAULT_LOG = 0x07
 CMD_GET_LIFETIME_KWH = 0x08
+CMD_WRITE_CALIBRATION = 0x09
+CMD_SET_LED_OVERRIDE = 0x0A
+CMD_BUZZER_BEEP = 0x0B
 CMD_GET_BUILD_INFO = 0x0C
 
 # Events / responses MCU → FC41D
@@ -48,6 +58,9 @@ EVT_FAULT_CLEARED = 0x84
 EVT_SESSION_BEGAN = 0x85
 EVT_SESSION_ENDED = 0x86
 EVT_BOOT_COMPLETE = 0x87
+EVT_FAULT_LOG_ENTRY = 0x88
+EVT_FAULT_LOG_END = 0x89
+EVT_LIFETIME_KWH = 0x8A
 EVT_BUILD_INFO = 0x8C
 
 EVT_NAMES = {
@@ -59,6 +72,9 @@ EVT_NAMES = {
     EVT_SESSION_BEGAN: "SESSION_BEGAN",
     EVT_SESSION_ENDED: "SESSION_ENDED",
     EVT_BOOT_COMPLETE: "BOOT_COMPLETE",
+    EVT_FAULT_LOG_ENTRY: "FAULT_LOG_ENTRY",
+    EVT_FAULT_LOG_END: "FAULT_LOG_END",
+    EVT_LIFETIME_KWH: "LIFETIME_KWH",
     EVT_BUILD_INFO: "BUILD_INFO",
 }
 
@@ -141,6 +157,18 @@ def show_frame(cmd: int, seq: int, payload: bytes) -> str:
     elif cmd == EVT_BOOT_COMPLETE and len(payload) >= 8:
         passed, _, _, _, lf = struct.unpack("<BBBBI", payload[:8])
         extra = f"  self_test_pass={bool(passed)} last_fault={lf}"
+    elif cmd == EVT_FAULT_CLEARED and len(payload) >= 4:
+        (fid,) = struct.unpack("<I", payload[:4])
+        extra = f"  fault_id={fid}"
+    elif cmd == EVT_FAULT_LOG_ENTRY and len(payload) >= 32:
+        ts, bc, fid, j, e, mv = struct.unpack_from("<IHHBBh", payload, 0)
+        extra = f"  ts={ts} boot={bc} fid={fid} j1772={j} evse={e} cp={mv}mV"
+    elif cmd == EVT_FAULT_LOG_END and len(payload) >= 2:
+        emitted, requested = payload[0], payload[1]
+        extra = f"  emitted={emitted}/{requested}"
+    elif cmd == EVT_LIFETIME_KWH and len(payload) >= 4:
+        (mwh,) = struct.unpack("<I", payload[:4])
+        extra = f"  lifetime={mwh} mWh ({mwh/1_000_000:.3f} kWh)"
     return f"<{name} seq={seq} plen={len(payload)}>{extra}"
 
 
@@ -170,6 +198,55 @@ def cmd_listen(ser):
             print(show_frame(*f))
 
 
+def cmd_set_amps(ser, amps: int):
+    ser.write(build_frame(CMD_SET_ADVERTISED_AMPS, seq=4,
+                          payload=struct.pack("<B", amps & 0xFF)))
+    print(f"sent SET_ADVERTISED_AMPS={amps} (no ack defined)")
+
+
+def cmd_clear_fault(ser, fid: int):
+    ser.write(build_frame(CMD_CLEAR_FAULT, seq=5,
+                          payload=struct.pack("<I", fid & 0xFFFFFFFF)))
+    f = receive_frame(ser, timeout=0.5)
+    print(show_frame(*f) if f else "no EVT_FAULT_CLEARED (may be already clear)")
+
+
+def cmd_fault_log(ser, count: int):
+    ser.write(build_frame(CMD_GET_FAULT_LOG, seq=6,
+                          payload=struct.pack("<B", count & 0xFF)))
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        f = receive_frame(ser, timeout=2.0)
+        if not f:
+            break
+        print(show_frame(*f))
+        if f[0] == EVT_FAULT_LOG_END:
+            return
+    print("(GET_FAULT_LOG: timed out before END terminator)")
+
+
+def cmd_lifetime(ser):
+    ser.write(build_frame(CMD_GET_LIFETIME_KWH, seq=7))
+    f = receive_frame(ser, timeout=2.0)
+    print(show_frame(*f) if f else "no response")
+
+
+def cmd_stop(ser):
+    ser.write(build_frame(CMD_REQUEST_STOP, seq=8, payload=b"\x00"))
+    print("sent REQUEST_STOP — watch for STATE_CHANGED or new STATE_REPORT")
+
+
+def cmd_resume(ser):
+    ser.write(build_frame(CMD_REQUEST_START_RESUME, seq=9))
+    print("sent REQUEST_START_RESUME")
+
+
+def cmd_calibration(ser, anchor: int, num: int, den: int):
+    payload = struct.pack("<hhh", anchor, num, den)
+    ser.write(build_frame(CMD_WRITE_CALIBRATION, seq=10, payload=payload))
+    print(f"sent WRITE_CALIBRATION anchor={anchor} num={num} den={den}")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -186,6 +263,20 @@ def main():
         cmd_buildinfo(ser)
     elif cmd == "listen":
         cmd_listen(ser)
+    elif cmd == "amps":
+        cmd_set_amps(ser, int(sys.argv[3]))
+    elif cmd == "clear":
+        cmd_clear_fault(ser, int(sys.argv[3]))
+    elif cmd == "faultlog":
+        cmd_fault_log(ser, int(sys.argv[3]) if len(sys.argv) > 3 else 16)
+    elif cmd == "lifetime":
+        cmd_lifetime(ser)
+    elif cmd == "stop":
+        cmd_stop(ser)
+    elif cmd == "resume":
+        cmd_resume(ser)
+    elif cmd == "cal":
+        cmd_calibration(ser, int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))
     else:  # demo
         cmd_ping(ser)
         cmd_state(ser)

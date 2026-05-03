@@ -17,7 +17,24 @@
 #include "../core/system_state.h"
 #include "persist_task.h"
 #include "comms_task.h"
+#include "queue.h"
 #include "gd32f20x.h"
+
+/* Cross-task control inbox (TLV CLEAR_FAULT / pause / resume). */
+typedef enum {
+    SAFETY_REQ_CLEAR_FAULT = 0,
+    SAFETY_REQ_USER_PAUSE,
+    SAFETY_REQ_USER_RESUME,
+} safety_req_type_t;
+
+struct safety_req {
+    uint8_t  type;
+    uint8_t  arg_u8;
+    uint8_t  pad[2];
+    uint32_t arg_u32;
+};
+
+static QueueHandle_t s_safety_inbox;
 
 /* Debounce: 3 consecutive same-band reads at safety_task's 50 Hz tick
  * = 60 ms. Matches spec § 3. */
@@ -185,12 +202,18 @@ static uint8_t effective_advertised_amps(void)
  *   J1772=E     → 0% (idle high) — relay open by other path
  *   J1772=F     → state-F (-12 V) — but we only drive F on FAULT
  *   EVSE=FAULT  → state-F regardless of J1772
+ *   EVSE=USER_PAUSED → idle high (no advertise; tells the EV that
+ *                       charging isn't currently available)
  *
  * safety_task is the single owner of TIM1_CCR3 per spec § 4. */
 static void apply_cp_for_state(evse_state_t es, j1772_state_t js)
 {
     if (es == EVSE_FAULT) {
         cp_pwm_set_state_f();
+        return;
+    }
+    if (es == EVSE_USER_PAUSED) {
+        cp_pwm_set_idle_high();
         return;
     }
     if (js == J1772_STATE_B || js == J1772_STATE_C || js == J1772_STATE_D) {
@@ -447,11 +470,13 @@ static void check_relay_stuck_open(fault_state_t *fs, evse_state_t *es,
  *   READY    + J1772=C → CHARGING
  *   CHARGING + J1772≠C → READY (C->B regression is a transient pause;
  *                       relay opens immediately; allows re-progression)
- * Sticky: BOOT, SELF_TEST, FAULT do not transition out via this path.
- * USER_PAUSED / COOLING_DOWN are M8/M6.b respectively, not entered yet. */
+ * Sticky: BOOT, SELF_TEST, FAULT, USER_PAUSED do not transition out via
+ * this path. USER_PAUSED is exited only by safety_request_resume.
+ * COOLING_DOWN is M6.b territory, not entered yet. */
 static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js)
 {
-    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST) {
+    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST ||
+        *es == EVSE_USER_PAUSED) {
         return;
     }
     if (*es == EVSE_READY && js == J1772_STATE_C) {
@@ -464,7 +489,9 @@ static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js)
 /* Per-tick relay-state owner. Closes the contactor only when the
  * vehicle is actively requesting current (J1772=C) AND no latched
  * fault is active AND we're in a charging-eligible EVSE state. Any
- * deviation opens immediately. Single-writer of PE12 per spec § 4. */
+ * deviation opens immediately. Single-writer of PE12 per spec § 4.
+ * USER_PAUSED, FAULT, COOLING_DOWN are not charging-eligible — relay
+ * stays open. */
 static void apply_relay_state(j1772_state_t js, evse_state_t es,
                               const fault_state_t *fs)
 {
@@ -480,6 +507,109 @@ static void apply_relay_state(j1772_state_t js, evse_state_t es,
                j1772_state_name(js), evse_state_name(es),
                (unsigned)fs->active_bits);
         relay_main_open();
+    }
+}
+
+/* --- Cross-task control inbox ------------------------------------------- */
+
+static int post_safety_req(uint8_t type, uint8_t arg_u8, uint32_t arg_u32)
+{
+    if (s_safety_inbox == NULL) return -1;
+    struct safety_req r = { .type = type, .arg_u8 = arg_u8, .arg_u32 = arg_u32 };
+    return (xQueueSend(s_safety_inbox, &r, 0) == pdTRUE) ? 0 : -1;
+}
+
+int safety_request_clear_fault(uint32_t fault_id)
+{
+    return post_safety_req(SAFETY_REQ_CLEAR_FAULT, 0, fault_id);
+}
+
+int safety_request_pause(uint8_t reason)
+{
+    return post_safety_req(SAFETY_REQ_USER_PAUSE, reason, 0);
+}
+
+int safety_request_resume(void)
+{
+    return post_safety_req(SAFETY_REQ_USER_RESUME, 0, 0);
+}
+
+/* Apply one inbox entry. Returns the (possibly updated) EVSE state by
+ * mutating *es. Emits TLV events on success. */
+static void process_request(struct safety_req *r,
+                            fault_state_t *fs, evse_state_t *es)
+{
+    switch (r->type) {
+    case SAFETY_REQ_CLEAR_FAULT: {
+        uint32_t fid = r->arg_u32;
+        int cleared = 0;
+        if (fid == 0u) {
+            cleared = fault_clear_all_clearable(fs);
+            printk("safety: CLEAR_FAULT all -> %d cleared\n", cleared);
+        } else if (fid < FAULT_COUNT) {
+            int rc = fault_clear(fs, (fault_id_t)fid);
+            if (rc == 1) cleared = 1;
+            else if (rc < 0) {
+                printk("safety: CLEAR_FAULT %s refused (rc=%d)\n",
+                       fault_name((fault_id_t)fid), rc);
+                return;
+            }
+            printk("safety: CLEAR_FAULT %s -> %s\n",
+                   fault_name((fault_id_t)fid),
+                   cleared ? "cleared" : "no-op");
+        } else {
+            printk("safety: CLEAR_FAULT bad id 0x%x\n", (unsigned)fid);
+            return;
+        }
+        if (cleared) {
+            uint32_t evt_id = fid;
+            (void)comms_publish_event(EVT_FAULT_CLEARED, &evt_id, sizeof evt_id);
+        }
+        /* If we're in EVSE_FAULT and no latched faults remain, return
+         * to SELF_TEST so the boot self-test re-runs before READY.
+         * Conservative: any subtle reason we entered FAULT (e.g. ADC
+         * out-of-range, relay readback) deserves a fresh check. */
+        if (*es == EVSE_FAULT && !fault_any_latched_active(fs)) {
+            printk("safety: faults all clear -> SELF_TEST then READY\n");
+            evse_transition(es, EVSE_READY);
+            fs->first_raised = FAULT_NONE;
+        }
+        break;
+    }
+    case SAFETY_REQ_USER_PAUSE:
+        if (*es == EVSE_READY || *es == EVSE_CHARGING) {
+            printk("safety: USER_PAUSE (reason=%u, from %s)\n",
+                   (unsigned)r->arg_u8, evse_state_name(*es));
+            evse_transition(es, EVSE_USER_PAUSED);
+        } else {
+            printk("safety: USER_PAUSE ignored (state=%s)\n",
+                   evse_state_name(*es));
+        }
+        break;
+    case SAFETY_REQ_USER_RESUME:
+        if (*es == EVSE_USER_PAUSED) {
+            printk("safety: USER_RESUME -> READY\n");
+            evse_transition(es, EVSE_READY);
+        } else {
+            printk("safety: USER_RESUME ignored (state=%s)\n",
+                   evse_state_name(*es));
+        }
+        break;
+    default:
+        printk("safety: unknown inbox req type=%u\n", (unsigned)r->type);
+        break;
+    }
+}
+
+static void drain_inbox(fault_state_t *fs, evse_state_t *es)
+{
+    if (s_safety_inbox == NULL) return;
+    struct safety_req r;
+    /* Bound to a small handful per tick so a flood from comms can't
+     * starve the safety loop. */
+    for (int i = 0; i < 4; ++i) {
+        if (xQueueReceive(s_safety_inbox, &r, 0) != pdTRUE) break;
+        process_request(&r, fs, es);
     }
 }
 
@@ -613,6 +743,10 @@ static void safety_task_run(void *arg)
     for (;;) {
         wdg_kick();
 
+        /* Drain control inbox first so a CLEAR_FAULT or USER_PAUSE
+         * lands before the rest of the tick reads/applies state. */
+        drain_inbox(&fs, &es);
+
         int32_t cp_mv = cp_high_mv();
         j1772_state_t s = j1772_step(&cp, cp_mv, J1772_DEBOUNCE_N);
 
@@ -670,6 +804,11 @@ static void safety_task_run(void *arg)
 
 void safety_task_create(void)
 {
+    /* Pre-scheduler queue create so any task can call safety_request_*
+     * the moment the scheduler runs. */
+    s_safety_inbox = xQueueCreate(SAFETY_INBOX_DEPTH, sizeof(struct safety_req));
+    configASSERT(s_safety_inbox != NULL);
+
     xTaskCreate(safety_task_run,
                 "safety",
                 SAFETY_TASK_STACK_WORDS,

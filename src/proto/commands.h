@@ -32,4 +32,11 @@
 #define EVT_SESSION_ENDED         0x86u
 #define EVT_BOOT_COMPLETE         0x87u
 
+/* Responses to GET_FAULT_LOG / GET_LIFETIME_KWH. seq matches the
+ * request. EVT_FAULT_LOG_ENTRY is repeated once per record; the
+ * terminator EVT_FAULT_LOG_END always follows (count payload). */
+#define EVT_FAULT_LOG_ENTRY       0x88u
+#define EVT_FAULT_LOG_END         0x89u
+#define EVT_LIFETIME_KWH          0x8Au
+
 #endif /* OPENBHZD_PROTO_COMMANDS_H */

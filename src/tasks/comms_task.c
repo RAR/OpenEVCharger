@@ -1,16 +1,24 @@
 #include "comms_task.h"
+#include "safety_task.h"
+#include "persist_task.h"
 #include "../hal/uart5.h"
 #include "../hal/uart.h"
 #include "../proto/tlv.h"
 #include "../proto/commands.h"
 #include "../proto/build_info.h"
 #include "../core/system_state.h"
+#include "../core/fault.h"
 #include "../ui/led_patterns.h"
 #include "../ui/buzzer.h"
 #include "FreeRTOS.h"
 #include "stream_buffer.h"
 #include "semphr.h"
 #include <string.h>
+
+/* Hardware advertise cap: spec § 3 & safety_task. Duplicated as a
+ * compile-time clamp so SET_ADVERTISED_AMPS validation runs without
+ * pulling in the safety_task tick. */
+#define COMMS_HW_AMPS_MAX  48u
 
 #define RX_STREAM_BYTES   256U   /* well above one max TLV frame (64 B) */
 #define ACCUM_BUF_BYTES   TLV_FRAME_MAX
@@ -42,6 +50,12 @@ int comms_publish_event(uint8_t cmd, const void *payload, size_t payload_len)
 {
     /* Unsolicited events use seq=0 per spec § 5. */
     return send_frame(cmd, 0u, payload, payload_len);
+}
+
+int comms_publish_event_seq(uint8_t cmd, uint8_t seq,
+                            const void *payload, size_t payload_len)
+{
+    return send_frame(cmd, seq, payload, payload_len);
 }
 
 /* --- Command handlers --------------------------------------------------- */
@@ -86,15 +100,115 @@ static void handle_buzzer_beep(const uint8_t *p, size_t plen)
     buzzer_set_oneshot(ms);
 }
 
+static void handle_set_advertised_amps(const uint8_t *p, size_t plen)
+{
+    /* Payload: u8 amps. Spec § 5: "Clamped to DIP1 + hw cap." DIP1 is
+     * sampled by safety_task each tick; we just clamp to the global
+     * hardware cap here (48 A) and let safety_task apply the DIP1
+     * floor/ceiling via effective_advertised_amps(). */
+    if (plen < 1) return;
+    uint8_t amps = p[0];
+    if (amps > COMMS_HW_AMPS_MAX) amps = COMMS_HW_AMPS_MAX;
+    int rc = persist_post_boot_config_amps(amps);
+    if (rc != 0) {
+        printk("comms: SET_ADVERTISED_AMPS persist post FAIL rc=%d\n", rc);
+    } else {
+        printk("comms: SET_ADVERTISED_AMPS=%u (queued)\n", (unsigned)amps);
+    }
+}
+
+static void handle_clear_fault(const uint8_t *p, size_t plen)
+{
+    /* Payload: u32 LE fault_id; 0 = "all clearable". */
+    if (plen < 4) return;
+    uint32_t fid = (uint32_t)p[0]        |
+                  ((uint32_t)p[1] <<  8) |
+                  ((uint32_t)p[2] << 16) |
+                  ((uint32_t)p[3] << 24);
+    int rc = safety_request_clear_fault(fid);
+    if (rc != 0) {
+        printk("comms: CLEAR_FAULT inbox post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_get_fault_log(const uint8_t *p, size_t plen, uint8_t seq)
+{
+    /* Payload: u8 max_count. Persist task does the SPI3 reads + emits
+     * EVT_FAULT_LOG_ENTRY chain + EVT_FAULT_LOG_END. */
+    uint8_t max_count = (plen >= 1) ? p[0] : 16u;
+    int rc = persist_post_get_fault_log(max_count, seq);
+    if (rc != 0) {
+        printk("comms: GET_FAULT_LOG persist post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_get_lifetime_kwh(uint8_t seq)
+{
+    int rc = persist_post_get_lifetime_kwh(seq);
+    if (rc != 0) {
+        printk("comms: GET_LIFETIME_KWH persist post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_write_calibration(const uint8_t *p, size_t plen)
+{
+    /* Payload (packed LE):
+     *   i16 cp_anchor_raw
+     *   i16 cp_slope_num
+     *   i16 cp_slope_den
+     *   (rest reserved for future CT/leakage/NTC trims)
+     * Validation: slope_den must be non-zero; reject obviously broken
+     * values to keep the bench from hanging on a divide-by-zero or
+     * absurd anchor. */
+    if (plen < 6) return;
+    int16_t anchor = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+    int16_t snum   = (int16_t)((uint16_t)p[2] | ((uint16_t)p[3] << 8));
+    int16_t sden   = (int16_t)((uint16_t)p[4] | ((uint16_t)p[5] << 8));
+    if (sden == 0) {
+        printk("comms: WRITE_CALIBRATION rejected (slope_den=0)\n");
+        return;
+    }
+    if (anchor < 0 || anchor > 4095) {
+        printk("comms: WRITE_CALIBRATION rejected (anchor=%d out of 12-bit ADC range)\n",
+               (int)anchor);
+        return;
+    }
+    int rc = persist_post_calibration(anchor, snum, sden);
+    if (rc != 0) {
+        printk("comms: WRITE_CALIBRATION persist post FAIL rc=%d\n", rc);
+    } else {
+        printk("comms: WRITE_CALIBRATION (anchor=%d num=%d den=%d) queued\n",
+               (int)anchor, (int)snum, (int)sden);
+    }
+}
+
+static void handle_request_stop(const uint8_t *p, size_t plen)
+{
+    uint8_t reason = (plen >= 1) ? p[0] : 0u;
+    (void)safety_request_pause(reason);
+}
+
+static void handle_request_start_resume(void)
+{
+    (void)safety_request_resume();
+}
+
 static void dispatch(uint8_t cmd, uint8_t seq,
                      const uint8_t *payload, size_t plen)
 {
     switch (cmd) {
-    case CMD_PING:              handle_ping(seq); break;
-    case CMD_GET_STATE:         handle_get_state(seq); break;
-    case CMD_GET_BUILD_INFO:    handle_get_build_info(seq); break;
-    case CMD_SET_LED_OVERRIDE:  handle_set_led_override(payload, plen); break;
-    case CMD_BUZZER_BEEP:       handle_buzzer_beep(payload, plen); break;
+    case CMD_PING:                  handle_ping(seq); break;
+    case CMD_GET_STATE:             handle_get_state(seq); break;
+    case CMD_GET_BUILD_INFO:        handle_get_build_info(seq); break;
+    case CMD_SET_LED_OVERRIDE:      handle_set_led_override(payload, plen); break;
+    case CMD_BUZZER_BEEP:           handle_buzzer_beep(payload, plen); break;
+    case CMD_SET_ADVERTISED_AMPS:   handle_set_advertised_amps(payload, plen); break;
+    case CMD_CLEAR_FAULT:           handle_clear_fault(payload, plen); break;
+    case CMD_GET_FAULT_LOG:         handle_get_fault_log(payload, plen, seq); break;
+    case CMD_GET_LIFETIME_KWH:      handle_get_lifetime_kwh(seq); break;
+    case CMD_WRITE_CALIBRATION:     handle_write_calibration(payload, plen); break;
+    case CMD_REQUEST_STOP:          handle_request_stop(payload, plen); break;
+    case CMD_REQUEST_START_RESUME:  handle_request_start_resume(); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

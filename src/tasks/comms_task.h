@@ -21,4 +21,9 @@ void comms_task_create(void);
  * queue + worker. */
 int comms_publish_event(uint8_t cmd, const void *payload, size_t payload_len);
 
+/* Same, but tagged with a non-zero seq so it pairs with an outstanding
+ * request (used for response chains like GET_FAULT_LOG). */
+int comms_publish_event_seq(uint8_t cmd, uint8_t seq,
+                            const void *payload, size_t payload_len);
+
 #endif
