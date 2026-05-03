@@ -14,7 +14,13 @@
 #include "diag/stack_watch.h"
 #include "gd32f20x.h"
 
-#define IO_TICK_MS        50
+/* 25 ms = 40 fps LED render cadence. All other periodic work in this
+ * task (heartbeat 500 ms, ADC dump 5 s, stack dump 30 s) is also a
+ * clean multiple of 25 ms, so changing this didn't perturb anything
+ * but the LED smoothness. Cost: each LED frame is a 134 × 24-bit
+ * DMA burst (~3.4 ms) so 40 fps puts ~14 % CPU on the UI path.
+ * Plenty of room. */
+#define IO_TICK_MS        25
 #define HB_TOGGLE_MS      500
 #define DUMP_MS           5000
 #define ALIVE_MARKER_MS   60000U
