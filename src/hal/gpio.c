@@ -17,20 +17,25 @@ static void init_outputs_safe_low(void)
 {
     /* Drive pin LOW *before* configuring as output (BC clears the bit
      * regardless of current MODE). Then configure as output PP. This
-     * guarantees zero glitch to a momentary HIGH on any safety output. */
-    gpio_bit_reset(PIN_RELAY_MAIN_PORT, PIN_RELAY_MAIN_PIN);
-    gpio_bit_reset(PIN_RELAY_AUX_PORT,  PIN_RELAY_AUX_PIN);
-    gpio_bit_reset(PIN_GFCI_CAL_PORT,   PIN_GFCI_CAL_PIN);
-    gpio_bit_reset(PIN_BUZZER_PORT,     PIN_BUZZER_PIN);
-    gpio_bit_reset(PIN_U11_G0_PORT,     PIN_U11_G0_PIN);
-    gpio_bit_reset(PIN_U11_G1_PORT,     PIN_U11_G1_PIN);
-    gpio_bit_reset(PIN_FC41D_VEN_PORT,  PIN_FC41D_VEN_PIN);
-    gpio_bit_reset(PIN_FC41D_CEN_PORT,  PIN_FC41D_CEN_PIN);
-    gpio_bit_reset(PIN_FC41D_WAKE_PORT, PIN_FC41D_WAKE_PIN);
-    gpio_bit_reset(PIN_HEARTBEAT_PORT,  PIN_HEARTBEAT_PIN);
+     * guarantees zero glitch to a momentary HIGH on any safety output.
+     *
+     * Polarity (re-confirmed 2026-05-03): PE12 HIGH = closed, LOW =
+     * open. Idle LOW = open at boot, what we want. */
+    gpio_bit_reset(PIN_RELAY_MAIN_PORT,       PIN_RELAY_MAIN_PIN);
+    gpio_bit_reset(PIN_RELAY_AUX_PORT,        PIN_RELAY_AUX_PIN);
+    gpio_bit_reset(PIN_RELAY_FORCE_OPEN_PORT, PIN_RELAY_FORCE_OPEN_PIN);
+    gpio_bit_reset(PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
+    gpio_bit_reset(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
+    gpio_bit_reset(PIN_U11_G0_PORT,           PIN_U11_G0_PIN);
+    gpio_bit_reset(PIN_U11_G1_PORT,           PIN_U11_G1_PIN);
+    gpio_bit_reset(PIN_FC41D_VEN_PORT,        PIN_FC41D_VEN_PIN);
+    gpio_bit_reset(PIN_FC41D_CEN_PORT,        PIN_FC41D_CEN_PIN);
+    gpio_bit_reset(PIN_FC41D_WAKE_PORT,       PIN_FC41D_WAKE_PIN);
+    gpio_bit_reset(PIN_HEARTBEAT_PORT,        PIN_HEARTBEAT_PIN);
 
-    gpio_init(PIN_RELAY_MAIN_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_MAIN_PIN);
-    gpio_init(PIN_RELAY_AUX_PORT,  GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_AUX_PIN);
+    gpio_init(PIN_RELAY_MAIN_PORT,       GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_MAIN_PIN);
+    gpio_init(PIN_RELAY_AUX_PORT,        GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_AUX_PIN);
+    gpio_init(PIN_RELAY_FORCE_OPEN_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_FORCE_OPEN_PIN);
     gpio_init(PIN_GFCI_CAL_PORT,   GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_GFCI_CAL_PIN);
     gpio_init(PIN_BUZZER_PORT,     GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_BUZZER_PIN);
     gpio_init(PIN_U11_G0_PORT,     GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_U11_G0_PIN);
@@ -63,7 +68,6 @@ static void init_cp_pwm_pad(void)
 static void init_inputs_floating(void)
 {
     gpio_init(PIN_WS2812_PORT,      GPIO_MODE_IN_FLOATING, GPIO_OSPEED_50MHZ, PIN_WS2812_PIN);
-    gpio_init(PIN_RELAY_SENSE_PORT, GPIO_MODE_IN_FLOATING, GPIO_OSPEED_50MHZ, PIN_RELAY_SENSE_PIN);
     gpio_init(PIN_STRAP_PB7_PORT,   GPIO_MODE_IN_FLOATING, GPIO_OSPEED_50MHZ, PIN_STRAP_PB7_PIN);
     gpio_init(PIN_STRAP_PB14_PORT,  GPIO_MODE_IN_FLOATING, GPIO_OSPEED_50MHZ, PIN_STRAP_PB14_PIN);
 }

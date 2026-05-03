@@ -106,6 +106,15 @@ target_compile_definitions(${TARGET} PRIVATE
     HXTAL_VALUE=8000000
 )
 
+# Bench-time options. Default OFF unless explicitly passed via cmake.
+if(OPENBHZD_SEMIHOSTING)
+    target_compile_definitions(${TARGET} PRIVATE OPENBHZD_SEMIHOSTING=1)
+endif()
+if(DEFINED OPENBHZD_RELAY_ACTUATE_SELF_TEST)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_RELAY_ACTUATE_SELF_TEST=${OPENBHZD_RELAY_ACTUATE_SELF_TEST})
+endif()
+
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/gd32f205vc.ld)
 target_link_options(${TARGET} PRIVATE
     -T${LINKER_SCRIPT}

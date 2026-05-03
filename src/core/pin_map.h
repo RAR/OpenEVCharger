@@ -43,8 +43,17 @@
 #define PIN_ADC_CC_PIN          GPIO_PIN_7     /* rank 5, ch 7  */
 #define PIN_ADC_PE_PORT         GPIOC
 #define PIN_ADC_PE_PIN          GPIO_PIN_5     /* rank 6, ch 15 */
+/* PB0: still labelled NTC2 in pin map. A 2026-05-03 morning probe
+ * briefly suggested PB0 was the contactor closed-feedback (jumped
+ * 0 → 524 raw on PE12 toggle), but a more thorough afternoon
+ * sequence showed PB0 stays in the 565-686 raw range across ALL
+ * combinations of PE12 + PB12 / open + closed contactor. Likely an
+ * AC-mains-presence sense (rectified L1 upstream of the contactor),
+ * NOT relay-state. There is no known closed-feedback sense on this
+ * board — weld / stuck-open detection is currently blind, gated off
+ * via OPENBHZD_RELAY_FEEDBACK_KNOWN until a real sense is found. */
 #define PIN_ADC_NTC2_PORT       GPIOB
-#define PIN_ADC_NTC2_PIN        GPIO_PIN_0     /* rank 7, ch 8  */
+#define PIN_ADC_NTC2_PIN        GPIO_PIN_0     /* rank 7, ch 8; AC-presence */
 #define PIN_ADC_UNUSED_PORT     GPIOB
 #define PIN_ADC_UNUSED_PIN      GPIO_PIN_1     /* rank 8, ch 9  */
 #define PIN_ADC_BTN_PORT        GPIOC
@@ -64,8 +73,23 @@
 #define PIN_RELAY_MAIN_PIN      GPIO_PIN_12    /* DPDT main contactor */
 #define PIN_RELAY_AUX_PORT      GPIOE
 #define PIN_RELAY_AUX_PIN       GPIO_PIN_0     /* aux SPST */
-#define PIN_RELAY_SENSE_PORT    GPIOB          /* INPUT — read-only */
-#define PIN_RELAY_SENSE_PIN     GPIO_PIN_12
+
+/* PB12: HARDWARE SAFETY-OPEN LATCH OUTPUT. Bench-confirmed
+ * 2026-05-03 (afternoon sequence):
+ *   - Idle LOW: pilot relay open, no effect on main contactor.
+ *   - Driven HIGH while PE12 HIGH (contactor closed): forces the
+ *     main contactor open via a hardware latch (LOUD release click).
+ *   - LOW again does NOT re-close — the latch must be reset by
+ *     dropping PE12 LOW first, then PE12 HIGH again.
+ * This is a UL2231-style redundant force-open path: any fault
+ * condition that asserts PB12 will hardware-latch the contactor open
+ * even if the PE12 driver has stuck HIGH. OpenBHZD currently leaves
+ * PB12 LOW (don't assert) but configures it as output PP; future
+ * fault paths can assert it for redundant open. Stock firmware READS
+ * PB12 too (bidirectional / transistor open-collector sense), which
+ * is why driving it externally during probing fired the alarm. */
+#define PIN_RELAY_FORCE_OPEN_PORT  GPIOB
+#define PIN_RELAY_FORCE_OPEN_PIN   GPIO_PIN_12
 
 /* ----- GFCI ----- */
 #define PIN_GFCI_CAL_PORT       GPIOE

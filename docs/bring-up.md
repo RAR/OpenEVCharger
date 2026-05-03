@@ -1576,6 +1576,97 @@ Verified: post-fix flash, halt+`reg pc` shows the chip in
 `prvIdleTask` (FreeRTOS scheduler running), heartbeat LED back at
 1 Hz.
 
+## M7.b — Bench RE correction: PB12 force-open latch, sense unknown (2026-05-03)
+
+A morning bench probe of the M7 stack uncovered two RE mistakes
+inherited from the original pinout doc. Fix in this commit.
+
+### What we now know
+
+Live-AC bench sequence:
+- start: PE12 LOW + PB12 LOW → main contactor OPEN
+- PE12 LOW → HIGH (PB12 still LOW) → **LOUD click, contactor CLOSED**
+- PE12 HIGH → LOW → **LOUD click, contactor OPEN**
+- with PE12 LOW, toggling PB12 high or low → no effect (silent)
+- with PE12 HIGH (closed), toggling PB12 LOW → HIGH → **LOUD click,
+  contactor forced OPEN**
+- PB12 HIGH → LOW (with PE12 still HIGH) → does NOT re-close
+- PE12 HIGH → LOW → "resets" the latch; subsequent PE12 HIGH closes
+  again normally
+
+This is a **UL2231-style hardware safety latch**:
+
+| Pin  | Role                                                               |
+|------|--------------------------------------------------------------------|
+| PE12 | Primary close command. HIGH = closed, LOW = open.                  |
+| PB12 | Hardware **force-open latch**. HIGH while PE12 HIGH = forces open + latches. PE12 LOW resets the latch. |
+
+The advantage: even if the PE12 driver transistor or MCU pin sticks
+HIGH, asserting PB12 HIGH forces the contactor open via an
+independent path. Either pilot fault → safe-fail open.
+
+### What was wrong before
+
+1. **PB12 mis-identified as input/sense** — actually an output, the
+   force-open latch. Re-classified to `PIN_RELAY_FORCE_OPEN_*`,
+   configured as output PP idle-LOW in `gpio_init_all()`.
+2. **PB0/NTC2 mis-identified as closed-feedback** — bench data showed
+   it stays in 565-686 raw across all (PE12, PB12) combos and across
+   contactor open/closed. It's likely AC-mains-presence sense, not
+   contactor state. Reverted; `relay_main_sense_closed()` returns 0
+   hardcoded.
+3. **Polarity inversion attempt was wrong** — the "with mains, contactor
+   closes" observation was an artefact of PE12 being left HIGH from
+   manual openocd probing. Original Model A polarity (PE12 HIGH = close)
+   is correct. The brief inversion in this session was reverted within
+   minutes.
+
+### Firmware changes
+
+- `src/core/pin_map.h` — `PIN_RELAY_FORCE_OPEN_*` (PB12 output)
+  replaces `PIN_RELAY_SENSE_LEGACY_*`. PB0/NTC2 comment updated.
+- `src/hal/gpio.c` — PB12 added to safe-low init list, configured
+  as output PP. Removed from input-floating list.
+- `src/hal/relay.c/h` — `relay_force_open_latch()`,
+  `_release()`, `_active()` API added. `relay_main_sense_closed()`
+  now returns 0 (no reliable sense). `relay_main_sense_raw()` exposes
+  the AC-presence reading for diagnostic use.
+- `src/tasks/safety_task.c` — `OPENBHZD_RELAY_FEEDBACK_KNOWN` build
+  flag (default 0) gates off check_relay_weld + check_relay_stuck_open
+  to avoid false-positives when sense is unreliable.
+
+### Bench-time validation
+
+Post-flash:
+```
+PE12: 0x4001180c = 0x00000004    (PE12 LOW = open ✓)
+PB12 OCTL: 0x40010c0c = 0x150    (PB12 LOW = no force-open ✓)
+PB12 ISTAT: 0x40010c08 = 0xecf0  (PB12 reads LOW externally ✓)
+NTC2 sense: 0x20000028 = 0x1fc   (~508 raw — AC-presence "high" but
+                                  no longer treated as closed-feedback)
+```
+
+Force-open latch and main close paths both work via the API; live
+test of `relay_force_open_latch()` from firmware deferred — currently
+no fault path asserts it. M8 will hook FC41D `CLEAR_FAULT` into the
+re-arm sequence (PE12 LOW → release latch → re-issue close).
+
+`tools/relay_poke.sh` (new): manual openocd helper for these probes.
+Subcommands: `init / uninit / pe12-hi / pe12-lo / pb12-hi / pb12-lo /
+both-hi / both-lo / read`.
+
+Build size: text 23388 / data 20 / bss 27620 — flash 4.47%, RAM 21.09%.
+
+### Outstanding
+
+- **Real closed-feedback signal not yet identified.** Until found,
+  weld and stuck-open detectors are silent. CT902 current sensing
+  (M7+) might fill the role indirectly — measure current with relay
+  commanded open.
+- Bench main contactor was cycled many times during this debugging.
+  Listen for sticky behavior on next session; mechanical rest may be
+  warranted before extended cycling.
+
 ### Next milestone
 M8 — FC41D TLV protocol over UART5. Bench-safe (no contactor risk).
 Implements the binary frame parser/builder, command dispatch, async

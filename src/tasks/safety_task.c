@@ -20,12 +20,25 @@
  * = 60 ms. Matches spec § 3. */
 #define J1772_DEBOUNCE_N  3U
 
-/* Relay weld detection: PB12 reads "closed" while PE12 is commanded
- * open for >= 200 ms (10 ticks at 50 Hz). Spec § 4 #2.
- * Relay stuck-open detection: opposite — PB12 reads "open" while
- * PE12 is commanded closed for >= 200 ms. Spec § 4 #3. */
+/* Relay weld detection: sense reads "closed" while commanded open
+ * for >= 200 ms. Spec § 4 #2.
+ * Relay stuck-open detection: sense reads "open" while commanded
+ * closed for >= 200 ms. Spec § 4 #3.
+ *
+ * Both detectors require a working closed-feedback signal. PB12 was
+ * misidentified as that sense — it's actually the FORCE-OPEN LATCH
+ * output (see hal/relay.c). PB0/NTC2 was the next candidate but bench
+ * data showed it isn't relay-correlated either. Until we find the
+ * real sense, the detectors are gated off via the build flag below.
+ * Default 0 (silent) — no false positives, but also no weld/stuck
+ * detection. Production deployments must identify the closed-feedback
+ * signal AND set =1 before charging is safe under fault scenarios. */
 #define WELD_PERSIST_TICKS         10U
 #define STUCK_OPEN_PERSIST_TICKS   10U
+
+#ifndef OPENBHZD_RELAY_FEEDBACK_KNOWN
+#define OPENBHZD_RELAY_FEEDBACK_KNOWN 0
+#endif
 
 /* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
  * (60 ms). Spec § 4 #5. */
@@ -66,6 +79,10 @@
  * Either way, on a real installation with AC mains live this should
  * pass, so the spec-correct enable lives behind a compile-time flag
  * that can flip once the bench has been re-probed with mains live. */
+/* M7.2 — gated off by default. Polarity inversion landed in M7.b
+ * (PE12 HIGH = force open). Re-enable only after bench confirms the
+ * inverted-polarity actuate-and-readback works without welding the
+ * contactor. */
 #ifndef OPENBHZD_RELAY_ACTUATE_SELF_TEST
 #define OPENBHZD_RELAY_ACTUATE_SELF_TEST  0
 #endif
@@ -561,13 +578,17 @@ static void safety_task_run(void *arg)
             last_logged_j1772 = s;
         }
 
-        int sensed = relay_main_sense_closed();
         check_safe_fail(&fs, &es, s, cp_mv);
+#if OPENBHZD_RELAY_FEEDBACK_KNOWN
+        int sensed = relay_main_sense_closed();
         check_relay_weld(&fs, &es, sensed,
                          &weld_streak, &last_logged_sense,
                          s, cp_mv);
         check_relay_stuck_open(&fs, &es, sensed,
                                &stuck_open_streak, s, cp_mv);
+#else
+        (void)weld_streak; (void)stuck_open_streak; (void)last_logged_sense;
+#endif
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
 
         /* After all fault checks: classifier-driven EVSE transitions,
