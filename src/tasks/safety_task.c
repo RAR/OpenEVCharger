@@ -268,6 +268,46 @@ static int self_test_relay_actuate(void)
     return ST_RELAY_OK;
 }
 
+/* J1772 state -> EVSE state transitions. Spec § 3:
+ *   READY    + J1772=C → CHARGING
+ *   CHARGING + J1772≠C → READY (C->B regression is a transient pause;
+ *                       relay opens immediately; allows re-progression)
+ * Sticky: BOOT, SELF_TEST, FAULT do not transition out via this path.
+ * USER_PAUSED / COOLING_DOWN are M8/M6.b respectively, not entered yet. */
+static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js)
+{
+    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST) {
+        return;
+    }
+    if (*es == EVSE_READY && js == J1772_STATE_C) {
+        evse_transition(es, EVSE_CHARGING);
+    } else if (*es == EVSE_CHARGING && js != J1772_STATE_C) {
+        evse_transition(es, EVSE_READY);
+    }
+}
+
+/* Per-tick relay-state owner. Closes the contactor only when the
+ * vehicle is actively requesting current (J1772=C) AND no latched
+ * fault is active AND we're in a charging-eligible EVSE state. Any
+ * deviation opens immediately. Single-writer of PE12 per spec § 4. */
+static void apply_relay_state(j1772_state_t js, evse_state_t es,
+                              const fault_state_t *fs)
+{
+    int want_closed = (es == EVSE_CHARGING) &&
+                      (js == J1772_STATE_C) &&
+                      !fault_any_latched_active(fs);
+
+    if (want_closed && !relay_main_commanded()) {
+        printk("relay: close (J1772=C, EVSE=%s)\n", evse_state_name(es));
+        relay_main_close();
+    } else if (!want_closed && relay_main_commanded()) {
+        printk("relay: open (J1772=%s, EVSE=%s, faults=0x%x)\n",
+               j1772_state_name(js), evse_state_name(es),
+               (unsigned)fs->active_bits);
+        relay_main_open();
+    }
+}
+
 static void check_cp_e(fault_state_t *fs, evse_state_t *es,
                        j1772_state_t js, int32_t cp_mv,
                        int *cp_e_streak)
@@ -398,6 +438,12 @@ static void safety_task_run(void *arg)
                          &weld_streak, &last_logged_sense,
                          s, cp_mv);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
+
+        /* After all fault checks: classifier-driven EVSE transitions
+         * and relay state. Faults preempt — both helpers honor
+         * EVSE_FAULT as sticky. */
+        update_evse_from_j1772(&es, s);
+        apply_relay_state(s, es, &fs);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SAFETY_TASK_PERIOD_MS));
     }

@@ -1378,9 +1378,40 @@ Build size: text 22628 / data 20 / bss 27604 — flash 4.32%, RAM 21.08%.
 +124 B text vs M7.1 (the actuate routine compiles in but is unreachable
 when the flag is 0).
 
+## M7.3 — J1772 state-driven relay control (2026-05-03)
+
+Per-tick relay state in `safety_task`:
+
+- `update_evse_from_j1772()` — READY + J1772=C → CHARGING;
+  CHARGING + J1772≠C → READY (the spec § 3 C→B regression as a
+  transient pause, allowing re-progression). FAULT/BOOT/SELF_TEST
+  are sticky and not exited via this path.
+- `apply_relay_state()` — close iff (EVSE=CHARGING AND J1772=C AND
+  no latched faults). Single-writer of PE12 per spec § 4. Logs every
+  transition.
+
+Bench: with no vehicle plugged, J1772 stays in A → EVSE stays in
+READY → relay stays open. As expected (no probe to drive 882 Ω
+state-C without a J1772 dummy plug or resistor, this is code-only
+validation today). Path will exercise live the moment a 882 Ω across
+CP↔PE drops cp_high_mv into the C band.
+
+```
+EVSE state BOOT -> SELF_TEST
+self-test: PASS
+self-test: relay actuate test DISABLED at build time
+EVSE state SELF_TEST -> READY
+J1772 state=A cp=12000 mV
+relay sense: open (cmd=open)
+```
+
+Build: text 23176 / data 20 / bss 27604 — flash 4.43%, RAM 21.08%.
++548 B text vs M7.2 (the actuate-and-readback routine + new helpers).
+
 ### Next sub-milestone
-M7.3 — J1772 state-driven relay control. Per-tick: J1772=C and no
-fault → close PE12; A/B/E/F/D → open. Closes the runtime side of the
-charging cycle. Bench observable via PE12 toggle on scope; without a
-J1772 dummy plug to drive C, this lands as code-only validation
-until M7.4/M9 bench prep.
+M7.4 — advertised-amps duty drive. Look up advertised_amps from
+boot_config (FC41D-set, M5.b.1) clamped to DIP1 (40 A / 48 A) and
+hardware cap (48 A). Replace `cp_pwm_set_idle_high()` in
+EVSE_CHARGING with `cp_pwm_set_advertise_amps(amps)`. Without a load
+to draw current, this lands as observable PE13 duty cycle on scope
+only — no bench risk.
