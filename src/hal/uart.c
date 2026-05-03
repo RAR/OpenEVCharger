@@ -8,8 +8,22 @@ static volatile uint8_t s_uart_ready = 0;
 /* ARM semihosting tee — when an OpenOCD/gdb debugger is attached and has
  * `arm semihosting enable`d, every uart_write() call also surfaces in the
  * debugger console. Lets us see printk output without a physical UART
- * probe; harmless when no debugger is attached (the BKPT 0xAB issues are
- * gated on DHCSR.C_DEBUGEN). */
+ * probe.
+ *
+ * IMPORTANT: BKPT 0xAB halts the chip forever if no host is actively
+ * servicing it. The DHCSR.C_DEBUGEN gate is unreliable: openocd does NOT
+ * clear that bit on `shutdown`, so it stays set across openocd
+ * disconnects and a subsequent printk freezes the MCU. Behavior observed
+ * after multiple monitor cycles 2026-05-03: heartbeat LED stops because
+ * io_task gets stuck in uart_write() during its first printk after
+ * openocd exited.
+ *
+ * Therefore default OFF. Enable for monitor-attached bench sessions
+ * with `cmake -DOPENBHZD_SEMIHOSTING=1`. */
+#ifndef OPENBHZD_SEMIHOSTING
+#define OPENBHZD_SEMIHOSTING 0
+#endif
+
 #define DHCSR_ADDR    0xE000EDF0u
 #define DHCSR_DEBUGEN 0x00000001u
 
@@ -20,12 +34,18 @@ static int debugger_attached(void)
 
 static void semihost_write(const void *buf, size_t len)
 {
+#if OPENBHZD_SEMIHOSTING
     if (!debugger_attached() || len == 0) return;
     struct { int handle; const char *buf; int len; } args =
         { 2 /* stderr */, (const char *)buf, (int)len };
     register int r0 __asm__("r0") = 0x05;       /* SYS_WRITE */
     register const void *r1 __asm__("r1") = &args;
     __asm volatile ("bkpt 0xAB" : "+r"(r0) : "r"(r1) : "memory");
+#else
+    (void)buf;
+    (void)len;
+    (void)debugger_attached;
+#endif
 }
 
 void uart_init(void)

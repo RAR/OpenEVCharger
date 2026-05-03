@@ -1540,6 +1540,42 @@ Bench carve-outs:
   Without it, the charging cycle is code-only validated.
 - **mWh integration** stalled on CT902 zero-offset baseline.
 
+## Bench fix — semihost tee defaulted off (2026-05-03)
+
+After M7.6, the heartbeat LED stopped blinking. Halt + PC read
+showed the chip stuck inside `semihost_write` at the `BKPT 0xAB`
+instruction. Root cause: openocd's `shutdown` command does not
+clear `DHCSR.C_DEBUGEN`. The bit stays set across openocd
+disconnects, so the next `BKPT 0xAB` issued by io_task halts the
+core — which then waits forever for a debugger that's no longer
+there.
+
+`debugger_attached()` was checking exactly this bit, but because the
+bit is sticky-on, the gate doesn't catch the post-disconnect case.
+
+Fix: gated the BKPT body behind a build flag with default OFF:
+
+```c
+#ifndef OPENBHZD_SEMIHOSTING
+#define OPENBHZD_SEMIHOSTING 0
+#endif
+```
+
+Production builds (default) issue no BKPTs and never freeze.
+Monitor-attached bench debugging uses
+`cmake -B build -DOPENBHZD_SEMIHOSTING=1` and reflashes; that build
+still streams printk to openocd. `openocd-monitor.sh` updated with
+a banner explaining the workflow.
+
+Trade-off: with the default off, printk is silent (PA9 UART is
+physically inaccessible per `feedback_openbhzd_pa9_inaccessible`),
+so production builds have no debug visibility. Acceptable for
+deployed firmware; for bench iteration we toggle the flag.
+
+Verified: post-fix flash, halt+`reg pc` shows the chip in
+`prvIdleTask` (FreeRTOS scheduler running), heartbeat LED back at
+1 Hz.
+
 ### Next milestone
 M8 — FC41D TLV protocol over UART5. Bench-safe (no contactor risk).
 Implements the binary frame parser/builder, command dispatch, async
