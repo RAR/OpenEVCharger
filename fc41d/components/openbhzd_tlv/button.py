@@ -1,0 +1,63 @@
+import esphome.codegen as cg
+import esphome.config_validation as cv
+from esphome.components import button
+
+from . import openbhzd_tlv_ns, OpenbhzdTlv
+
+CONF_OPENBHZD_TLV_ID = "openbhzd_tlv_id"
+
+CONF_PING = "ping"
+CONF_REQUEST_STOP = "request_stop"
+CONF_REQUEST_START_RESUME = "request_start_resume"
+CONF_CLEAR_FAULT_ALL = "clear_fault_all"
+CONF_REFRESH_STATE = "refresh_state"
+CONF_REFRESH_BUILD_INFO = "refresh_build_info"
+CONF_REFRESH_FAULT_LOG = "refresh_fault_log"
+CONF_REFRESH_LIFETIME_KWH = "refresh_lifetime_kwh"
+CONF_BUZZER_BEEP = "buzzer_beep"
+CONF_BUZZER_MS = "buzzer_ms"
+
+OpenbhzdTlvButton = openbhzd_tlv_ns.class_("OpenbhzdTlvButton", button.Button)
+ButtonAction = openbhzd_tlv_ns.enum("ButtonAction", is_class=True)
+
+# Map YAML key → ButtonAction enum member.
+_FIELDS = {
+    CONF_PING: "PING",
+    CONF_REQUEST_STOP: "REQUEST_STOP",
+    CONF_REQUEST_START_RESUME: "REQUEST_START_RESUME",
+    CONF_CLEAR_FAULT_ALL: "CLEAR_FAULT_ALL",
+    CONF_REFRESH_STATE: "GET_STATE",
+    CONF_REFRESH_BUILD_INFO: "GET_BUILD_INFO",
+    CONF_REFRESH_FAULT_LOG: "GET_FAULT_LOG",
+    CONF_REFRESH_LIFETIME_KWH: "GET_LIFETIME_KWH",
+    CONF_BUZZER_BEEP: "BUZZER_BEEP",
+}
+
+# buzzer_beep takes an optional `buzzer_ms`.
+_BUZZER_SCHEMA = button.button_schema(OpenbhzdTlvButton).extend(
+    {cv.Optional(CONF_BUZZER_MS, default=50): cv.int_range(min=1, max=500)}
+)
+
+CONFIG_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(CONF_OPENBHZD_TLV_ID): cv.use_id(OpenbhzdTlv),
+        **{
+            cv.Optional(key): _BUZZER_SCHEMA
+            if key == CONF_BUZZER_BEEP
+            else button.button_schema(OpenbhzdTlvButton)
+            for key in _FIELDS
+        },
+    }
+)
+
+
+async def to_code(config):
+    parent = await cg.get_variable(config[CONF_OPENBHZD_TLV_ID])
+    for key, action_name in _FIELDS.items():
+        if conf := config.get(key):
+            b = await button.new_button(conf)
+            cg.add(b.set_parent(parent))
+            cg.add(b.set_action(getattr(ButtonAction, action_name)))
+            if key == CONF_BUZZER_BEEP:
+                cg.add(b.set_buzzer_ms(conf[CONF_BUZZER_MS]))
+            cg.add(parent.register_button(b))

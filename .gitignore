@@ -28,3 +28,7 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+
+# ESPHome FC41D firmware: build cache + per-checkout secrets
+fc41d/.esphome/
+fc41d/secrets.yaml
