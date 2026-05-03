@@ -2,18 +2,26 @@
 #include "../core/pin_map.h"
 #include "gd32f20x.h"
 
-#define WS_PERIOD_TICKS   74U   /* ARR — 75 timer ticks total = 1.25 µs */
+/* Standard WS2812B timing (1.25 µs/bit). Bench 2026-05-03: tried
+ * WS2811 (2.5 µs/bit) too — same uniform-blue result. Neither
+ * timing+pack combination produced visibly differentiable colour.
+ * See "M9 LED strip mystery" carve-out in projectstate.txt for
+ * unresolved questions. */
+#define WS_PERIOD_TICKS   74U   /* ARR — 75 timer ticks @ 60 MHz = 1.25 µs */
 #define WS_T0H_TICKS      24U   /* T0H = 0.40 µs */
 #define WS_T1H_TICKS      48U   /* T1H = 0.80 µs */
 
 #define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
-#define WS_RESET_PADDING  60U   /* 60 × 1.25 µs = 75 µs latch (spec ≥ 50 µs) */
+#define WS_RESET_PADDING  60U   /* 60 × 1.25 µs = 75 µs latch (≥ 50 µs spec) */
 
 #define WS_FRAME_BITS     (OPENBHZD_WS2812_LEDS * WS_BITS_PER_LED)
 #define WS_BUF_HALFWORDS  (WS_FRAME_BITS + WS_RESET_PADDING)
 
-/* GRB order is what the WS2812 wire protocol uses. We expose RGB to
- * callers and pack into GRB on set_pixel. */
+/* Wire byte order: GRB (WS2812B spec). The bench strip showed
+ * uniform "white-ish blue" with GRB, BGR, and GBR pack orders during
+ * 2026-05-03 debug — the colour was insensitive to data, suggesting
+ * the issue is electrical (level mismatch, buffer in the path) not
+ * byte order. Reverting to spec default. */
 static uint16_t s_buf[WS_BUF_HALFWORDS];
 static volatile int s_dma_busy = 0;
 

@@ -14,8 +14,8 @@
  * into TIMER1_CH0_CCR. Buffer is u16 to keep transfer width consistent.
  *
  * LED count is fixed at compile time. Bench-confirmed 2026-05-03:
- * the on-board strip has 134 LEDs (binary-narrowed from N=8 → 60 →
- * 144 → 134 by lighting the strip and counting the dark tail).
+ * the on-board strip has 134 LEDs (binary-narrowed by lighting the
+ * strip and counting the dark tail).
  * Override via:
  *   cmake -DOPENBHZD_WS2812_LEDS=N
  *

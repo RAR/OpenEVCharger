@@ -96,8 +96,12 @@ static void io_task_run(void *arg)
 
         buzzer_tick(ms);
 
-        /* LED render — every ~60 ms is plenty for human eye, every
-         * other tick at 50 Hz io. ws2812_show is non-blocking. */
+        /* LED render — every ~60 ms is plenty for human eye. Strip
+         * driver is wired up but bench protocol/electrical match is
+         * still an open question (see projectstate "M9 LED strip
+         * mystery"); render runs regardless so the moment the right
+         * pin/timing/pack/level combination is found the colours fall
+         * into place. */
         if ((ms % 60u) == 0) {
             uint8_t ovr_mode = 0;
             uint8_t ovr_rgb[3] = {0, 0, 0};
