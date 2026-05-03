@@ -98,13 +98,14 @@ static void io_task_run(void *arg)
 
         buzzer_tick(ms);
 
-        /* LED render — every ~60 ms is plenty for human eye. Strip
-         * driver is wired up but bench protocol/electrical match is
-         * still an open question (see projectstate "M9 LED strip
-         * mystery"); render runs regardless so the moment the right
-         * pin/timing/pack/level combination is found the colours fall
-         * into place. */
-        if ((ms % 60u) == 0) {
+        /* LED render every io_task tick = 20 fps. Earlier `ms % 60 == 0`
+         * gate misaligned with the 50 ms tick and only fired at
+         * LCM(50,60) = 300 ms boundaries (≈ 3 fps), making the
+         * breathing animation visibly chunky. 20 fps is well above
+         * flicker-fusion threshold and barely costs anything — each
+         * frame is a 134 × 24-bit DMA burst (~3.4 ms) plus a few
+         * hundred cycles of pattern math. */
+        {
             uint8_t ovr_mode = 0;
             uint8_t ovr_rgb[3] = {0, 0, 0};
             led_override_get(&ovr_mode, ovr_rgb);
