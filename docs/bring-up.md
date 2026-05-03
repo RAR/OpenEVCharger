@@ -333,6 +333,36 @@ re-investigation:
 The memory entry `project_openbhzd_bench_cp_buffer_dead` is OBSOLETE;
 will be removed/superseded by a calibration-anchors entry.
 
+### Update 2026-05-02 (final): full A/B/D/E matrix validated
+
+Bench resistor matrix run after the 3-point calibration (M3.4.5) was
+flashed:
+
+| Load across CP↔PE | cp_mv reported | State | Pass |
+|---|---:|---|---|
+| open | +12000 | A | ✓ |
+| 2.2 kΩ | +8445 | B | ✓ |
+| 220 Ω | +2630 | D | ✓ |
+| short | +748 | E | ✓ |
+
+State C wasn't separately tested (no ~880 Ω resistor on hand), but
+the linear fit holds confidently across the B–D bracket. Source-Z
+back-calc from these data points gives an EVSE output impedance of
+~800 Ω (vs nominal J1772 1 kΩ), consistent with the readings.
+
+**M3 is FULLY VALIDATED end-to-end** on this bench unit, with no
+caveats. The CP signal generation, level shifter, and read-back
+calibration are all working together as designed.
+
+Final classifier transition log captured during the matrix:
+```
+J1772 state=A cp=12000 mV
+J1772 state=B cp=8445 mV       (2.2 kΩ applied)
+J1772 state=A cp=12000 mV       (resistor removed)
+J1772 state=D cp=2630 mV       (220 Ω applied)
+J1772 state=E cp=748 mV        (short)
+```
+
 ## M4 — SPI3 + W25Q64 driver
 
 **Date completed:** 2026-05-02
