@@ -95,7 +95,13 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void setup() override;
   void loop() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::BUS; }
+  // AFTER_WIFI (not BUS) so our setup() runs once WiFi has been put
+  // into STA mode by the wifi component. WiFi.setMacAddress() only
+  // triggers the radio re-init that propagates the new MAC down to
+  // the BK SDK if WiFi mode is non-NULL when it's called.
+  float get_setup_priority() const override {
+    return setup_priority::AFTER_WIFI;
+  }
 
   void set_poll_interval(uint32_t ms) { poll_interval_ms_ = ms; }
   void set_link_timeout(uint32_t ms) { link_timeout_ms_ = ms; }
@@ -191,8 +197,13 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint32_t fault_count_{0};
   bool last_link_up_{false};
   bool mac_overridden_{false};
+  bool mac_status_logged_{false};
+  bool mac_set_rc_{false};
+  uint8_t mac_before_[6]{};
+  uint8_t mac_after_[6]{};
 
   void apply_mac_override_(const uint8_t mac[6]);
+  void maybe_log_mac_status_();
 
 #ifdef USE_SENSOR
   sensor::Sensor *cp_high_mv_sensor_{nullptr};

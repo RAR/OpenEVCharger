@@ -95,7 +95,9 @@ static void handle_get_device_id(uint8_t seq)
     const uint8_t *uid = (const uint8_t *)0x1FFFF7E8u;
     uint8_t buf[12];
     for (int i = 0; i < 12; ++i) buf[i] = uid[i];
-    (void)send_frame(EVT_DEVICE_ID, seq, buf, sizeof(buf));
+    int rc = send_frame(EVT_DEVICE_ID, seq, buf, sizeof(buf));
+    printk("comms: GET_DEVICE_ID seq=%u rc=%d uid[0]=%02x\n",
+           (unsigned)seq, rc, (unsigned)uid[0]);
 }
 
 static void handle_set_led_override(const uint8_t *p, size_t plen)

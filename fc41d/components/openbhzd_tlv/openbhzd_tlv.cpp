@@ -59,6 +59,20 @@ void OpenbhzdTlv::setup() {
 }
 
 void OpenbhzdTlv::loop() {
+  maybe_log_mac_status_();
+
+  // Re-fire GET_DEVICE_ID every 2 s until the MCU answers. The
+  // setup-time spin-wait can miss the reply if the MCU is busy or
+  // the WiFi component's setup chewed up the UART RX window.
+  if (!mac_overridden_) {
+    static uint32_t last_devid_retry = 0;
+    uint32_t now = millis();
+    if (now - last_devid_retry > 2000) {
+      last_devid_retry = now;
+      send_get_device_id();
+    }
+  }
+
   while (this->available()) {
     uint8_t b;
     if (!this->read_byte(&b)) break;
@@ -440,19 +454,50 @@ uint8_t OpenbhzdTlv::send_get_device_id() {
 }
 
 void OpenbhzdTlv::apply_mac_override_(const uint8_t mac[6]) {
-  ESP_LOGI(TAG,
-           "MAC override: %02X:%02X:%02X:%02X:%02X:%02X (from GD32 UID96)",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 #ifdef USE_LIBRETINY
+  WiFi.macAddress(mac_before_);
   // LibreTiny's WiFi.setMacAddress validates the unicast bit, copies
   // into system_mac, and bounces the radio mode if it's already up.
-  // setup_priority::BUS gets us in here before WiFi component setup.
-  if (!WiFi.setMacAddress(mac)) {
-    ESP_LOGW(TAG, "WiFi.setMacAddress() refused — keeping OEM MAC");
-  }
+  // We run at AFTER_WIFI so the bounce fires and the BK SDK actually
+  // re-reads system_mac on the next mode change.
+  mac_set_rc_ = WiFi.setMacAddress(mac);
+  WiFi.macAddress(mac_after_);
+  // Don't log yet — the API client isn't attached this early in boot
+  // so OTA `esphome run` log streams can't capture lines emitted from
+  // setup(). loop() re-emits once the device has been up long enough
+  // for the API to be live; mac_status_logged_ guards against repeats.
 #else
   ESP_LOGD(TAG, "MAC override no-op — not building under LibreTiny");
 #endif
+}
+
+void OpenbhzdTlv::maybe_log_mac_status_() {
+  if (mac_status_logged_) return;
+  // Wait ~10 s after boot so the API client / OTA log stream is live.
+  if (millis() < 10000) return;
+
+#ifdef USE_LIBRETINY
+  uint8_t live[6] = {0};
+  WiFi.macAddress(live);
+  if (mac_overridden_) {
+    ESP_LOGI(TAG,
+             "MAC override status: was %02X:%02X:%02X:%02X:%02X:%02X "
+             "after-set %02X:%02X:%02X:%02X:%02X:%02X "
+             "live %02X:%02X:%02X:%02X:%02X:%02X (rc=%d)",
+             mac_before_[0], mac_before_[1], mac_before_[2],
+             mac_before_[3], mac_before_[4], mac_before_[5],
+             mac_after_[0], mac_after_[1], mac_after_[2],
+             mac_after_[3], mac_after_[4], mac_after_[5],
+             live[0], live[1], live[2], live[3], live[4], live[5],
+             mac_set_rc_ ? 1 : 0);
+  } else {
+    ESP_LOGW(TAG,
+             "MAC override SKIPPED — no DEVICE_ID from MCU within 500ms; "
+             "live MAC stays %02X:%02X:%02X:%02X:%02X:%02X",
+             live[0], live[1], live[2], live[3], live[4], live[5]);
+  }
+#endif
+  mac_status_logged_ = true;
 }
 
 uint8_t OpenbhzdTlv::send_set_advertised_amps(uint8_t amps) {
