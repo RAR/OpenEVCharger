@@ -1408,10 +1408,53 @@ relay sense: open (cmd=open)
 Build: text 23176 / data 20 / bss 27604 — flash 4.43%, RAM 21.08%.
 +548 B text vs M7.2 (the actuate-and-readback routine + new helpers).
 
+## M7.4 — Advertised-amps duty + DIP1/hw cap (2026-05-03)
+
+`safety_task` now drives the CP duty cycle as a function of
+(EVSE state, J1772 state, advertised amps). Spec § 3 PWM table:
+
+```
+EVSE=FAULT       → state F (-12 V)        // sticky, drive on transition
+J1772=A or E/F   → idle high (+12 V)      // 0% advertise
+J1772=B/C/D      → cp_pwm_set_advertise_amps(effective_advertised_amps())
+```
+
+`effective_advertised_amps()` returns
+`min(boot_config.fc41d_advertised_amps OR DIP1_cap, DIP1_cap, hw_cap)`:
+
+- `boot_config.fc41d_advertised_amps` — set by FC41D over the M8 TLV
+  protocol (currently zero-init or whatever was last persisted).
+  `0` = unset → fall back to DIP1 cap.
+- DIP1 closed (PD13 reads LOW via pull-up) → 40 A; open → 48 A.
+- Hardware contactor: 48 A.
+
+Per-tick `apply_cp_for_state()` writes CCR. `evse_transition` to
+EVSE_FAULT immediately drives state F so EV doesn't see a 20 ms
+window of stale CP after a fault.
+
+### Bench validation
+
+DIP1 reads closed (`STRAPS: dip=0011`) → DIP1 cap = 40 A.
+boot_config has `fc41d_advertised_amps=32` from earlier sessions.
+Effective amps = min(32, 40, 48) = 32 A. Duty would be
+`32 × 0.6 = 19.2%` if we entered J1772=B/C/D, but we're at A so CP
+stays at idle high. Path is code-only validated; live PE13 duty
+observable on scope only when a J1772 dummy plug or 2.74 kΩ load
+drops cp_high_mv into the B band.
+
+```
+STRAPS: dip=0011 pb7=1 pb8=0 pe2=1 pb14=1
+EVSE state BOOT -> SELF_TEST -> READY
+J1772 state=A cp=12000 mV
+relay sense: open (cmd=open)
+```
+
+Build: text 23336 / data 20 / bss 27604 — flash 4.46%, RAM 21.08%.
++160 B text vs M7.3.
+
 ### Next sub-milestone
-M7.4 — advertised-amps duty drive. Look up advertised_amps from
-boot_config (FC41D-set, M5.b.1) clamped to DIP1 (40 A / 48 A) and
-hardware cap (48 A). Replace `cp_pwm_set_idle_high()` in
-EVSE_CHARGING with `cp_pwm_set_advertise_amps(amps)`. Without a load
-to draw current, this lands as observable PE13 duty cycle on scope
-only — no bench risk.
+M7.5 — relay stuck-open detector. Symmetric to M6.2 weld detector:
+commanded close + sensed open ≥ 200 ms → `FAULT_RELAY_STUCK_OPEN`.
+Until M7.2 OPENBHZD_RELAY_ACTUATE_SELF_TEST flips to default-on, this
+detector also won't fire on bench (same sense-circuit unknown), but
+the catalog entry gets its detector hook ready for production.

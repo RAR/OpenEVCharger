@@ -11,6 +11,7 @@
 #include "../core/pin_map.h"
 #include "../persist/crash_state.h"
 #include "../persist/event_log.h"
+#include "../persist/boot_config.h"
 #include "persist_task.h"
 #include "gd32f20x.h"
 
@@ -33,6 +34,14 @@
 
 /* CP state-A floor in mV; spec § 3 state table threshold for A. */
 #define ST_CP_STATE_A_MIN_MV  10500
+
+/* Hardware advertise caps. Spec § 3:
+ *   - DIP1 closed → 40 A; DIP1 open → 48 A
+ *   - Hardware contactor rating: 48 A
+ *   - FC41D-requested amps clamps to min(DIP1, hw cap, fc41d). */
+#define HW_AMPS_MAX        48U
+#define DIP1_AMPS_CLOSED   40U
+#define DIP1_AMPS_OPEN     48U
 
 /* Relay actuate-and-readback self-test: spec § 4.1.4 step 4. Total
  * budget 50 ms with CP held in state A. Close, poll PB12 every 5 ms
@@ -68,18 +77,36 @@ enum st_relay_result {
     ST_RELAY_WELD_AT_BOOT    = 2,
 };
 
-/* Map EVSE state -> CP output. Called once per transition.
- *
- * - FAULT      : drive CP to -12 V (J1772 state F, "EVSE not ready")
- * - CHARGING   : (M7 will drive advertised duty here; for now idle high)
- * - everything : idle HIGH (+12 V) — state-A-equivalent advertise
- *   else
+/* Effective advertised amps = min(FC41D, DIP1 cap, hardware cap).
+ * FC41D=0 means "unset" → fall back to DIP1 cap. DIP1 input is
+ * pull-up, active-low (closed switch reads LOW). Spec § 3. */
+static uint8_t effective_advertised_amps(void)
+{
+    int dip1_closed = (gpio_input_bit_get(PIN_DIP1_PORT, PIN_DIP1_PIN) == RESET) ? 1 : 0;
+    uint8_t hw_cap   = HW_AMPS_MAX;
+    uint8_t dip1_cap = dip1_closed ? DIP1_AMPS_CLOSED : DIP1_AMPS_OPEN;
+    uint8_t cap = (dip1_cap < hw_cap) ? dip1_cap : hw_cap;
+    uint8_t fc  = boot_config_advertised_amps();
+    if (fc == 0U) return cap;
+    return (fc < cap) ? fc : cap;
+}
+
+/* Per-tick CP output dispatch. Spec § 3 PWM-duty-vs-state table:
+ *   J1772=A     → idle high (+12 V), 0% advertise
+ *   J1772=B/C/D → advertised amps duty
+ *   J1772=E     → 0% (idle high) — relay open by other path
+ *   J1772=F     → state-F (-12 V) — but we only drive F on FAULT
+ *   EVSE=FAULT  → state-F regardless of J1772
  *
  * safety_task is the single owner of TIM1_CCR3 per spec § 4. */
-static void evse_apply_cp(evse_state_t s)
+static void apply_cp_for_state(evse_state_t es, j1772_state_t js)
 {
-    if (s == EVSE_FAULT) {
+    if (es == EVSE_FAULT) {
         cp_pwm_set_state_f();
+        return;
+    }
+    if (js == J1772_STATE_B || js == J1772_STATE_C || js == J1772_STATE_D) {
+        cp_pwm_set_advertise_amps(effective_advertised_amps());
     } else {
         cp_pwm_set_idle_high();
     }
@@ -90,7 +117,12 @@ static void evse_transition(evse_state_t *cur, evse_state_t next)
     if (*cur == next) return;
     printk("EVSE state %s -> %s\n", evse_state_name(*cur), evse_state_name(next));
     *cur = next;
-    evse_apply_cp(next);
+    /* FAULT entry must drive CP to state F immediately (don't wait
+     * for the next 20 ms tick). Other states refresh per-tick from
+     * apply_cp_for_state(). */
+    if (next == EVSE_FAULT) {
+        cp_pwm_set_state_f();
+    }
 }
 
 /* Post a fault-raise event to the W25Q event_log via persist_task.
@@ -439,11 +471,12 @@ static void safety_task_run(void *arg)
                          s, cp_mv);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
 
-        /* After all fault checks: classifier-driven EVSE transitions
-         * and relay state. Faults preempt — both helpers honor
+        /* After all fault checks: classifier-driven EVSE transitions,
+         * relay state, and CP output. Faults preempt — helpers honor
          * EVSE_FAULT as sticky. */
         update_evse_from_j1772(&es, s);
         apply_relay_state(s, es, &fs);
+        apply_cp_for_state(es, s);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SAFETY_TASK_PERIOD_MS));
     }
