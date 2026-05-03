@@ -52,6 +52,7 @@ set(FREERTOS_SRCS
 
 set(APP_SRCS
     src/main.c
+    src/core/fault.c
     src/core/j1772.c
     src/hal/wdg.c
     src/hal/uart.c

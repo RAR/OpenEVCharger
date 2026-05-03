@@ -935,12 +935,50 @@ W25Q layout (8 MB chip, 64 KB used):
 | 0x04C000 | boot_count | M5 |
 | 0x04D000-0x04EFFF | crash_state (ping-pong) | M5.b.6 |
 
+## M6.1 — Fault catalog + EVSE state machine skeleton (2026-05-02)
+
+First step of M6 (safety supervisor + faults). Lands the data model
+without any detection logic.
+
+Built:
+
+- `src/core/fault.{c,h}`: 19-fault catalog (13 latched + 5
+  self-clearing + sentinel). `fault_state_t` is a `uint32_t`
+  active-bitmap + first-raised tracker. API: raise / clear /
+  is_active / any_active / any_latched_active / is_latched_kind /
+  clear_all_clearable / fault_name. Pure C, host-testable per
+  spec § 11.
+- `src/core/evse_state.h`: 7 supervisor states (BOOT, SELF_TEST,
+  READY, CHARGING, USER_PAUSED, COOLING_DOWN, FAULT) per spec § 5.
+- `src/tasks/safety_task.c`: now owns `fault_state_t` + `evse_state_t`.
+  Boot path: BOOT → SELF_TEST → READY (or FAULT if
+  `crash_state_is_safe_fail()` reports the safe-fail latch).
+  Logs every state transition + every fault raise.
+
+Bench validation (post-M5.b state, fast_restart=3, no safe-fail):
+
+```
+W25Q: JEDEC ID = 0xc84017
+boot_count = 58
+boot_config: loaded from slot B (counter=2, advertised_amps=32)
+calibration: loaded from slot A (counter=3, anchor=1462, slope=3540/459)
+event_log: scan complete: valid=30 corrupt=0 blank=8162 head=0x0043c0 slot=30
+session_log: scan complete: valid=2 corrupt=0 blank=1022 head=0x044040 slot=2
+crash_state: fast_restart=3 (slot A counter=3)
+scheduler starting
+EVSE state BOOT -> SELF_TEST
+EVSE state SELF_TEST -> READY
+J1772 state=A cp=12000 mV
+```
+
+No FAULT_CRASH_LOOP_SAFE_FAIL raised (fast_restart=3 < threshold=5).
+Boot path lands cleanly in EVSE_READY.
+
+Build size: text 21252 / data 20 / bss 27596 — flash 4.06%, RAM 21.07%.
+
 ### Next milestone
-M6 — safety supervisor + faults. Now unblocked. Will: implement the
-fault state machine (latched/non-latched), GFCI EXTI handler (PE3 CAL
-line drive, edge detect), relay weld detect via PB12 readback, CP=E
-classifier output → fault, ADC out-of-range, hard/soft over-current,
-CC range, AC absent. M6 becomes the single owner of relay PE12/PE0 +
-TIM1_CCR3 changes; safety_task posts a fault event_record via
-persist_post_event() on every fault raise; consumes
-crash_state_is_safe_fail() to refuse to enable charging.
+M6.2 — read-only PB12 relay-sense readback. Logs the raw value, raises
+FAULT_RELAY_WELD if PB12 reads "closed" while we have not commanded a
+relay close (which is always, since OpenBHZD does not yet drive PE12).
+This is the pre-flight half of spec § 4 #2 / § 4.1.3 — the "weld at
+boot" check that does not actuate the relay.
