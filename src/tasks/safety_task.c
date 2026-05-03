@@ -66,20 +66,20 @@ static QueueHandle_t s_safety_inbox;
 #define CP_E_PERSIST_TICKS  3U
 
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
- * J1772 state C confirmed for an additional 100 ticks (2 s at the
+ * J1772 state C confirmed for an additional 50 ticks (1 s at the
  * 50 Hz safety tick) before closing the relay. Prevents rapid
  * relay-cycle / session-log thrash from CP-flap (transient fault on
  * the CP wire, indecisive EV, hand-toggled resistor on the bench).
  *
- * J1772 spec § X.Y allows the EVSE up to 3 s to respond to state C,
- * so 2 s is well within the contract while giving solid debounce
- * margin. Real EVs hold C indefinitely once requesting charge, so
- * the 2 s dwell is invisible during normal operation.
+ * 1 s is ~10× any realistic CP transient and well within J1772's
+ * 3 s response-time window for state C. Real EVs hold C indefinitely
+ * once requesting charge so the dwell is invisible during normal
+ * operation.
  *
  * The reverse transition (CHARGING → READY when J1772 leaves C) is
  * deliberately UN-hysteresised — opening the contactor must be
  * immediate per safety priorities. Spec § 3 / 4. */
-#define EVSE_C_DWELL_TICKS  100U
+#define EVSE_C_DWELL_TICKS  50U
 
 /* Minimum session duration to persist to session_log (ms). Sessions
  * shorter than this still emit the SESSION_ENDED TLV event but skip
