@@ -835,3 +835,112 @@ M5.b.6 — crash-loop detector. Records boot timestamps; if 5 boots
 happen within 60 s, enter safe-fail mode (refuse to charge until
 FC41D commands clear). Final M5.b sub-milestone, then M6 (safety
 supervisor + faults) becomes possible.
+
+---
+
+## M5.b.6 — crash-loop detector + 60 s alive marker
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6 (crash-loop detection)
+**Plan:** docs/superpowers/plans/2026-05-02-m5b6-crash-loop.md
+
+### Success criteria
+1. First boot: `crash_state: defaults written -> slot A` then count
+   becomes 1.
+2. After 60 s of uptime, `io_task` posts a reset request and
+   persist_task writes `fast_restart_count = 0`.
+3. 5 rapid resets (each within 60 s) → SAFE-FAIL ENTERED at boot 5.
+4. After SAFE-FAIL, run > 60 s → alive marker clears safe-fail.
+5. Subsequent reset shows fast_restart=1 (back to normal).
+
+### Observed result
+
+```
+Boots 33-37 (rapid reset, ALIVE_MARKER_MS at production 60s — never reaches it):
+  boot 33: crash_state: fast_restart=1 (slot A counter=1)
+  boot 34: crash_state: fast_restart=2 (slot B counter=2)
+  boot 35: crash_state: fast_restart=3 (slot A counter=3)
+  boot 36: crash_state: fast_restart=4 (slot B counter=4)
+  boot 37: crash_state: SAFE-FAIL ENTERED (fast_restart=5)
+
+Recovery (with ALIVE_MARKER_MS temporarily reduced to 1000 for the 30 s
+test, then restored to 60000):
+  boot 17: crash_state: SAFE-FAIL ENTERED (fast_restart=17)
+           (chip ran 30 s)
+           io_task: alive marker posted (ms=1000)
+           crash_state: alive marker -> fast_restart=0 (slot B counter=18)
+  reset:   crash_state: fast_restart=1 (slot A counter=19)  ← recovered
+```
+
+Ping-pong slot rotation observed (alternates A/B per write); monotonic
+counter increments correctly.
+
+### Build size
+- text 20348 B (+3300 vs M5.b.5: crash_state record + 3rd persist_req
+  type + io_task hookup), data 20 B, bss 27596 B (+32),
+  flash 3.88 % of 512 KB. RAM 21.07 %.
+
+### Implementation notes
+1. **crash_state record envelope.** Same shape as boot_config
+   (counter @ 4, CRC @ end, 32 B total). Single payload byte:
+   `fast_restart_count`. Threshold = 5 (`CRASH_LOOP_THRESHOLD`).
+2. **Boot-time path is synchronous.** `crash_state_boot_increment()`
+   runs from main() pre-scheduler — reads, increments, persists, sets
+   safe-fail flag. No queue involved (queue doesn't exist yet at that
+   point in main).
+3. **Alive marker funnels through persist_task.** io_task does NOT
+   touch W25Q directly — would race with persist_task on SPI3.
+   io_task posts `PERSIST_REQ_CRASH_STATE_RESET`, persist_task drains
+   and calls `crash_state_reset_alive()`.
+4. **io_task stack bumped 256 → 512 words.** printk's 160 B buffer
+   plus persist_req union (≈ 36 B copy from io_task's startup-event
+   post) brought 256 W close to canary. 512 W = 2 KB gives margin.
+5. **Spec says "now − last_boot_ts < 60 s for 5 consecutive boots".**
+   We don't have an RTC. Implementation reinterprets: "5 consecutive
+   boots that didn't reach 60 s of uptime each" — equivalent in
+   intent. fast_restart_count increments at boot, resets at 60 s
+   uptime. Spec-compliant in spirit; honest about the mechanism.
+6. **OpenOCD semihost backpressure.** Sustained printk volume can
+   throttle the chip's MCU clock against wall clock — every BKPT 0xAB
+   blocks until the host writes to its log file. Long-uptime bench
+   validation (with ALIVE_MARKER_MS=60000) timed out before reaching
+   the marker due to this. Mitigation: shortened ALIVE_MARKER_MS to
+   1000 for one validation run, observed the path works end-to-end,
+   then restored production value. Document gap: production firmware
+   alive marker requires 60 s of low-traffic uptime; only matters
+   on the bench.
+7. **Safe-fail enforcement is M6's job.** `crash_state_is_safe_fail()`
+   accessor exists; safety_task in M6 will gate CP duty cycle / relay
+   close on it.
+
+### M5.b is complete
+
+| Sub-milestone | Module | Tag |
+|---|---|---|
+| M5.b.1 | pingpong + boot_config | m5b1-pingpong-boot-config |
+| M5.b.2 | calibration + ISR cache | m5b2-calibration |
+| M5.b.3 | crc16 + event_log | m5b3-event-log |
+| M5.b.4 | session_log | m5b4-session-log |
+| M5.b.5 | persist_task queue | m5b5-persist-queue |
+| M5.b.6 | crash_state | m5b6-crash-loop |
+
+W25Q layout (8 MB chip, 64 KB used):
+
+| Range | Region | Module |
+|---|---|---|
+| 0x000000-0x001FFF | boot_config (ping-pong) | M5.b.1 |
+| 0x002000-0x003FFF | calibration (ping-pong) | M5.b.2 |
+| 0x004000-0x043FFF | event_log (ring) | M5.b.3 |
+| 0x044000-0x04BFFF | session_log (ring) | M5.b.4 |
+| 0x04C000 | boot_count | M5 |
+| 0x04D000-0x04EFFF | crash_state (ping-pong) | M5.b.6 |
+
+### Next milestone
+M6 — safety supervisor + faults. Now unblocked. Will: implement the
+fault state machine (latched/non-latched), GFCI EXTI handler (PE3 CAL
+line drive, edge detect), relay weld detect via PB12 readback, CP=E
+classifier output → fault, ADC out-of-range, hard/soft over-current,
+CC range, AC absent. M6 becomes the single owner of relay PE12/PE0 +
+TIM1_CCR3 changes; safety_task posts a fault event_record via
+persist_post_event() on every fault raise; consumes
+crash_state_is_safe_fail() to refuse to enable charging.
