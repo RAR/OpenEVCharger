@@ -1859,3 +1859,43 @@ event publish per spec § 5. Once M8 lands, FC41D can `SET_ADVERTISED_AMPS`,
 events / session events back. Closes the protocol surface that
 WiFi/BLE/cloud features (run on FC41D) need to interact with the
 safety core.
+
+## Host unit tests
+
+Spec § 11 calls for a CMake `host` target compiling the pure-logic
+modules (`j1772.c`, `fault.c`, `tlv.c`, `crc16.c`, `crc.c`) against
+the host compiler and running unit tests. **Required passing for any
+PR touching `core/`, `proto/`, or `persist/`.**
+
+Run:
+
+```bash
+cmake -S tests -B build/host
+cmake --build build/host
+ctest --test-dir build/host --output-on-failure
+```
+
+The test project lives in `tests/` and is deliberately **separate**
+from the firmware CMakeLists so `cmake -S .` still hard-requires the
+arm-none-eabi toolchain file. Don't merge them; the firmware build
+links a linker script + vendor SPL + FreeRTOS that the host build has
+no business seeing.
+
+Coverage at first landing (55 cases):
+- `crc16` standard check vector (`123456789` → `0x29B1`), reproducibility,
+  bit-flip sensitivity, length sensitivity.
+- `crc32` standard check vector (`123456789` → `0xCBF43926`).
+- `j1772` band classifier at every threshold edge, debounce semantics
+  (streak gate, prior-committed during transition, candidate change
+  resets streak), streak saturation at `0xFF`.
+- `fault` raise/clear edge returns, GFCI clear refusal, `first_raised`
+  promotion on partial clear, `clear_all_clearable` excludes GFCI and
+  self-clearing faults, `is_latched_kind` boundary.
+- `tlv` round-trip empty / 4-byte / max-payload (56-byte) frames,
+  oversize / undersize / bad-SOF / bad-CRC / bad-LEN parser failures,
+  CRC stored big-endian on the wire.
+
+`pingpong.c` is in spec § 11's listed set but is skipped here — it
+depends on `hal/w25q.h` which would need a mock. Defer until there's
+a concrete reason beyond what the on-target ping-pong commit already
+exercises.
