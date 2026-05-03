@@ -613,3 +613,93 @@ M5.b.3 — CRC16 helper + event_log scan-on-boot + append. event_log is
 the trickiest M5.b piece: ring buffer across 64 sectors, head discovery
 by scan, sector-erase on wrap. Spec § 6 explicitly avoids a header
 sector — head pointer is reconstructed from data on every boot.
+
+---
+
+## M5.b.3 — CRC16 + event_log scan-on-boot + append
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6 (event_log)
+**Plan:** docs/superpowers/plans/2026-05-02-m5b3-event-log.md
+
+### Success criteria
+1. First boot (event_log empty in fresh region): scan reports zero valid records.
+2. 3 self-test appends from main → head_slot=3.
+3. Reset → scan finds 3 valid records, head_slot still 3.
+4. Read-back via `event_log_read_nth(0..2)` returns the test records with
+   correct boot_count + timestamp + fault_id.
+5. Slot 3+ readable as blank (rc=1, all 0xFF).
+
+### Observed result
+
+Boot N (post-flash, region had M4-leftover corruption in sector 0):
+```
+event_log: scan complete: valid=0 corrupt=89 blank=8103 head=0x004000 slot=0
+evt[0..4]: rc=1 (corrupt leftover)        ← pre-append dump
+event_log: 3 self-test records appended; head_slot=3
+                                          ↑ append-to-slot-0 triggered the
+                                            non-blank-probe → erase sector 0,
+                                            then 3× page program.
+```
+
+Boot N+1 (reset, no re-flash):
+```
+event_log: scan complete: valid=3 corrupt=0 blank=8189 head=0x004060 slot=3
+evt[0]: rc=0 ts=0x10000000 boot=24 fault=0xa000 cp=12000
+evt[1]: rc=0 ts=0x10000001 boot=24 fault=0xa001 cp=12000
+evt[2]: rc=0 ts=0x10000002 boot=24 fault=0xa002 cp=12000
+evt[3]: rc=1 ts=0xffffffff boot=65535 fault=0xffff cp=-1   ← blank
+evt[4]: rc=1 ts=0xffffffff boot=65535 fault=0xffff cp=-1   ← blank
+```
+
+The first-boot 89 corrupt records were all in sector 0 (M4 self-test
+leftover); after the auto-erase, the entire region is clean except
+for our 3 valid records.
+
+Boot N+2 (clean main, test+dump removed):
+```
+event_log: scan complete: valid=3 corrupt=0 blank=8189 head=0x004060 slot=3
+```
+
+3 records persisted across re-flashes; M6 fault handlers can append
+on top of them.
+
+### Build size
+- text 16680 B (+428 vs M5.b.2: crc16 + event_log code),
+  data 20 B, bss 23452 B (+4112 — `static uint8_t sector_buf[4096]`
+  in event_log_init), flash 3.29 % of 512 KB. RAM 17.91 %.
+
+### Implementation notes
+1. **Scan reads one sector at a time.** Single 4 KB SPI read amortises
+   the per-byte SPI cost (~70 ns/byte at 15 MHz). 64 sectors × 4 KB ≈
+   18 ms total scan. Static `sector_buf[4096]` in event_log.c keeps the
+   buffer off main's stack.
+2. **Head = (latest_slot + 1) mod TOTAL_RECORDS.** Tiebreak rule for
+   "latest": higher boot_count wins; same boot, higher timestamp wins
+   (>= so a stable slot index is used).
+3. **CRC16-CCITT-FALSE** (poly 0x1021, init 0xFFFF, no final XOR).
+   Spec said "CRC16" without specifying flavour; CCITT-FALSE is the
+   standard choice for short embedded records.
+4. **Sector-boundary erase.** Append to `slot % 128 == 0` probes the
+   first record; if non-blank, erase the sector first. Avoids wearing
+   freshly-erased sectors.
+5. **Boot count is provided by main**, not read from boot_count.c — keeps
+   event_log decoupled from the boot_count module. Caller stamps via
+   `event_log_set_boot_count()` after `boot_count_increment()` returns.
+
+### Deferred / known gaps
+1. **Sector-boundary wrap not bench-tested with a 130-record append.**
+   The code path is exercised by the in-line non-blank-probe → erase
+   logic, but a real ring-wrap (slot 127 → slot 128 in sector 1) wasn't
+   forced on the bench. Will get exercised naturally during M6 fault
+   raises and M7 charging-session events.
+2. **No persist_task queue.** event_log_append is synchronous; calls
+   from safety_task will block on W25Q I/O. M5.b.5 wraps in a queue.
+3. **timestamp is caller-supplied u32.** No RTC yet; spec says ms
+   since boot or RTC. M9 (FC41D NTP sync) populates real wall-clock.
+
+### Next milestone
+M5.b.4 — session_log. Same scan + append shape, smaller ring (8 sectors,
+~1024 records). Should extract a generic ring helper from event_log.c
+to avoid duplicating the scan logic — refactor + new module in one
+commit.
