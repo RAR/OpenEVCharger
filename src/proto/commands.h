@@ -19,6 +19,7 @@
 #define CMD_SET_LED_OVERRIDE      0x0Au
 #define CMD_BUZZER_BEEP           0x0Bu
 #define CMD_GET_BUILD_INFO        0x0Cu
+#define CMD_GET_DEVICE_ID         0x0Du
 
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
@@ -38,5 +39,6 @@
 #define EVT_FAULT_LOG_ENTRY       0x88u
 #define EVT_FAULT_LOG_END         0x89u
 #define EVT_LIFETIME_KWH          0x8Au
+#define EVT_DEVICE_ID             0x8Du   /* response to GET_DEVICE_ID: 12 B GD32 UID96 */
 
 #endif /* OPENBHZD_PROTO_COMMANDS_H */

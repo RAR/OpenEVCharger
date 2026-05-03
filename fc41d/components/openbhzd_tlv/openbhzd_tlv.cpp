@@ -3,6 +3,13 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+// LibreTiny's Arduino-style MAC setter, used by apply_mac_override_().
+// Must be at file scope, not inside our namespace, or the compiler
+// reparents arduino:: classes (Print, etc.) into our ns and chokes.
+#ifdef USE_LIBRETINY
+#include <WiFi.h>
+#endif
+
 #include <cstdio>
 #include <cstring>
 
@@ -21,6 +28,27 @@ static constexpr size_t FRAME_MAX = HDR_LEN + PAYLOAD_MAX + CRC_LEN;
 
 void OpenbhzdTlv::setup() {
   rx_buf_.reserve(128);
+
+  // OEM ships every FC41D with the same MAC address. Fix it before
+  // WiFi.begin() runs by pulling the GD32's UID96 over TLV (guaranteed
+  // unique per die) and folding it into a locally-administered MAC.
+  // setup_priority::BUS sorts us before WIFI, so a brief spin-wait
+  // here lands the override before the radio comes up. Failure mode
+  // is we keep the OEM MAC — collisions stay possible but the link
+  // still works.
+  send_get_device_id();
+  uint32_t deadline = millis() + 500;
+  while (millis() < deadline && !mac_overridden_) {
+    while (this->available()) {
+      uint8_t b;
+      if (this->read_byte(&b)) process_byte_(b);
+    }
+    delayMicroseconds(200);
+  }
+  if (!mac_overridden_) {
+    ESP_LOGW(TAG, "no DEVICE_ID from MCU within 500 ms — keeping OEM MAC");
+  }
+
   // Trigger an initial state pull as soon as we're up. The MCU emits an
   // unsolicited BOOT_COMPLETE plus a STATE_REPORT shortly after its own
   // boot, but the BK might come up second so we ask explicitly.
@@ -202,6 +230,22 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       fault_count_ = cnt;
       last_state_ms_ = millis();
       publish_state_();
+      break;
+    }
+
+    case EVT_DEVICE_ID: {
+      // 12-byte UID96 from GD32 0x1FFFF7E8. Fold to 6 bytes by XOR-ing
+      // halves, then force a locally-administered unicast OUI byte.
+      if (plen < 12) {
+        ESP_LOGW(TAG, "DEVICE_ID short (plen=%u)", (unsigned) plen);
+        break;
+      }
+      uint8_t mac[6];
+      for (int i = 0; i < 6; ++i) mac[i] = p[i] ^ p[i + 6];
+      mac[0] = (mac[0] & 0xFCu) | 0x02u;  // clear multicast, set local-admin
+      apply_mac_override_(mac);
+      mac_overridden_ = true;
+      last_state_ms_ = millis();
       break;
     }
 
@@ -387,6 +431,28 @@ uint8_t OpenbhzdTlv::send_get_build_info() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_BUILD_INFO, s, nullptr, 0);
   return s;
+}
+
+uint8_t OpenbhzdTlv::send_get_device_id() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_GET_DEVICE_ID, s, nullptr, 0);
+  return s;
+}
+
+void OpenbhzdTlv::apply_mac_override_(const uint8_t mac[6]) {
+  ESP_LOGI(TAG,
+           "MAC override: %02X:%02X:%02X:%02X:%02X:%02X (from GD32 UID96)",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+#ifdef USE_LIBRETINY
+  // LibreTiny's WiFi.setMacAddress validates the unicast bit, copies
+  // into system_mac, and bounces the radio mode if it's already up.
+  // setup_priority::BUS gets us in here before WiFi component setup.
+  if (!WiFi.setMacAddress(mac)) {
+    ESP_LOGW(TAG, "WiFi.setMacAddress() refused — keeping OEM MAC");
+  }
+#else
+  ESP_LOGD(TAG, "MAC override no-op — not building under LibreTiny");
+#endif
 }
 
 uint8_t OpenbhzdTlv::send_set_advertised_amps(uint8_t amps) {

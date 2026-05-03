@@ -85,6 +85,19 @@ static void handle_get_build_info(uint8_t seq)
     (void)send_frame(EVT_BUILD_INFO, seq, info, (size_t)n);
 }
 
+static void handle_get_device_id(uint8_t seq)
+{
+    /* GD32F20x UID96 lives at 0x1FFFF7E8 (12 bytes). Per RM
+     * "factory-programmed Unique device identifier (96 bits)" —
+     * guaranteed unique per die. Used by the FC41D side to derive
+     * a stable per-board MAC since the OEM ships a constant MAC
+     * across all units. */
+    const uint8_t *uid = (const uint8_t *)0x1FFFF7E8u;
+    uint8_t buf[12];
+    for (int i = 0; i < 12; ++i) buf[i] = uid[i];
+    (void)send_frame(EVT_DEVICE_ID, seq, buf, sizeof(buf));
+}
+
 static void handle_set_led_override(const uint8_t *p, size_t plen)
 {
     /* Payload: u8 mode + u8 r + u8 g + u8 b. mode=0 disables override. */
@@ -200,6 +213,7 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_PING:                  handle_ping(seq); break;
     case CMD_GET_STATE:             handle_get_state(seq); break;
     case CMD_GET_BUILD_INFO:        handle_get_build_info(seq); break;
+    case CMD_GET_DEVICE_ID:         handle_get_device_id(seq); break;
     case CMD_SET_LED_OVERRIDE:      handle_set_led_override(payload, plen); break;
     case CMD_BUZZER_BEEP:           handle_buzzer_beep(payload, plen); break;
     case CMD_SET_ADVERTISED_AMPS:   handle_set_advertised_amps(payload, plen); break;

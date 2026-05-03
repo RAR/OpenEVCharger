@@ -50,6 +50,7 @@ static constexpr uint8_t CMD_WRITE_CALIBRATION = 0x09;
 static constexpr uint8_t CMD_SET_LED_OVERRIDE = 0x0A;
 static constexpr uint8_t CMD_BUZZER_BEEP = 0x0B;
 static constexpr uint8_t CMD_GET_BUILD_INFO = 0x0C;
+static constexpr uint8_t CMD_GET_DEVICE_ID = 0x0D;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -64,6 +65,7 @@ static constexpr uint8_t EVT_FAULT_LOG_ENTRY = 0x88;
 static constexpr uint8_t EVT_FAULT_LOG_END = 0x89;
 static constexpr uint8_t EVT_LIFETIME_KWH = 0x8A;
 static constexpr uint8_t EVT_BUILD_INFO = 0x8C;
+static constexpr uint8_t EVT_DEVICE_ID = 0x8D;
 
 // Mirrors src/core/system_state.h. Keep in sync if the MCU schema changes.
 struct StateReport {
@@ -102,6 +104,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t send_ping();
   uint8_t send_get_state();
   uint8_t send_get_build_info();
+  uint8_t send_get_device_id();
   uint8_t send_set_advertised_amps(uint8_t amps);
   uint8_t send_request_stop();
   uint8_t send_request_start_resume();
@@ -187,6 +190,9 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   std::string first_fault_name_;
   uint32_t fault_count_{0};
   bool last_link_up_{false};
+  bool mac_overridden_{false};
+
+  void apply_mac_override_(const uint8_t mac[6]);
 
 #ifdef USE_SENSOR
   sensor::Sensor *cp_high_mv_sensor_{nullptr};
