@@ -50,14 +50,32 @@ size_t uart5_send(const void *buf, size_t len)
 
 void UART4_IRQHandler(void)
 {
-    if (RESET != usart_interrupt_flag_get(UART4, USART_INT_FLAG_RBNE)) {
-        uint8_t c = (uint8_t)usart_data_receive(UART4);
-        if (s_rx_stream != NULL) {
+    /* GD32 USART error flags (ORERR/FERR/NERR/PERR) are cleared by
+     * reading STAT0 followed by DATA. If we only read DATA (as the
+     * vendor `usart_data_receive` macro does), ORERR stays set and
+     * the IRQ keeps re-firing forever — the line is "always RX" from
+     * the controller's perspective. Bench 2026-05-03: with the FC41D
+     * streaming continuous bytes, this IRQ storm starved every task
+     * including safety, wdg_kick never ran, IWDG fired at 1 s, and
+     * the chip reset → repeat → visible "very short flashes" on the
+     * heartbeat LED.
+     *
+     * Fix: latch STAT0 first (read-clears ORERR/FERR/NERR/PERR when
+     * paired with the DATA read), always drain DATA when RBNE or any
+     * error bit is set, and only push the byte to the stream buffer
+     * if it arrived cleanly. */
+    uint32_t stat = USART_STAT0(UART4);
+    const uint32_t errs = USART_STAT0_ORERR | USART_STAT0_FERR |
+                          USART_STAT0_NERR  | USART_STAT0_PERR;
+
+    if (stat & (USART_STAT0_RBNE | errs)) {
+        uint8_t c = (uint8_t)USART_DATA(UART4);   /* clears RBNE + errs */
+        if ((stat & USART_STAT0_RBNE) && !(stat & errs) &&
+            s_rx_stream != NULL) {
             BaseType_t hpw = pdFALSE;
             (void)xStreamBufferSendFromISR(s_rx_stream, &c, 1, &hpw);
             portYIELD_FROM_ISR(hpw);
         }
+        (void)c;
     }
-    /* If the line idles for a long time and noise drives ORE/FE, the
-     * read of DATA above clears the flags. No additional handling. */
 }
