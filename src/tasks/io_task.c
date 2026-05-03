@@ -3,6 +3,8 @@
 #include "ui/buttons.h"
 #include "hal/uart.h"
 #include "hal/adc_scan.h"
+#include "hal/adc_inject.h"
+#include "tasks/persist_task.h"
 #include "gd32f20x.h"
 
 #define IO_TICK_MS    50
@@ -22,6 +24,20 @@ static void io_task_run(void *arg)
 {
     (void)arg;
     buttons_init();
+
+    {
+        struct event_record rec = {
+            .timestamp = (uint32_t)xTaskGetTickCount(),
+            .fault_id  = 0xB001U,
+            .j1772_state = 0xA0U,
+            .evse_state  = 0xB1U,
+            .cp_mv = (int16_t)cp_high_mv(),
+            .cc_amps = 0,
+            .ntc1_dC = 0, .ntc2_dC = 0, .active_amps_x10 = 0,
+        };
+        int rc = persist_post_event(&rec);
+        printk("io_task: posted startup event rc=%d\n", rc);
+    }
 
     TickType_t last_wake = xTaskGetTickCount();
     unsigned ms = 0;
