@@ -66,6 +66,8 @@ set(APP_SRCS
     src/persist/pingpong.c
     src/persist/boot_config.c
     src/persist/calibration.c
+    src/persist/crc16.c
+    src/persist/event_log.c
     src/ui/buttons.c
     src/tasks/safety_task.c
     src/tasks/io_task.c

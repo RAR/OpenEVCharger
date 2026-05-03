@@ -17,6 +17,7 @@
 #include "persist/boot_count.h"
 #include "persist/boot_config.h"
 #include "persist/calibration.h"
+#include "persist/event_log.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -80,6 +81,9 @@ int main(void)
         if (calibration_load() < 0) {
             printk("calibration: load failed; defaults active\n");
         }
+
+        event_log_init();
+        event_log_set_boot_count((uint16_t)bc);
     }
 
     safety_task_create();
