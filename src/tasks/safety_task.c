@@ -2,6 +2,7 @@
 #include "../hal/wdg.h"
 #include "../hal/uart.h"
 #include "../hal/adc_inject.h"
+#include "../hal/cp_pwm.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
@@ -17,11 +18,29 @@
  * open for >= 200 ms (10 ticks at 50 Hz). Spec § 4 #2. */
 #define WELD_PERSIST_TICKS  10U
 
+/* Map EVSE state -> CP output. Called once per transition.
+ *
+ * - FAULT      : drive CP to -12 V (J1772 state F, "EVSE not ready")
+ * - CHARGING   : (M7 will drive advertised duty here; for now idle high)
+ * - everything : idle HIGH (+12 V) — state-A-equivalent advertise
+ *   else
+ *
+ * safety_task is the single owner of TIM1_CCR3 per spec § 4. */
+static void evse_apply_cp(evse_state_t s)
+{
+    if (s == EVSE_FAULT) {
+        cp_pwm_set_state_f();
+    } else {
+        cp_pwm_set_idle_high();
+    }
+}
+
 static void evse_transition(evse_state_t *cur, evse_state_t next)
 {
     if (*cur == next) return;
     printk("EVSE state %s -> %s\n", evse_state_name(*cur), evse_state_name(next));
     *cur = next;
+    evse_apply_cp(next);
 }
 
 static void check_safe_fail(fault_state_t *fs, evse_state_t *es)

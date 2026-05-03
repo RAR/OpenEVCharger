@@ -1016,10 +1016,52 @@ already trust the reading. Will revisit during M9 user-I/O bench.
 Build size: text 21552 / data 20 / bss 27596 — flash 4.12%, RAM 21.07%.
 Cost vs M6.1: +300 B text.
 
+## M6.3 — Fault → CP output (drive state F on EVSE_FAULT) (2026-05-02)
+
+`safety_task` now calls `cp_pwm_set_state_f()` on entry to EVSE_FAULT
+(CCR=0 → PE13 always HIGH → CP -12 V via inverting buffer) and
+`cp_pwm_set_idle_high()` on entry to any non-FAULT state. Single
+owner of TIM1_CCR3 per spec § 4.
+
+Bench (this flash hit fast_restart=5 = safe-fail trip — perfect
+fault-path test):
+
+```
+boot_count = 60
+crash_state: SAFE-FAIL ENTERED (fast_restart=5)
+EVSE state BOOT -> SELF_TEST
+FAULT raised: CRASH_LOOP_SAFE_FAIL (first=CRASH_LOOP_SAFE_FAIL)
+EVSE state SELF_TEST -> FAULT
+relay sense: open (cmd=open)
+ADC: AC=2089 NTC1=2094 CT=2075 LCT=2089 CPR=0 CC=1410 PE=0 NTC2=0 ...
+J1772 state=E cp=725 mV
+```
+
+End-to-end fault path verified:
+
+1. fast_restart=5 → `crash_state_is_safe_fail()` returns 1.
+2. `check_safe_fail()` raises FAULT_CRASH_LOOP_SAFE_FAIL.
+3. EVSE transitions SELF_TEST → FAULT.
+4. `evse_apply_cp(EVSE_FAULT)` writes CCR=0.
+5. CP physically driven to -12 V — confirmed by scan ADC `CPR=0`
+   (raw 0/4095, well below the +12 V calibration anchor of 1462).
+
+**Calibration carve-out:** `cp_high_mv()` reports +725 mV (J1772 state
+E band) for raw=0, not the expected -11000 mV. Root cause is the M3
+empirical fit in `adc_inject.c`: the slope 3540/459 was derived from
+the 0..+12 V half-range only and extrapolates incorrectly below the
+anchor. Hardware is correct — the read-back calibration is one-sided.
+Documented in NOTES.md and `project_openbhzd_cp_calibration` memory.
+M6.5 will gate `FAULT_CP_NO_PILOT` on `evse_state != EVSE_FAULT` to
+avoid a feedback loop where our own state-F output trips the CP=E
+classifier.
+
+Build size: text 21600 / data 20 / bss 27596 — flash 4.13%, RAM 21.07%.
+Cost vs M6.2: +48 B text.
+
 ### Next milestone
-M6.3 — fault → CP output coupling. When `evse_state == EVSE_FAULT`
-drive CP via `cp_pwm_set_state_f()` (so the EV sees -12 V "EVSE not
-ready"); otherwise `cp_pwm_set_idle_high()` (state-A advertise).
-Validatable on bench via the next reset, which will trip
-fast_restart=5 → safe-fail → FAULT path → CP=-12V observable on the
-HIGH-phase ADC sample.
+M6.4 — persist fault events. On each `fault_raise` edge, post an
+`event_record` to `persist_task` with fault_id + j1772_state +
+evse_state + cp_mv. Closes the loop between fault detection and the
+ring log; FC41D `GET_FAULT_LOG` (M8) will then have a real history to
+return.
