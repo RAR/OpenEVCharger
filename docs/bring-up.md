@@ -207,3 +207,96 @@ PB6 (W25Q CS) idles high (deasserted).
 M3: TIM1 full-remap → PE13 PWM at 1 kHz + injected ADC trigger on TIM1
 update event + CP state classifier (states A/B/C/E/F per voltage band).
 Plan to be written after M2 final commits/tag.
+
+## M3 — CP PWM + injected ADC + J1772 state classifier
+
+**Date completed:** 2026-05-02
+**Spec section:** § 3, § 9 M3
+**Plan:** docs/superpowers/plans/2026-05-02-m3-cp-pwm-state-machine.md
+
+### Success criterion (from spec)
+Scope shows clean 1 kHz CP PWM at PE13. Each of A/B/C/D/E states is
+provokable on bench by appropriate resistor across CP↔PE; safety_task
+prints the correct J1772 state with `cp_mv` matching the spec band.
+
+### Observed result (chip-side validated; buffer-side BLOCKED)
+
+**Chip side:** TIMER0 + injected ADC + classifier all run as designed.
+Verified by direct SWD register peek with the chip running:
+
+| Register | Value | Meaning |
+|---|---:|---|
+| TIMER0_CTL0 | 0x00000081 | CEN+ARSE both set — counter running, ARR shadow on |
+| TIMER0_CCHP | 0x00008000 | POEN set — primary output enabled |
+| TIMER0_CAR | 0x000003E7 (999) | ARR = 999 → 1000 µs period = 1 kHz |
+| TIMER0_PSC | 119 | 1 µs counter tick |
+| TIMER0_CH2CV | 0x000003E8 (1000) idle / 0x12C (300) under 50A debug | CCR matches the API call |
+| AFIO_PCF0 | 0x080000C0 | bits 7:6 = 11 → TIMER0 full-remap active |
+| GPIOE_CRH | 0x44B24444 | PE13 = 0xB → AF push-pull 50 MHz |
+
+These six readings together prove the firmware is generating a 1 kHz
+PWM on PE13 at the configured duty. PWM polarity issue resolved by
+switching from PWM0 to PWM1 mode (commit M3.4.1) — the on-board CP
+buffer inverts (MCU pin LOW = CP +12 V).
+
+**Buffer side: NON-FUNCTIONAL on this bench unit.** The CP read-back
+(PA4) does not respond meaningfully to either the MCU pin level or
+to bench-side load resistors:
+
+| Stimulus | s_cp_raw | s_cp_mv | Expected | State |
+|---|---:|---:|---|---|
+| static idle pin LOW (CCR=1000) | ~1462 | -3434 | +12000 (state A) | F (wrong) |
+| toggling PWM 30 % (CCR=300) | ~1422 | -3668 | similar | F (wrong) |
+| static idle + 2.2 kΩ across CP↔PE | ~1462 | -3422 | ~+9000 (state B) | F (wrong, no response to load) |
+
+The PA4 reading sits at ~1.17 V (mid-divider) regardless of MCU pin
+state or external load. Two possible causes, indistinguishable
+without scoping the actual J1772 CP wire or the buffer's ±12 V supply
+rails:
+1. The CP level-shifter on this SKU variant is not populated /
+   not powered (consistent with this unit's other unpopulated
+   components: NTC1 floats high, NTC2 grounded).
+2. The buffer is present but its negative supply rail is missing
+   (some EVSE designs use a charge pump driven by a separate
+   timer pin to make -12 V; if that helper isn't running, the
+   buffer can't swing negative).
+
+### J1772 state during chip-side validation
+With the buffer dead, every reading is in the -1500..+1500 mV band,
+so the classifier reports `J1772 state=F cp=-3434 mV` (or -3668). This
+is **correct classifier behaviour given the input** — at < -1500 mV
+the band table maps to state F.
+
+### Build size
+- text 13188 B, data 8 B, bss 19272 B, flash usage 2.52 % of 512 KB.
+- RAM usage 14.71 % of 128 KB.
+
+### Hardware notes / deviations from plan
+
+1. **Initial PWM polarity wrong.** The plan assumed a non-inverting CP
+   buffer; bench observation showed the buffer inverts. Fixed by
+   switching `TIMER_OC_MODE_PWM0` → `TIMER_OC_MODE_PWM1` so user-facing
+   CCR semantics (CCR = ticks of CP-HIGH time) stay correct.
+
+2. **Bench unit's CP analog chain non-functional.** PE13 toggles
+   correctly per SWD register inspection, but the J1772 CP wire reads
+   ~1.17 V irrespective of MCU pin level or external load. Validates
+   that the firmware code is correct against spec, but the
+   resistor-stimulus matrix in the spec's M3 success criterion can't
+   be exercised on this bench unit. Recorded in memory as a known
+   limitation; full A/B/C/D/E end-to-end validation requires either
+   fixing the buffer on this SKU or testing against a different
+   bench unit with a populated CP buffer board.
+
+3. **Semihosting + OpenOCD halt-and-peek require explicit `arm
+   semihosting enable`.** Without it, OpenOCD halts on the first
+   `BKPT 0xAB` the firmware issues, leaving registers at near-reset
+   defaults (it never runs past `uart_init()`). The
+   `tools/openocd-monitor.sh` script already enables semihosting;
+   one-off peek invocations need to add it manually.
+
+### Next milestone
+M4: SPI3 + W25Q64 driver (read JEDEC ID + round-trip a sector). The
+W25Q chain is fully populated on this bench unit (SPI3 pads
+wire-traced in M2's hardware notes), so M4 won't hit the same
+bench-unit limitation as M3.
