@@ -13,17 +13,19 @@
  * DMA1 channel (TIMER1_UP) copies one halfword per timer-update event
  * into TIMER1_CH0_CCR. Buffer is u16 to keep transfer width consistent.
  *
- * LED count is fixed at compile time. The bench has 4–8 LEDs per
- * spec § 7; default 8 covers either. Override via
+ * LED count is fixed at compile time. Bench-confirmed 2026-05-03:
+ * the on-board strip has 134 LEDs (binary-narrowed from N=8 → 60 →
+ * 144 → 134 by lighting the strip and counting the dark tail).
+ * Override via:
  *   cmake -DOPENBHZD_WS2812_LEDS=N
  *
  * Caller fills pixels with ws2812_set_pixel(); ws2812_show() kicks
- * DMA + returns immediately. The frame finishes ~ N * 30 µs + 60 µs
- * later. Don't call ws2812_show() faster than ~30 Hz; pre-checks
- * the previous DMA via ws2812_busy(). */
+ * DMA + returns immediately. The frame finishes ~ N * 30 µs + 75 µs
+ * later (≈ 4.1 ms for 134 LEDs). Don't call ws2812_show() faster
+ * than ~30 Hz; pre-checks the previous DMA via ws2812_busy(). */
 
 #ifndef OPENBHZD_WS2812_LEDS
-#define OPENBHZD_WS2812_LEDS  8U
+#define OPENBHZD_WS2812_LEDS  134U
 #endif
 
 void ws2812_init(void);
