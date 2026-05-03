@@ -5,6 +5,8 @@
 #include "../proto/commands.h"
 #include "../proto/build_info.h"
 #include "../core/system_state.h"
+#include "../ui/led_patterns.h"
+#include "../ui/buzzer.h"
 #include "FreeRTOS.h"
 #include "stream_buffer.h"
 #include "semphr.h"
@@ -69,15 +71,30 @@ static void handle_get_build_info(uint8_t seq)
     (void)send_frame(EVT_BUILD_INFO, seq, info, (size_t)n);
 }
 
+static void handle_set_led_override(const uint8_t *p, size_t plen)
+{
+    /* Payload: u8 mode + u8 r + u8 g + u8 b. mode=0 disables override. */
+    if (plen < 4) return;
+    led_override_set(p[0], p[1], p[2], p[3]);
+}
+
+static void handle_buzzer_beep(const uint8_t *p, size_t plen)
+{
+    /* Payload: u16 LE ms (capped 1..500 by buzzer module). */
+    if (plen < 2) return;
+    uint16_t ms = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+    buzzer_set_oneshot(ms);
+}
+
 static void dispatch(uint8_t cmd, uint8_t seq,
                      const uint8_t *payload, size_t plen)
 {
-    (void)payload;
-    (void)plen;
     switch (cmd) {
-    case CMD_PING:           handle_ping(seq); break;
-    case CMD_GET_STATE:      handle_get_state(seq); break;
-    case CMD_GET_BUILD_INFO: handle_get_build_info(seq); break;
+    case CMD_PING:              handle_ping(seq); break;
+    case CMD_GET_STATE:         handle_get_state(seq); break;
+    case CMD_GET_BUILD_INFO:    handle_get_build_info(seq); break;
+    case CMD_SET_LED_OVERRIDE:  handle_set_led_override(payload, plen); break;
+    case CMD_BUZZER_BEEP:       handle_buzzer_beep(payload, plen); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

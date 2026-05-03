@@ -1773,9 +1773,85 @@ tools/host_client.py /dev/ttyUSB0 listen   # passive event stream
 - `SET_LED_OVERRIDE` / `BUZZER_BEEP` — both belong in M9.
 - Live FC41D enable + handshake. Currently the module stays off.
 
+## M9 — WS2812 LED strip + buzzer UI (2026-05-03)
+
+Spec § 7 user-I/O lands. Four pieces:
+
+### M9.1 — WS2812 driver (`src/hal/ws2812.{c,h}`)
+
+DMA-fed PWM on PA15 = TIMER1_CH0 (partial-remap-1).
+
+- TIMER1 timer-clock = 60 MHz; period 75 ticks = 1.25 µs.
+- "0" bit: CCR=24 (T0H ≈ 0.40 µs).
+- "1" bit: CCR=48 (T1H ≈ 0.80 µs).
+- DMA1 channel 4 (TIMER1_UP) copies one halfword per timer-update
+  event into TIMER_CH0CV. After all bits, 60 padding zeros = 75 µs
+  reset latch (≥ 50 µs spec). DMA full-transfer ISR disables timer.
+- API: `ws2812_init / set_pixel(i, r, g, b) / clear / show / busy`.
+- LED count compile-time: default `OPENBHZD_WS2812_LEDS=8`; override
+  via `cmake -DOPENBHZD_WS2812_LEDS=N`.
+
+Static frame buffer = `(8 LEDs × 24 bits + 60 pad) × 2 B = 504 B` in bss.
+
+### M9.2 — Pattern engine (`src/ui/led_patterns.{c,h}`)
+
+`led_render(inputs, t_ms)` maps EVSE/J1772 state to colour + animation
+per spec § 7. Stand-in animations (no gamma yet):
+
+| State | Colour | Animation |
+|---|---|---|
+| BOOT / SELF_TEST | white | 1-LED sweep, ~1×/s |
+| READY + J1772=A | dim green | solid |
+| READY + J1772=B | blue | solid |
+| CHARGING | cyan | breathing 0.3 Hz |
+| USER_PAUSED | yellow | breathing 0.5 Hz |
+| COOLING_DOWN | orange | breathing 1 Hz |
+| any fault | red | flash 2 Hz (5 Hz if GFCI) |
+
+Brightness defaults to 60 % (spec § 7); breathing uses a triangle wave
+(cheap stand-in for sin). FC41D `SET_LED_OVERRIDE` lands a solid
+colour via `led_override_set(mode, r, g, b)`.
+
+### M9.3 — Buzzer engine (`src/ui/buzzer.{c,h}`)
+
+Software-toggled GPIO on PB2; pattern engine ticked from io_task at
+50 Hz (20 ms granularity). Patterns: BOOT_PASS/FAIL, SESSION_START/END,
+FAULT_NON_GFCI / FAULT_GFCI, BUTTON, ONESHOT (TLV-driven). Higher
+priority pattern wins (later-call replaces earlier).
+
+### M9.4 — io_task wiring + TLV handlers
+
+`io_task` now:
+- Pulls `system_state_snapshot()` each 50 ms tick.
+- Fires buzzer one-shots on EVSE transitions (boot complete,
+  session start/end, fault edges).
+- Calls `buzzer_tick()` every tick.
+- Renders LED frame every 60 ms (skips if `ws2812_busy()`).
+
+`comms_task` adds two handlers:
+- `CMD_SET_LED_OVERRIDE` (0x0A) → `led_override_set`.
+- `CMD_BUZZER_BEEP` (0x0B) → `buzzer_set_oneshot(ms)` (capped 500 ms).
+
+### Bench validation
+
+Post-flash: chip alive at `prvIdleTask` after 4 s. `GPIOA_OCTL` shows
+PA15 driven by TIMER1 (bit 15 toggling under DMA control). `GPIOB_OCTL`
+bit 2 (buzzer) idle LOW. Heartbeat LED on PD4 blinking. No FAULT
+raised, no spurious buzzer activity.
+
+Live LED + buzzer observation needs the user at the bench. Visual
+validation pending — drop me a note about what colour shows up after
+boot. Strip count default 8; if the bench has a different number,
+rebuild with `cmake -DOPENBHZD_WS2812_LEDS=N`.
+
+Build: text 30168 / data 20 / bss 28180 — flash 5.76%, RAM 21.51%.
++2.4 KB text vs M8 (DMA driver + pattern engines + io_task expansion).
+
 ### Next milestone
-M9 — WS2812 LED strip + buzzer UI. Bench-safe (LED + GPIO traffic
-only). Implements the colour/animation matrix from spec § 7.
+M8.b — round out FC41D TLV with the missing handlers
+(SET_ADVERTISED_AMPS, CLEAR_FAULT, GET_FAULT_LOG, GET_LIFETIME_KWH).
+Or M10 — first end-to-end bench charging session (waiting on EVSE
+tester delivery, ~1 month).
 Implements the binary frame parser/builder, command dispatch, async
 event publish per spec § 5. Once M8 lands, FC41D can `SET_ADVERTISED_AMPS`,
 `CLEAR_FAULT` (anything except GFCI), `REQUEST_STOP`/`REQUEST_START_RESUME`,

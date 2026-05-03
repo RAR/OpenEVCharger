@@ -64,6 +64,7 @@ set(APP_SRCS
     src/hal/relay.c
     src/hal/spi3.c
     src/hal/uart5.c
+    src/hal/ws2812.c
     src/hal/w25q.c
     src/persist/crc.c
     src/persist/boot_count.c
@@ -76,6 +77,8 @@ set(APP_SRCS
     src/persist/crash_state.c
     src/proto/tlv.c
     src/ui/buttons.c
+    src/ui/buzzer.c
+    src/ui/led_patterns.c
     src/tasks/safety_task.c
     src/tasks/io_task.c
     src/tasks/comms_task.c
