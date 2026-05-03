@@ -54,6 +54,7 @@ set(APP_SRCS
     src/main.c
     src/core/fault.c
     src/core/j1772.c
+    src/core/system_state.c
     src/hal/wdg.c
     src/hal/uart.c
     src/hal/gpio.c
@@ -62,6 +63,7 @@ set(APP_SRCS
     src/hal/cp_pwm.c
     src/hal/relay.c
     src/hal/spi3.c
+    src/hal/uart5.c
     src/hal/w25q.c
     src/persist/crc.c
     src/persist/boot_count.c
@@ -72,6 +74,7 @@ set(APP_SRCS
     src/persist/event_log.c
     src/persist/session_log.c
     src/persist/crash_state.c
+    src/proto/tlv.c
     src/ui/buttons.c
     src/tasks/safety_task.c
     src/tasks/io_task.c

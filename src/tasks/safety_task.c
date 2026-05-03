@@ -13,7 +13,10 @@
 #include "../persist/event_log.h"
 #include "../persist/session_log.h"
 #include "../persist/boot_config.h"
+#include "../proto/commands.h"
+#include "../core/system_state.h"
 #include "persist_task.h"
+#include "comms_task.h"
 #include "gd32f20x.h"
 
 /* Debounce: 3 consecutive same-band reads at safety_task's 50 Hz tick
@@ -124,6 +127,9 @@ static void session_start(void)
     s_session.fault_count  = 0;
     s_session.max_temp_dC  = 0;
     printk("session: start ts=%u\n", (unsigned)s_session.start_ts);
+    (void)comms_publish_event(EVT_SESSION_BEGAN,
+                              &s_session.start_ts,
+                              sizeof(s_session.start_ts));
 }
 
 static void session_end(session_end_reason_t reason)
@@ -145,6 +151,17 @@ static void session_end(session_end_reason_t reason)
            (unsigned)(now - s_session.start_ts),
            (unsigned)s_session.fault_count,
            rc);
+    /* TLV event: u32 mwh + u32 dur_ms + u8 reason. */
+    struct __attribute__((packed)) {
+        uint32_t mwh;
+        uint32_t dur_ms;
+        uint8_t  reason;
+    } evt = {
+        .mwh    = rec.mwh_delivered,
+        .dur_ms = now - s_session.start_ts,
+        .reason = (uint8_t)reason,
+    };
+    (void)comms_publish_event(EVT_SESSION_ENDED, &evt, sizeof(evt));
     s_session.active = 0;
 }
 
@@ -232,6 +249,20 @@ static void post_fault_event(fault_id_t fid, j1772_state_t js,
         s_session.fault_count < (uint16_t)0xFFFFu) {
         s_session.fault_count++;
     }
+
+    /* TLV event: u32 fault_id + u8 j1772 + u8 evse + i16 cp_mv. */
+    struct __attribute__((packed)) {
+        uint32_t fault_id;
+        uint8_t  j1772_state;
+        uint8_t  evse_state;
+        int16_t  cp_mv;
+    } evt = {
+        .fault_id    = (uint32_t)fid,
+        .j1772_state = (uint8_t)js,
+        .evse_state  = (uint8_t)es,
+        .cp_mv       = (int16_t)cp_mv,
+    };
+    (void)comms_publish_event(EVT_FAULT_RAISED, &evt, sizeof(evt));
 }
 
 static void check_safe_fail(fault_state_t *fs, evse_state_t *es,
@@ -565,6 +596,19 @@ static void safety_task_run(void *arg)
         evse_transition(&es, EVSE_READY);
     }
 
+    /* BOOT_COMPLETE event: u8 self_test_passed + u32 last_fault_id. */
+    {
+        struct __attribute__((packed)) {
+            uint8_t  self_test_passed;
+            uint8_t  pad[3];
+            uint32_t last_fault_id;
+        } boot = {
+            .self_test_passed = (st_fails == 0) ? 1u : 0u,
+            .last_fault_id    = (uint32_t)fs.first_raised,
+        };
+        (void)comms_publish_event(EVT_BOOT_COMPLETE, &boot, sizeof(boot));
+    }
+
     TickType_t last_wake = xTaskGetTickCount();
     for (;;) {
         wdg_kick();
@@ -576,6 +620,8 @@ static void safety_task_run(void *arg)
             printk("J1772 state=%s cp=%d mV\n",
                    j1772_state_name(s), (int)cp_mv);
             last_logged_j1772 = s;
+            uint8_t st = (uint8_t)s;
+            (void)comms_publish_event(EVT_STATE_CHANGED, &st, sizeof(st));
         }
 
         check_safe_fail(&fs, &es, s, cp_mv);
@@ -597,6 +643,26 @@ static void safety_task_run(void *arg)
         update_evse_from_j1772(&es, s);
         apply_relay_state(s, es, &fs);
         apply_cp_for_state(es, s);
+
+        /* Publish snapshot for comms / future UI consumers. */
+        struct openbhzd_state snap = {
+            .j1772_state       = (uint8_t)s,
+            .evse_state        = (uint8_t)es,
+            .advertised_amps   = effective_advertised_amps(),
+            .contactor_cmd     = (uint8_t)relay_main_commanded(),
+            .cp_high_mv        = (int16_t)cp_mv,
+            .cp_low_mv         = 0,
+            .active_amps_x10   = 0,
+            .ntc1_dC           = 0,
+            .ntc2_dC           = 0,
+            .cc_max_amps       = 0,
+            .ac_present        = 0,
+            .pad               = 0,
+            .fault_active_bits = fs.active_bits,
+            .first_fault_id    = (uint32_t)fs.first_raised,
+            .session_mwh       = 0,
+        };
+        system_state_publish(&snap);
 
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(SAFETY_TASK_PERIOD_MS));
     }

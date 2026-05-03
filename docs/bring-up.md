@@ -1667,8 +1667,115 @@ Build size: text 23388 / data 20 / bss 27620 — flash 4.47%, RAM 21.09%.
   Listen for sticky behavior on next session; mechanical rest may be
   warranted before extended cycling.
 
+## M8 — FC41D TLV protocol over UART4 (2026-05-03)
+
+OpenBHZD now speaks the binary TLV protocol from spec § 5 over the
+UART4 link to the (currently powered-off) FC41D Wi-Fi/BLE module.
+Bench-safe — no contactor or relay traffic involved. Six-piece
+landing:
+
+### M8.1 — TLV frame primitives (`src/proto/tlv.{c,h}`)
+
+`tlv_build(cmd, seq, payload, plen, out_buf, out_len)` →
+serialises one frame:
+
+```
+SOF[2]=A55A | LEN[u16 LE] | CMD | SEQ | payload[plen] | CRC16[2 BE]
+```
+
+`tlv_parse(buf, len, &cmd, &seq, &payload, &plen)` returns >0 on a
+valid framed CRC-good frame, 0 on incomplete buffer (need more
+bytes), <0 on framing/CRC error (caller advances 1 byte to resync).
+
+CRC16-CCITT-FALSE (poly 0x1021, init 0xFFFF, no final XOR) — same
+implementation as M5.b.3's `crc16.h`, reused. Max payload 56 bytes
+(spec said 54; we round up so total frame ≤ 64 stays even).
+
+### M8.2 — UART4 driver (`src/hal/uart5.{c,h}`)
+
+UART4 = "UART5" per spec / pinout — GD32F2's 5th UART, vendor SPL
+calls it UART4. PC12 TX (AF PP), PD2 RX (input float), 115200 8N1.
+RX uses the RBNE interrupt (NVIC priority 5 = configMAX_SYSCALL) to
+push bytes into a FreeRTOS stream buffer; comms_task drains. TX is
+blocking (poll-on-TBE then wait-TC) — ~5.6 ms for a full 64-byte
+frame, well under safety_task's 20 ms tick.
+
+### M8.3 — comms_task command dispatch
+
+`comms_task` (priority 2, 384-word stack) creates a 256-byte stream
+buffer + TX mutex pre-scheduler, then loops:
+
+1. Block on `xStreamBufferReceive`.
+2. Append into a `TLV_FRAME_MAX`-byte accumulator.
+3. Try `tlv_parse` from head. On success → dispatch + drop consumed
+   bytes + retry. On error → drop 1 byte + retry. On incomplete →
+   wait for more.
+
+Three commands handled this milestone:
+
+| CMD                | Response             | Payload                                |
+|--------------------|----------------------|----------------------------------------|
+| `0x01 PING`        | `0x81 PING_ACK`      | none                                   |
+| `0x02 GET_STATE`   | `0x82 STATE_REPORT`  | `struct openbhzd_state` (28 B)         |
+| `0x0C GET_BUILD_INFO` | `0x8C BUILD_INFO` | ASCII `"<version>|<git_sha>"` + null   |
+
+Unhandled commands log an `unhandled cmd` line and don't reply.
+SET_ADVERTISED_AMPS / CLEAR_FAULT / GET_FAULT_LOG / etc. land in a
+follow-up M8.b once basic comms is bench-validated.
+
+### M8.4 — system_state snapshot + event publisher
+
+`src/core/system_state.{c,h}` exports a 28-byte word-aligned struct
+that safety_task republishes at the end of every tick. Single-writer
++ memcpy-based read keep tearing minimal without a mutex.
+
+`comms_publish_event(cmd, payload, plen)` builds a `seq=0`
+unsolicited event frame and shoves it down UART4. safety_task hooks:
+
+| Event              | Trigger                              | Payload                                |
+|--------------------|--------------------------------------|----------------------------------------|
+| `EVT_BOOT_COMPLETE` | end of boot self-test path           | `u8 self_test_passed + u32 last_fault`|
+| `EVT_STATE_CHANGED` | J1772 classifier transition          | `u8 j1772_state`                       |
+| `EVT_FAULT_RAISED` | every successful `fault_raise()` edge | `u32 fault_id + u8 j1772 + u8 evse + i16 cp_mv` |
+| `EVT_SESSION_BEGAN` | READY → CHARGING                     | `u32 start_ts`                         |
+| `EVT_SESSION_ENDED` | CHARGING → other                     | `u32 mwh + u32 dur_ms + u8 reason`     |
+
+Build size: text 27776 / data 20 / bss 27660 — flash 5.30%, RAM
+21.12%. Cost vs M7.b: +4.4 KB text (TLV parser, UART4 ISR, comms_task
+body, three handlers, snapshot publish, five event payloads).
+
+### Bench validation
+
+Post-flash, halt + `reg pc` reports `prvIdleTask` (FreeRTOS scheduler
+healthy with comms_task added). No live UART4 traffic verifiable
+today — the FC41D module is held off via PE1=LOW and there's no
+USB-UART probe attached to PC12/PD2 yet.
+
+For future bench testing: `tools/host_client.py` is a Python-side
+reference TLV client that speaks the protocol. Self-test of
+`build_frame` ↔ `parse_frame` roundtrip (PING with seq=42) passes;
+CRC corruption is correctly rejected. Usage:
+
+```
+tools/host_client.py /dev/ttyUSB0 ping
+tools/host_client.py /dev/ttyUSB0 state
+tools/host_client.py /dev/ttyUSB0 buildinfo
+tools/host_client.py /dev/ttyUSB0 listen   # passive event stream
+```
+
+### Outstanding for M8.b (future cycle)
+
+- `SET_ADVERTISED_AMPS` → `boot_config_set_advertised_amps` persist.
+- `CLEAR_FAULT` → fault_clear + relay re-arm sequence (PE12 LOW →
+  release force-open → next close cycle).
+- `GET_FAULT_LOG` → walk event_log ring backwards, return up to N.
+- `GET_LIFETIME_KWH` → needs CT integration.
+- `SET_LED_OVERRIDE` / `BUZZER_BEEP` — both belong in M9.
+- Live FC41D enable + handshake. Currently the module stays off.
+
 ### Next milestone
-M8 — FC41D TLV protocol over UART5. Bench-safe (no contactor risk).
+M9 — WS2812 LED strip + buzzer UI. Bench-safe (LED + GPIO traffic
+only). Implements the colour/animation matrix from spec § 7.
 Implements the binary frame parser/builder, command dispatch, async
 event publish per spec § 5. Once M8 lands, FC41D can `SET_ADVERTISED_AMPS`,
 `CLEAR_FAULT` (anything except GFCI), `REQUEST_STOP`/`REQUEST_START_RESUME`,

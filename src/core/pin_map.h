@@ -123,6 +123,14 @@
 #define PIN_FC41D_WAKE_PORT     GPIOD
 #define PIN_FC41D_WAKE_PIN      GPIO_PIN_1     /* wake-up out; idle 0 */
 
+/* ----- UART4 (= "UART5" per spec § 5 / pinout doc) — FC41D TLV link ----- */
+#define PIN_UART4_TX_PORT       GPIOC
+#define PIN_UART4_TX_PIN        GPIO_PIN_12    /* AF push-pull */
+#define PIN_UART4_RX_PORT       GPIOD
+#define PIN_UART4_RX_PIN        GPIO_PIN_2     /* input float */
+#define PIN_UART4_TX_RCU        RCU_GPIOC
+#define PIN_UART4_RX_RCU        RCU_GPIOD
+
 /* ----- J1772 PWM (configured AF in M2; TIM1 idle until M3) ----- */
 #define PIN_CP_PWM_PORT         GPIOE
 #define PIN_CP_PWM_PIN          GPIO_PIN_13    /* TIM1_CH3 full-remap; AF push-pull */
