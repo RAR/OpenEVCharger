@@ -20,8 +20,11 @@
 #define J1772_DEBOUNCE_N  3U
 
 /* Relay weld detection: PB12 reads "closed" while PE12 is commanded
- * open for >= 200 ms (10 ticks at 50 Hz). Spec § 4 #2. */
-#define WELD_PERSIST_TICKS  10U
+ * open for >= 200 ms (10 ticks at 50 Hz). Spec § 4 #2.
+ * Relay stuck-open detection: opposite — PB12 reads "open" while
+ * PE12 is commanded closed for >= 200 ms. Spec § 4 #3. */
+#define WELD_PERSIST_TICKS         10U
+#define STUCK_OPEN_PERSIST_TICKS   10U
 
 /* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
  * (60 ms). Spec § 4 #5. */
@@ -300,6 +303,34 @@ static int self_test_relay_actuate(void)
     return ST_RELAY_OK;
 }
 
+/* Symmetric counterpart to check_relay_weld: commanded close +
+ * sensed open >= 200 ms → FAULT_RELAY_STUCK_OPEN. Spec § 4 #3.
+ * Only runs when we've commanded close — so it's silent on bench
+ * until M7 progresses to a state-C-driving load AND the relay
+ * sense circuit is wired up (same bench unknown that gates the
+ * boot self-test in M7.2). */
+static void check_relay_stuck_open(fault_state_t *fs, evse_state_t *es,
+                                   int sensed_closed, int *stuck_streak,
+                                   j1772_state_t js, int32_t cp_mv)
+{
+    if (!relay_main_commanded() || sensed_closed) {
+        *stuck_streak = 0;
+        return;
+    }
+    if (*stuck_streak < (int)STUCK_OPEN_PERSIST_TICKS) ++(*stuck_streak);
+
+    if (*stuck_streak >= (int)STUCK_OPEN_PERSIST_TICKS &&
+        !fault_is_active(fs, FAULT_RELAY_STUCK_OPEN)) {
+        if (fault_raise(fs, FAULT_RELAY_STUCK_OPEN) == 1) {
+            printk("FAULT raised: %s (cmd=close, PB12=open >=%u ms)\n",
+                   fault_name(FAULT_RELAY_STUCK_OPEN),
+                   (unsigned)(STUCK_OPEN_PERSIST_TICKS * SAFETY_TASK_PERIOD_MS));
+            post_fault_event(FAULT_RELAY_STUCK_OPEN, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
 /* J1772 state -> EVSE state transitions. Spec § 3:
  *   READY    + J1772=C → CHARGING
  *   CHARGING + J1772≠C → READY (C->B regression is a transient pause;
@@ -386,6 +417,7 @@ static void safety_task_run(void *arg)
     fault_init(&fs);
     evse_state_t  es = EVSE_BOOT;
     int weld_streak = 0;
+    int stuck_open_streak = 0;
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
 
@@ -465,10 +497,13 @@ static void safety_task_run(void *arg)
             last_logged_j1772 = s;
         }
 
+        int sensed = relay_main_sense_closed();
         check_safe_fail(&fs, &es, s, cp_mv);
-        check_relay_weld(&fs, &es, relay_main_sense_closed(),
+        check_relay_weld(&fs, &es, sensed,
                          &weld_streak, &last_logged_sense,
                          s, cp_mv);
+        check_relay_stuck_open(&fs, &es, sensed,
+                               &stuck_open_streak, s, cp_mv);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
 
         /* After all fault checks: classifier-driven EVSE transitions,

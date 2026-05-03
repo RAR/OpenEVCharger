@@ -1452,9 +1452,25 @@ relay sense: open (cmd=open)
 Build: text 23336 / data 20 / bss 27604 — flash 4.46%, RAM 21.08%.
 +160 B text vs M7.3.
 
+## M7.5 — Relay stuck-open detector (2026-05-03)
+
+`check_relay_stuck_open()` mirrors M6.2's weld detector: commanded
+close + sensed open ≥ 200 ms (10 ticks at 50 Hz) raises
+`FAULT_RELAY_STUCK_OPEN` (latched) and transitions to EVSE_FAULT.
+Spec § 4 #3.
+
+Bench: relay never commanded close (J1772 stays A → READY → never
+CHARGING → never close). Detector exits early on `!relay_main_commanded()`
+so it's silent. Code-only validation.
+
+Sense reading is now hoisted to a single `relay_main_sense_closed()`
+call per tick (`int sensed`) shared by both check_relay_weld and
+check_relay_stuck_open — avoids racing the GPIO read between them.
+
+Build: text 23644 / data 20 / bss 27604 — flash 4.52%, RAM 21.08%.
++308 B text vs M7.4.
+
 ### Next sub-milestone
-M7.5 — relay stuck-open detector. Symmetric to M6.2 weld detector:
-commanded close + sensed open ≥ 200 ms → `FAULT_RELAY_STUCK_OPEN`.
-Until M7.2 OPENBHZD_RELAY_ACTUATE_SELF_TEST flips to default-on, this
-detector also won't fire on bench (same sense-circuit unknown), but
-the catalog entry gets its detector hook ready for production.
+M7.6 — session_log on session start/end. session_record write on
+A→B→C transition (start) and C→A or fault entry (end). Uses the
+M5.b.4 ring. Closes the M7 cycle.
