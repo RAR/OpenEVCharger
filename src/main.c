@@ -12,12 +12,66 @@
 #include "hal/adc_scan.h"
 #include "hal/cp_pwm.h"
 #include "hal/adc_inject.h"
+#include "hal/spi3.h"
+#include "hal/w25q.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
 #include "tasks/persist_task.h"
 
 extern uint32_t SystemCoreClock;
+
+/* M4 self-test: round-trip 256 bytes at the last sector of the 8 MB chip.
+ * Stock firmware uses 0x000000–0x04CFFF per the spec § 6 memory map;
+ * 0x07F000 sits in the upper "reserved" area, untouched by stock fw. */
+#define M4_TEST_ADDR  0x07F000U
+
+static void m4_self_test(void)
+{
+    int rc;
+
+    if (w25q_init() != 0) {
+        printk("W25Q: JEDEC init FAIL (probably no SPI / wrong wiring)\n");
+        return;
+    }
+    uint32_t id = w25q_jedec_id();
+    printk("W25Q: JEDEC ID = 0x%06x", (unsigned)id);
+    if (id == 0x00EF4017) printk(" (W25Q64JV)\n");
+    else                  printk(" (unrecognised — non-Winbond or different capacity)\n");
+
+    rc = w25q_erase_sector(M4_TEST_ADDR);
+    if (rc != 0) {
+        printk("W25Q: erase FAIL (timeout)\n");
+        return;
+    }
+    printk("W25Q: erased sector @ 0x%06x\n", M4_TEST_ADDR);
+
+    uint8_t pat[W25Q_PAGE_SIZE];
+    for (unsigned i = 0; i < W25Q_PAGE_SIZE; ++i) {
+        pat[i] = (i & 1) ? 0x5A : 0xA5;
+    }
+    rc = w25q_program(M4_TEST_ADDR, pat, sizeof pat);
+    if (rc != 0) {
+        printk("W25Q: program FAIL (timeout)\n");
+        return;
+    }
+    printk("W25Q: programmed %u bytes @ 0x%06x\n", (unsigned)sizeof pat, M4_TEST_ADDR);
+
+    uint8_t back[W25Q_PAGE_SIZE];
+    w25q_read(M4_TEST_ADDR, back, sizeof back);
+
+    int first_mismatch = -1;
+    for (unsigned i = 0; i < sizeof back; ++i) {
+        if (back[i] != pat[i]) { first_mismatch = (int)i; break; }
+    }
+    if (first_mismatch < 0) {
+        printk("W25Q round-trip PASS: %u bytes match\n", (unsigned)sizeof back);
+    } else {
+        printk("W25Q round-trip FAIL: first mismatch idx=%d expect=0x%02x got=0x%02x\n",
+               first_mismatch,
+               (unsigned)pat[first_mismatch], (unsigned)back[first_mismatch]);
+    }
+}
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. */
@@ -59,6 +113,9 @@ int main(void)
     printk("CP PWM armed: TIMER0 1 kHz, PE13 idle HIGH\n");
     adc_inject_init();
     printk("CP injected ADC armed: PA4 sampled on each PWM rising edge\n");
+
+    spi3_init();
+    m4_self_test();
 
     safety_task_create();
     io_task_create();
