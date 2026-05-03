@@ -10,6 +10,7 @@
 #include "gd32f20x.h"
 #include "hal/clock.h"
 #include "hal/uart.h"
+#include "core/pin_map.h"
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
 #include "hal/cp_pwm.h"
@@ -135,6 +136,14 @@ int main(void)
         printk("MODE: FC41D flash (DIP4 held) — comms_task suppressed\n");
         fc41d_flash_helper_create();
     } else {
+        /* Normal mode: power up the FC41D and release reset so its
+         * firmware runs and starts answering us on UART4. Stock
+         * firmware's Thd_Wifi did the same VEN-then-CEN release with
+         * a delay between. Without this the module sits dead. */
+        gpio_bit_set(PIN_FC41D_VEN_PORT, PIN_FC41D_VEN_PIN);
+        for (volatile int i = 0; i < 600000; ++i) { __asm__ volatile (""); }
+        gpio_bit_set(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN);
+        printk("FC41D: VEN=1 CEN=1 — module released\n");
         comms_task_create();
     }
     persist_task_create();
