@@ -46,10 +46,22 @@ static uint8_t scale(uint8_t v, uint8_t pct)
     return (uint8_t)(((uint32_t)v * pct) / 100u);
 }
 
+/* Gamma 2.0 approximation: (v² / 255).  Spec § 7 calls for gamma-
+ * corrected brightness; true 2.2 wants a 256-entry LUT but at the
+ * 800-Hz update rate the eye doesn't notice the difference between
+ * 2.0 and 2.2.  This costs one multiply + one divide per channel. */
+static uint8_t gamma8(uint8_t v)
+{
+    return (uint8_t)(((uint32_t)v * v) / 255u);
+}
+
 static void fill_all(uint8_t r, uint8_t g, uint8_t b, uint8_t pct)
 {
+    uint8_t rg = gamma8(scale(r, pct));
+    uint8_t gg = gamma8(scale(g, pct));
+    uint8_t bg = gamma8(scale(b, pct));
     for (unsigned i = 0; i < OPENBHZD_WS2812_LEDS; ++i) {
-        ws2812_set_pixel(i, scale(r, pct), scale(g, pct), scale(b, pct));
+        ws2812_set_pixel(i, rg, gg, bg);
     }
 }
 
@@ -63,6 +75,21 @@ static void apply_comms_overlay(unsigned every_n)
 
 void led_render(const struct led_inputs *in, uint32_t t_ms)
 {
+#if defined(OPENBHZD_LED_FORCE_GREEN) && OPENBHZD_LED_FORCE_GREEN
+    /* Bench debug: pixel 0 = red, pixel 1 = green, pixel 2 = blue,
+     * pixel 3..rest = solid dim green.  This both diagnoses byte
+     * order (first 3 pixels) and overall protocol health (rest of
+     * strip should be uniform dim green). */
+    (void)t_ms;
+    for (unsigned i = 3; i < OPENBHZD_WS2812_LEDS; ++i) {
+        ws2812_set_pixel(i, 0, 64, 0);  /* dim green */
+    }
+    ws2812_set_pixel(0, 255,   0,   0);  /* red */
+    ws2812_set_pixel(1,   0, 255,   0);  /* green */
+    ws2812_set_pixel(2,   0,   0, 255);  /* blue */
+    ws2812_show();
+    return;
+#endif
     if (in->override_mode == 1u) {
         fill_all(in->override_rgb[0], in->override_rgb[1], in->override_rgb[2],
                  in->brightness_pct);
@@ -70,12 +97,12 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
         return;
     }
 
-    /* Faults take priority over EVSE state. */
+    /* Faults take priority over EVSE state.  Spec § 7:
+     *   any fault: red flash 2 Hz
+     *   GFCI:      red flash 5 Hz */
     if (in->fault_active_bits) {
         int gfci = (in->fault_active_bits >> FAULT_GFCI) & 1u;
-        uint8_t v = flash(t_ms, gfci ? 200u : 500u);  /* 5 Hz vs 2 Hz */
-        fill_all(scale(255u, v / 4u + 191u), 0, 0, in->brightness_pct);
-        /* simpler: just flash full red on/off */
+        uint8_t v = flash(t_ms, gfci ? 200u : 500u);
         fill_all(v, 0, 0, in->brightness_pct);
         ws2812_show();
         return;
@@ -104,21 +131,32 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
         }
         break;
     case EVSE_CHARGING: {
-        /* cyan, breathing at 0.3 Hz (period ≈ 3.3 s) */
+        /* Cyan, breathing at 0.3 Hz (period ≈ 3.3 s).  Per spec § 7:
+         * "brightness ∝ active amps / advertised".  When the CT isn't
+         * yet calibrated (active_amps_x10 == 0) we ignore the ratio
+         * and run the breathe envelope at full amplitude — otherwise
+         * the strip would always be ~dim. */
         uint8_t v = breathe(t_ms, 3333u);
-        fill_all(scale(0, v), scale(255, v), scale(255, v), in->brightness_pct);
+        if (in->advertised_amps > 0u && in->active_amps_x10 > 0u) {
+            uint32_t active = (uint32_t)in->active_amps_x10 / 10u;
+            if (active > in->advertised_amps) active = in->advertised_amps;
+            uint32_t ratio_pct = (active * 100u) / in->advertised_amps;
+            if (ratio_pct < 20u) ratio_pct = 20u;  /* keep visible */
+            v = (uint8_t)(((uint32_t)v * ratio_pct) / 100u);
+        }
+        fill_all(0, v, v, in->brightness_pct);
         break;
     }
     case EVSE_USER_PAUSED: {
         /* yellow breathing 0.5 Hz */
         uint8_t v = breathe(t_ms, 2000u);
-        fill_all(scale(255, v), scale(255, v), 0, in->brightness_pct);
+        fill_all(v, v, 0, in->brightness_pct);
         break;
     }
     case EVSE_COOLING_DOWN: {
-        /* orange breathing 1 Hz */
+        /* orange breathing 1 Hz (R full, G half) */
         uint8_t v = breathe(t_ms, 1000u);
-        fill_all(scale(255, v), scale(128, v), 0, in->brightness_pct);
+        fill_all(v, (uint8_t)(v / 2u), 0, in->brightness_pct);
         break;
     }
     case EVSE_FAULT:

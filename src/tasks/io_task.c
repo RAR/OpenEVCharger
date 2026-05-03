@@ -115,6 +115,8 @@ static void io_task_run(void *arg)
                 .fault_active_bits = s.fault_active_bits,
                 .comms_degraded    = 0,
                 .brightness_pct    = LED_BRIGHTNESS_PCT,
+                .advertised_amps   = s.advertised_amps,
+                .active_amps_x10   = s.active_amps_x10,
                 .override_mode     = ovr_mode,
                 .override_rgb      = { ovr_rgb[0], ovr_rgb[1], ovr_rgb[2] },
             };

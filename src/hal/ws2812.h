@@ -30,7 +30,7 @@
  * DMA via ws2812_busy(). */
 
 #ifndef OPENBHZD_WS2812_LEDS
-#define OPENBHZD_WS2812_LEDS  110U
+#define OPENBHZD_WS2812_LEDS  134U
 #endif
 
 void ws2812_init(void);

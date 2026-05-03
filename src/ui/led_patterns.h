@@ -19,6 +19,11 @@ struct led_inputs {
     uint32_t      fault_active_bits;   /* bit-set per fault_id_t */
     uint8_t       comms_degraded;      /* 1 = overlay every-3rd magenta */
     uint8_t       brightness_pct;      /* 0..100 — default 60 per spec */
+    /* CHARGING-state inputs: brightness scales by active/advertised
+     * per spec § 7.  Both 0 = "no CT data" and the breathe envelope
+     * runs at full amplitude. */
+    uint8_t       advertised_amps;     /* effective DIP+TLV cap */
+    uint16_t      active_amps_x10;     /* CT-measured load × 10 */
     /* Override (FC41D SET_LED_OVERRIDE). 0 = no override. */
     uint8_t       override_mode;       /* 1 = solid override colour */
     uint8_t       override_rgb[3];

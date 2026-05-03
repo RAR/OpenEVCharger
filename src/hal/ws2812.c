@@ -15,14 +15,18 @@
 #ifndef OPENBHZD_LED_PROTOCOL_WS2812B
 #define OPENBHZD_LED_PROTOCOL_WS2812B 0
 #endif
-/* SK6812_RGBW is the *default* (matches the bench strip).  Set
- * OPENBHZD_LED_PROTOCOL_WS2812B=1 (or one of the other family flags)
- * to override for a different rebadge. */
-#if !OPENBHZD_LED_PROTOCOL_UCS1903 && !OPENBHZD_LED_PROTOCOL_APA106 && \
-    !OPENBHZD_LED_PROTOCOL_WS2812B
-#define OPENBHZD_LED_PROTOCOL_SK6812_RGBW 1
-#else
+#ifndef OPENBHZD_LED_PROTOCOL_SK6812_RGBW
 #define OPENBHZD_LED_PROTOCOL_SK6812_RGBW 0
+#endif
+/* OEM_GRB_600KHZ is the *default* (matches the bench strip — values
+ * extracted from stock V1.0.066 via openocd halt: TIMER1_CARL=99,
+ * T0H=20, T1H=60).  Set OPENBHZD_LED_PROTOCOL_WS2812B=1 (or one of
+ * the other family flags) to override for a different rebadge. */
+#if !OPENBHZD_LED_PROTOCOL_UCS1903 && !OPENBHZD_LED_PROTOCOL_APA106 && \
+    !OPENBHZD_LED_PROTOCOL_WS2812B && !OPENBHZD_LED_PROTOCOL_SK6812_RGBW
+#define OPENBHZD_LED_PROTOCOL_OEM_GRB_600KHZ 1
+#else
+#define OPENBHZD_LED_PROTOCOL_OEM_GRB_600KHZ 0
 #endif
 
 #if OPENBHZD_LED_PROTOCOL_UCS1903
@@ -48,22 +52,40 @@
 #define WS_T1H_TICKS      48U   /* 0.80 µs */
 #define WS_PACK_RGB        0
 #define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
-#else
-/* SK6812 RGBW (DEFAULT for the OpenBHZD bench): 800 kHz, GRBW byte
- * order, **32 bits per LED** (extra W channel).  T0H = 0.30 µs,
- * T1H = 0.60 µs, period = 1.25 µs, reset ≥80 µs.
- *
- * Bench breakthrough 2026-05-03: stock firmware's PA15 burst measured
- * 4.4 ms wide.  4400 µs / 1.25 µs/bit = 3520 bits = 110 LEDs ×
- * 32 bits — exact match.  Earlier guesses of 24-bit GRB at 134 LEDs
- * were off by both bit-count and pixel-count, which is why no
- * polarity / timing / byte-order combination ever decoded right. */
-#define WS_PERIOD_TICKS   74U   /* 1.25 µs @ 60 MHz */
-#define WS_T0H_TICKS      18U   /* 0.30 µs */
-#define WS_T1H_TICKS      36U   /* 0.60 µs */
-#define WS_PACK_RGB        0    /* GRBW packing handled below */
+#elif OPENBHZD_LED_PROTOCOL_SK6812_RGBW
+/* SK6812 RGBW: 800 kHz, GRBW byte order, **32 bits per LED**.
+ *   T0H = 0.30 µs, T1H = 0.60 µs, period = 1.25 µs, reset ≥80 µs. */
+#define WS_PERIOD_TICKS   74U
+#define WS_T0H_TICKS      18U
+#define WS_T1H_TICKS      36U
+#define WS_PACK_RGB        0
 #define WS_PACK_RGBW       1
-#define WS_BITS_PER_LED   32U   /* 4 bytes: G R B W */
+#define WS_BITS_PER_LED   32U
+#else
+/* OEM_GRB_600KHZ — the OpenBHZD bench strip (default).
+ *
+ * Stock V1.0.066 PWM config (read via SWD halt 2026-05-03):
+ *   TIMER1: PSC=0, CARL=99, CCR=20 ("0") or 60 ("1")
+ * Stock chip's APB1 timer clock is 60 MHz, so this gives:
+ *   period = 100/60 = 1.667 µs (600 kHz)
+ *   T0H = 20/60 = 0.333 µs
+ *   T1H = 60/60 = 1.000 µs
+ * Burst length = 110 × 24 × 1.667 µs = 4.4 ms (matches scope).
+ *
+ * Our APB1 timer clock measures ~39 MHz (the SDK's 120m_hxtal PLL
+ * chain has a known-bug compound divisor — `8/5 × 12/5 × 10` = 38.4
+ * MHz, not 120 MHz).  To produce the same wire timing as stock at
+ * our slower clock we scale CARL/CCR proportionally:
+ *   ARR  = round(99 × 39/60) = 64  → period 65 ticks ≈ 1.667 µs
+ *   T0H  = round(20 × 39/60) = 13
+ *   T1H  = round(60 × 39/60) = 39
+ * Bench measurement 2026-05-03: with old (99,20,60) values our burst
+ * was 8.3 ms (vs stock 4.4 ms), confirming the 1.53× clock skew. */
+#define WS_PERIOD_TICKS   64U   /* ARR = 64 → period 65 ticks @ ~39 MHz */
+#define WS_T0H_TICKS      13U   /* 0.333 µs */
+#define WS_T1H_TICKS      39U   /* 1.000 µs */
+#define WS_PACK_RGB        0    /* GRB byte order */
+#define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
 #endif
 
 #ifndef WS_PACK_RGBW
@@ -84,7 +106,8 @@ static volatile int s_dma_busy = 0;
 
 static void load_byte_at(uint16_t *out, uint8_t v)
 {
-    /* MSB-first wire order. */
+    /* MSB-first wire order — confirmed for OEM_GRB_600KHZ via stock
+     * V1.0.066 disassembly at 0x080115bc (`lsls r0, #24; bpl`). */
     for (unsigned i = 0; i < 8; ++i) {
         out[i] = (v & 0x80u) ? WS_T1H_TICKS : WS_T0H_TICKS;
         v <<= 1;
@@ -189,7 +212,7 @@ void ws2812_init(void)
 
     timer_parameter_struct tp;
     timer_struct_para_init(&tp);
-    tp.prescaler         = 0u;     /* 60 MHz / 1 = 60 MHz */
+    tp.prescaler         = 0u;     /* TIMER1 runs at APB1 timer clock */
     tp.alignedmode       = TIMER_COUNTER_EDGE;
     tp.counterdirection  = TIMER_COUNTER_UP;
     tp.period            = WS_PERIOD_TICKS;
