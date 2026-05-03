@@ -11,6 +11,7 @@
 #include "../core/pin_map.h"
 #include "../persist/crash_state.h"
 #include "../persist/event_log.h"
+#include "../persist/session_log.h"
 #include "../persist/boot_config.h"
 #include "persist_task.h"
 #include "gd32f20x.h"
@@ -80,6 +81,56 @@ enum st_relay_result {
     ST_RELAY_WELD_AT_BOOT    = 2,
 };
 
+/* Session tracking — populated only between READY→CHARGING and
+ * CHARGING→{anything else} transitions. mWh delivered stays 0 until
+ * a future milestone derives it from the CT902 ADC reading +
+ * elapsed time; bench has no CT base offset yet. */
+typedef enum {
+    SESSION_END_NORMAL    = 0,   /* J1772 dropped from C cleanly */
+    SESSION_END_FAULT     = 1,   /* entered EVSE_FAULT */
+    SESSION_END_OTHER     = 2,
+} session_end_reason_t;
+
+static struct {
+    int      active;
+    uint32_t start_ts;
+    uint8_t  j1772_max;
+    uint16_t fault_count;
+    uint16_t max_temp_dC;
+} s_session;
+
+static void session_start(void)
+{
+    s_session.active       = 1;
+    s_session.start_ts     = (uint32_t)xTaskGetTickCount();
+    s_session.j1772_max    = (uint8_t)J1772_STATE_C;
+    s_session.fault_count  = 0;
+    s_session.max_temp_dC  = 0;
+    printk("session: start ts=%u\n", (unsigned)s_session.start_ts);
+}
+
+static void session_end(session_end_reason_t reason)
+{
+    if (!s_session.active) return;
+    uint32_t now = (uint32_t)xTaskGetTickCount();
+    struct session_record rec = {
+        .start_ts             = s_session.start_ts,
+        .end_ts               = now,
+        .mwh_delivered        = 0,
+        .end_reason           = (uint8_t)reason,
+        .j1772_max_state_seen = s_session.j1772_max,
+        .fault_count          = s_session.fault_count,
+        .max_temp_dC          = s_session.max_temp_dC,
+    };
+    int rc = persist_post_session(&rec);
+    printk("session: end reason=%u dur_ms=%u faults=%u rc=%d\n",
+           (unsigned)reason,
+           (unsigned)(now - s_session.start_ts),
+           (unsigned)s_session.fault_count,
+           rc);
+    s_session.active = 0;
+}
+
 /* Effective advertised amps = min(FC41D, DIP1 cap, hardware cap).
  * FC41D=0 means "unset" → fall back to DIP1 cap. DIP1 input is
  * pull-up, active-low (closed switch reads LOW). Spec § 3. */
@@ -119,6 +170,15 @@ static void evse_transition(evse_state_t *cur, evse_state_t next)
 {
     if (*cur == next) return;
     printk("EVSE state %s -> %s\n", evse_state_name(*cur), evse_state_name(next));
+
+    /* Session lifecycle around CHARGING entry/exit. */
+    if (next == EVSE_CHARGING && *cur != EVSE_CHARGING) {
+        session_start();
+    } else if (*cur == EVSE_CHARGING && next != EVSE_CHARGING) {
+        session_end((next == EVSE_FAULT) ? SESSION_END_FAULT
+                                         : SESSION_END_NORMAL);
+    }
+
     *cur = next;
     /* FAULT entry must drive CP to state F immediately (don't wait
      * for the next 20 ms tick). Other states refresh per-tick from
@@ -150,6 +210,10 @@ static void post_fault_event(fault_id_t fid, j1772_state_t js,
     if (rc != 0) {
         printk("safety: persist_post_event(%s) FAIL rc=%d\n",
                fault_name(fid), rc);
+    }
+    if (s_session.active &&
+        s_session.fault_count < (uint16_t)0xFFFFu) {
+        s_session.fault_count++;
     }
 }
 

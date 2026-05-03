@@ -1470,7 +1470,82 @@ check_relay_stuck_open — avoids racing the GPIO read between them.
 Build: text 23644 / data 20 / bss 27604 — flash 4.52%, RAM 21.08%.
 +308 B text vs M7.4.
 
-### Next sub-milestone
-M7.6 — session_log on session start/end. session_record write on
-A→B→C transition (start) and C→A or fault entry (end). Uses the
-M5.b.4 ring. Closes the M7 cycle.
+## M7.6 — session_log on session start/end (2026-05-03)
+
+`safety_task` now writes a `session_record` for every charging
+session. Hooked into `evse_transition()`:
+
+- `READY → CHARGING` → `session_start()` captures `start_ts`,
+  resets `j1772_max_state_seen=C`, `fault_count=0`, `max_temp_dC=0`.
+- `CHARGING → FAULT`  → `session_end(SESSION_END_FAULT)`.
+- `CHARGING → READY`  → `session_end(SESSION_END_NORMAL)`.
+
+`post_fault_event()` now also bumps `s_session.fault_count` so a
+fault-during-charging is counted on the session record.
+
+Uses `persist_post_session()` (M5.b.5 queue + M5.b.4 ring).
+
+`mwh_delivered` stays 0 in M7.6 — needs CT902 zero offset
+(calibration_record reserved field) and an integration loop, both
+deferred. Likewise `max_temp_dC` stays 0 because NTCs aren't
+populated.
+
+End-reason enum:
+```
+SESSION_END_NORMAL = 0   /* J1772 left C cleanly */
+SESSION_END_FAULT  = 1   /* entered EVSE_FAULT during charging */
+SESSION_END_OTHER  = 2
+```
+
+Bench: J1772 stays in A → no CHARGING → no session start → silent.
+session_log valid count unchanged at 2 across this flash. Code-only
+validation today; live session record will appear the moment a
+state-C load is connected.
+
+Build: text 23924 / data 20 / bss 27620 — flash 4.57%, RAM 21.09%.
++280 B text vs M7.5.
+
+## M7 roll-up — relay actuation + advertised duty + sessions
+
+Six sub-milestones landed:
+
+| Sub-milestone | What | Tag |
+|---|---|---|
+| M7.1 | hal/relay.{c,h} | m7-1-relay-hal |
+| M7.2 | boot self-test relay actuate-and-readback (gated off) | m7-2-relay-self-test |
+| M7.3 | J1772 state-driven relay control (READY ↔ CHARGING) | m7-3-relay-state-driven |
+| M7.4 | advertised-amps duty + DIP1/hw cap | m7-4-advertise-amps |
+| M7.5 | relay stuck-open detector | m7-5-stuck-open |
+| M7.6 | session_log on session start/end | m7-6-session-log |
+
+What's now wired end-to-end (pending bench prep with state-C load):
+
+- READY ↔ CHARGING transitions on J1772 entering/leaving C.
+- Relay actuates on CHARGING+J1772=C, opens on any deviation, all
+  faults preempt.
+- CP duty: idle high in A; advertise per `min(boot_config_amps, DIP1, 48 A)`
+  in B/C/D; state F (-12 V) on FAULT.
+- Three new fault detectors: RELAY_OPEN_AT_BOOT, RELAY_WELD_AT_BOOT
+  (boot self-test step 4, gated off for bench), RELAY_STUCK_OPEN
+  (runtime, silent until commanded close).
+- Every charging session writes a session_record on end.
+
+Bench carve-outs:
+- **Relay actuate-and-readback boot self-test** is build-flag gated
+  off. PE12 close cmd doesn't produce a PB12 transition on this
+  bench setup — either the contactor coil ties to AC primary or PB12
+  is a through-current sense rather than coil-state sense. Probe
+  campaign with mains live needed before flipping the default to on.
+- **State-C exercise** needs a 882 Ω load across CP↔PE or a real EV.
+  Without it, the charging cycle is code-only validated.
+- **mWh integration** stalled on CT902 zero-offset baseline.
+
+### Next milestone
+M8 — FC41D TLV protocol over UART5. Bench-safe (no contactor risk).
+Implements the binary frame parser/builder, command dispatch, async
+event publish per spec § 5. Once M8 lands, FC41D can `SET_ADVERTISED_AMPS`,
+`CLEAR_FAULT` (anything except GFCI), `REQUEST_STOP`/`REQUEST_START_RESUME`,
+`GET_STATE`, etc., and OpenBHZD can publish state changes / fault
+events / session events back. Closes the protocol surface that
+WiFi/BLE/cloud features (run on FC41D) need to interact with the
+safety core.
