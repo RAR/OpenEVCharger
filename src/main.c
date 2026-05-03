@@ -16,6 +16,7 @@
 #include "hal/w25q.h"
 #include "persist/boot_count.h"
 #include "persist/boot_config.h"
+#include "persist/calibration.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -75,6 +76,9 @@ int main(void)
 
         if (boot_config_load() < 0) {
             printk("boot_config: load failed; defaults uninitialised\n");
+        }
+        if (calibration_load() < 0) {
+            printk("calibration: load failed; defaults active\n");
         }
     }
 

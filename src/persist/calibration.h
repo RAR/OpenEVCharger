@@ -1,0 +1,51 @@
+#ifndef OPENBHZD_PERSIST_CALIBRATION_H
+#define OPENBHZD_PERSIST_CALIBRATION_H
+
+#include <stdint.h>
+
+#define CALIBRATION_SLOT_A   0x002000U
+#define CALIBRATION_SLOT_B   0x003000U
+#define CALIBRATION_VERSION  1U
+
+/* Defaults committed M3.4.5 (bench Rippleon ROC001 2026-05-02).
+ * Formula: cp_mv = (raw - anchor) * slope_num / slope_den + 12000 */
+#define CAL_DEFAULT_CP_ANCHOR_RAW   1462
+#define CAL_DEFAULT_CP_SLOPE_NUM    3540
+#define CAL_DEFAULT_CP_SLOPE_DEN     459
+
+/* 32 bytes total. Same envelope convention as boot_config (counter @ 4,
+ * CRC @ end). The CT/leakage/NTC trim fields are reserved for M6/M7
+ * and not yet read by any consumer. */
+struct __attribute__((packed)) calibration {
+    uint8_t  version;                   /* 1 */
+    uint8_t  pad0[3];
+    uint32_t monotonic_counter;         /* helper-managed */
+    int16_t  cp_anchor_raw;             /* raw ADC value at +12 V */
+    int16_t  cp_slope_num;              /* mV/raw numerator */
+    int16_t  cp_slope_den;              /* mV/raw denominator */
+    int16_t  ct902_zero_offset;         /* reserved (M6) */
+    int16_t  leakage_ct_zero_offset;    /* reserved (M6) */
+    int16_t  ntc_pullup_trim_pct;       /* reserved (M6) */
+    uint8_t  reserved[8];
+    uint32_t crc32;                     /* helper-managed */
+};
+_Static_assert(sizeof(struct calibration) == 32, "calibration must be 32 B");
+
+/* Load the calibration record into the in-RAM cache + publish to the
+ * ISR-visible volatile cache. If both slots are invalid, writes
+ * defaults to slot A. Returns 0 on success, <0 on error. */
+int calibration_load(void);
+
+/* Replace the CP anchor + slope and persist. Atomic w.r.t. the ADC EOC
+ * ISR (interrupts disabled around the three field writes — < 1 µs).
+ * Idempotent if all three fields match current state. Returns 0 on
+ * success, <0 on error. */
+int calibration_set_cp(int16_t anchor_raw, int16_t slope_num, int16_t slope_den);
+
+/* ISR-side accessors. Read once per ISR; underlying storage is
+ * volatile int32_t (single-word atomic on Cortex-M3). */
+int32_t calibration_cp_anchor_raw(void);
+int32_t calibration_cp_slope_num(void);
+int32_t calibration_cp_slope_den(void);
+
+#endif
