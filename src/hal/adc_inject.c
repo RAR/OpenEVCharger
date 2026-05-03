@@ -1,17 +1,6 @@
 #include "adc_inject.h"
 #include "gd32f20x.h"
 
-/* CP_READBACK_INVERTED: define at compile time (e.g.
- * `target_compile_definitions(${TARGET} PRIVATE CP_READBACK_INVERTED=1)`)
- * if the on-board read-back chain inverts the sign of CP. Determined
- * by bench-scoping the CP terminal of the J1772 socket while idle:
- *   - DMM reads +12 V → buffer is non-inverting → leave undefined
- *   - DMM reads -12 V → buffer chain inverts → define CP_READBACK_INVERTED=1
- * Default: undefined (assumes the standard non-inverting topology). */
-#ifndef CP_READBACK_INVERTED
-#define CP_READBACK_INVERTED 0
-#endif
-
 static volatile uint16_t s_cp_raw = 0;
 static volatile int32_t  s_cp_mv  = 0;
 
@@ -47,9 +36,6 @@ void ADC0_1_IRQHandler(void)
         s_cp_raw = raw;
 
         int32_t mv = ((int32_t)raw - 2048) * 24000 / 4095;
-#if CP_READBACK_INVERTED
-        mv = -mv;
-#endif
         if (mv >  12000) mv =  12000;
         if (mv < -12000) mv = -12000;
         s_cp_mv = mv;
