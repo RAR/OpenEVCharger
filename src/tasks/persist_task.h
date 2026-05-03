@@ -22,4 +22,8 @@ int persist_post_event(const struct event_record *rec);
 /* Same for session_records. */
 int persist_post_session(const struct session_record *rec);
 
+/* Post a "I'm alive past 60 s" request. persist_task calls
+ * crash_state_reset_alive() (clears fast_restart_count to 0). */
+int persist_post_crash_state_reset(void);
+
 #endif

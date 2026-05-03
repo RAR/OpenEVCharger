@@ -1,11 +1,13 @@
 #include "persist_task.h"
 #include "queue.h"
 #include "../hal/uart.h"
+#include "../persist/crash_state.h"
 #include <string.h>
 
 typedef enum {
     PERSIST_REQ_EVENT,
     PERSIST_REQ_SESSION,
+    PERSIST_REQ_CRASH_STATE_RESET,
 } persist_req_type_t;
 
 struct persist_req {
@@ -51,6 +53,15 @@ int persist_post_session(const struct session_record *rec)
     return 0;
 }
 
+int persist_post_crash_state_reset(void)
+{
+    if (s_queue == NULL) return -1;
+    struct persist_req req;
+    req.type = PERSIST_REQ_CRASH_STATE_RESET;
+    if (xQueueSend(s_queue, &req, 0) != pdTRUE) return -1;
+    return 0;
+}
+
 static void persist_task_run(void *arg)
 {
     (void)arg;
@@ -67,6 +78,9 @@ static void persist_task_run(void *arg)
                 if (session_log_append(&req.payload.session) != 0) {
                     printk("persist: session_log_append FAIL\n");
                 }
+                break;
+            case PERSIST_REQ_CRASH_STATE_RESET:
+                (void)crash_state_reset_alive();
                 break;
             }
             s_overflow_warned = 0;

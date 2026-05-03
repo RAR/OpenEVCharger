@@ -7,9 +7,10 @@
 #include "tasks/persist_task.h"
 #include "gd32f20x.h"
 
-#define IO_TICK_MS    50
-#define HB_TOGGLE_MS  500
-#define DUMP_MS       5000
+#define IO_TICK_MS        50
+#define HB_TOGGLE_MS      500
+#define DUMP_MS           5000
+#define ALIVE_MARKER_MS   60000U
 
 static void adc_dump(void)
 {
@@ -42,6 +43,7 @@ static void io_task_run(void *arg)
     TickType_t last_wake = xTaskGetTickCount();
     unsigned ms = 0;
     int hb_level = 0;
+    int alive_posted = 0;
 
     for (;;) {
         if ((ms % HB_TOGGLE_MS) == 0) {
@@ -53,6 +55,12 @@ static void io_task_run(void *arg)
         buttons_poll();
 
         if ((ms % DUMP_MS) == 0) adc_dump();
+
+        if (!alive_posted && ms >= ALIVE_MARKER_MS) {
+            (void)persist_post_crash_state_reset();
+            alive_posted = 1;
+            printk("io_task: alive marker posted (ms=%u)\n", ms);
+        }
 
         ms += IO_TICK_MS;
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(IO_TICK_MS));
