@@ -63,6 +63,8 @@ set(APP_SRCS
     src/hal/w25q.c
     src/persist/crc.c
     src/persist/boot_count.c
+    src/persist/pingpong.c
+    src/persist/boot_config.c
     src/ui/buttons.c
     src/tasks/safety_task.c
     src/tasks/io_task.c

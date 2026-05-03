@@ -15,6 +15,7 @@
 #include "hal/spi3.h"
 #include "hal/w25q.h"
 #include "persist/boot_count.h"
+#include "persist/boot_config.h"
 #include "tasks/safety_task.h"
 #include "tasks/io_task.h"
 #include "tasks/comms_task.h"
@@ -71,6 +72,10 @@ int main(void)
         uint32_t bc = boot_count_increment();
         if (bc == 0xFFFFFFFFu) printk("W25Q: boot_count write FAIL\n");
         else                   printk("boot_count = %u\n", (unsigned)bc);
+
+        if (boot_config_load() < 0) {
+            printk("boot_config: load failed; defaults uninitialised\n");
+        }
     }
 
     safety_task_create();

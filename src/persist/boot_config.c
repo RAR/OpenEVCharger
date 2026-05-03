@@ -1,0 +1,68 @@
+#include "boot_config.h"
+#include "pingpong.h"
+#include "../hal/uart.h"
+#include <string.h>
+
+static struct boot_config s_cfg;
+
+int boot_config_load(void)
+{
+    uint8_t  slot = 0;
+    uint32_t counter = 0;
+    int rc = pingpong_load(BOOT_CONFIG_SLOT_A, BOOT_CONFIG_SLOT_B,
+                           &s_cfg, sizeof s_cfg, &slot, &counter);
+    if (rc < 0) {
+        printk("boot_config: pingpong_load FAIL rc=%d\n", rc);
+        return rc;
+    }
+    if (rc == 1) {
+        memset(&s_cfg, 0, sizeof s_cfg);
+        s_cfg.version = BOOT_CONFIG_VERSION;
+        s_cfg.fc41d_advertised_amps = 0;
+
+        rc = pingpong_store(BOOT_CONFIG_SLOT_A, BOOT_CONFIG_SLOT_B,
+                            &s_cfg, sizeof s_cfg, &slot, &counter);
+        if (rc < 0) {
+            printk("boot_config: defaults write FAIL rc=%d\n", rc);
+            return rc;
+        }
+        printk("boot_config: defaults written -> slot %c (counter=%u, advertised_amps=%u)\n",
+               'A' + slot, (unsigned)counter,
+               (unsigned)s_cfg.fc41d_advertised_amps);
+        return 0;
+    }
+
+    if (s_cfg.version != BOOT_CONFIG_VERSION) {
+        printk("boot_config: unknown version=%u, using as-is\n",
+               (unsigned)s_cfg.version);
+    }
+    printk("boot_config: loaded from slot %c (counter=%u, advertised_amps=%u)\n",
+           'A' + slot, (unsigned)counter,
+           (unsigned)s_cfg.fc41d_advertised_amps);
+    return 0;
+}
+
+uint8_t boot_config_advertised_amps(void)
+{
+    return s_cfg.fc41d_advertised_amps;
+}
+
+int boot_config_set_advertised_amps(uint8_t amps)
+{
+    if (s_cfg.fc41d_advertised_amps == amps) return 0;
+
+    s_cfg.version = BOOT_CONFIG_VERSION;
+    s_cfg.fc41d_advertised_amps = amps;
+
+    uint8_t  slot = 0;
+    uint32_t counter = 0;
+    int rc = pingpong_store(BOOT_CONFIG_SLOT_A, BOOT_CONFIG_SLOT_B,
+                            &s_cfg, sizeof s_cfg, &slot, &counter);
+    if (rc < 0) {
+        printk("boot_config: store FAIL rc=%d\n", rc);
+        return rc;
+    }
+    printk("boot_config: stored -> slot %c (counter=%u, advertised_amps=%u)\n",
+           'A' + slot, (unsigned)counter, (unsigned)amps);
+    return 0;
+}
