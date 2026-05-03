@@ -976,9 +976,50 @@ Boot path lands cleanly in EVSE_READY.
 
 Build size: text 21252 / data 20 / bss 27596 — flash 4.06%, RAM 21.07%.
 
+## M6.2 — PB12 relay-sense readback + weld detection (2026-05-02)
+
+Read-only PB12 sense. Inline in `safety_task` (no separate module —
+single-writer rule keeps relay-related logic in one task).
+
+Built:
+
+- `relay_sense_closed()`: reads PB12 (HIGH = sensed-closed; pinout doc
+  confirms HIGH means "contactor closed-feedback").
+- `relay_commanded_closed()`: function stub returning 0. OpenBHZD does
+  not yet drive PE12 — `gpio_init_all()` configures it as output PP and
+  drives it LOW. The function exists so M7's actuation work plugs in
+  here cleanly.
+- `check_relay_weld()`: each tick, compares sensed vs commanded. If
+  sensed=closed && cmd=open for >= 200 ms (10 ticks at 50 Hz), raises
+  `FAULT_RELAY_WELD` (latched) and transitions to EVSE_FAULT. Spec
+  § 4 #2 persistence threshold.
+- Logs every change in PB12 sense state.
+
+Bench validation (post-M6.1 state):
+
+```
+boot_count = 59
+crash_state: fast_restart=4 (slot B counter=4)
+EVSE state BOOT -> SELF_TEST
+EVSE state SELF_TEST -> READY
+relay sense: open (cmd=open)
+```
+
+PB12 reads LOW (open) at boot, matching the hardware reality (relay
+coil de-energised, contacts open). No weld fault raised. Clean.
+
+The active-fault-injection variant of this test (manually shorting
+PB12 to 3.3 V to spoof "closed" sense) was avoided overnight per the
+pinout doc warning — it spoofs the firmware safety interlock, and we
+already trust the reading. Will revisit during M9 user-I/O bench.
+
+Build size: text 21552 / data 20 / bss 27596 — flash 4.12%, RAM 21.07%.
+Cost vs M6.1: +300 B text.
+
 ### Next milestone
-M6.2 — read-only PB12 relay-sense readback. Logs the raw value, raises
-FAULT_RELAY_WELD if PB12 reads "closed" while we have not commanded a
-relay close (which is always, since OpenBHZD does not yet drive PE12).
-This is the pre-flight half of spec § 4 #2 / § 4.1.3 — the "weld at
-boot" check that does not actuate the relay.
+M6.3 — fault → CP output coupling. When `evse_state == EVSE_FAULT`
+drive CP via `cp_pwm_set_state_f()` (so the EV sees -12 V "EVSE not
+ready"); otherwise `cp_pwm_set_idle_high()` (state-A advertise).
+Validatable on bench via the next reset, which will trip
+fast_restart=5 → safe-fail → FAULT path → CP=-12V observable on the
+HIGH-phase ADC sample.
