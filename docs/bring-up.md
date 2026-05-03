@@ -1283,14 +1283,35 @@ and restores fast_restart=0 from a safe-fail latch. The
 projectstate.txt M5.b.6 recovery technique held up across all six
 M6 sub-milestones.
 
-### Next milestone
+## M7.1 — Relay HAL (2026-05-03)
 
-M7 — relay control under load. safety_task gains the right to
-actuate PE12 / PE0 based on J1772 state + advertised amps. Closes the
-charging cycle. Risk: needs AC + supervised bench session because
-closing the contactor on AC clicks audibly and energises the J1772
-plug. M7 is morning-hours work, not overnight.
+`src/hal/relay.{c,h}` encapsulates PE12 (main contactor) + PE0 (aux)
+output drive and PB12 closed-feedback sense behind a thin C API:
 
-Optional M6.b before M7 if bench prep allows: identify GFCI sense
-pin via PE3-CAL probe + scope, then wire the EXTI handler. Until that
-pin is identified, GFCI cannot latch a fault.
+```
+relay_main_open / relay_main_close / relay_main_commanded / relay_main_sense_closed
+relay_aux_open  / relay_aux_close  / relay_aux_commanded
+```
+
+Last-commanded state tracked in static module-locals so callers can
+ask "did I command closed?" without re-reading the GPIO output bit
+register. Single-writer rule per spec § 2 + § 4: only `safety_task`
+is allowed to call the *_open/_close mutators; other tasks/ISRs are
+read-only.
+
+`safety_task` swap: dropped the inline `relay_sense_closed()` /
+`relay_commanded_closed()` placeholders in favor of the HAL. Same
+behavior — the runtime never commands close yet — but M7.2+ will
+plug into the HAL cleanly.
+
+Bench: clean boot (fast_restart=2), self-test PASS, READY, relay
+sense open. No regressions.
+
+Build: text 22504 / data 20 / bss 27604 — flash 4.30%, RAM 21.08%.
++40 B text vs M6.6 (the HAL is small, 8 B bss for the cmd state).
+
+### Next sub-milestone
+M7.2 — extend boot self-test with spec § 4.1.4 step 4: command PE12
+closed for ≤50 ms with CP held in state A (idle, no vehicle, no
+load), verify PB12 reads "closed" within the window, then command
+open. First audible bench click.

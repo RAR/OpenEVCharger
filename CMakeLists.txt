@@ -60,6 +60,7 @@ set(APP_SRCS
     src/hal/adc_scan.c
     src/hal/adc_inject.c
     src/hal/cp_pwm.c
+    src/hal/relay.c
     src/hal/spi3.c
     src/hal/w25q.c
     src/persist/crc.c

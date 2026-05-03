@@ -4,6 +4,7 @@
 #include "../hal/adc_inject.h"
 #include "../hal/adc_scan.h"
 #include "../hal/cp_pwm.h"
+#include "../hal/relay.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
@@ -98,24 +99,6 @@ static void check_safe_fail(fault_state_t *fs, evse_state_t *es,
     }
 }
 
-/* PB12 read: HIGH = sensed-closed (relay coil energised + contacts mated),
- * LOW = sensed-open. (Pinout doc: "drive→1 made firmware's alarm routine
- * fire" — confirms HIGH means "closed-feedback".) */
-static int relay_sense_closed(void)
-{
-    return (gpio_input_bit_get(PIN_RELAY_SENSE_PORT,
-                               PIN_RELAY_SENSE_PIN) == SET) ? 1 : 0;
-}
-
-/* Returns 1 if the relay is currently being commanded closed. OpenBHZD
- * never commands close yet (PE12 driven LOW from gpio_init_all), so the
- * answer is unconditionally 0 — but expressed as a function so M7's
- * actuation work plugs in here cleanly. */
-static int relay_commanded_closed(void)
-{
-    return 0;
-}
-
 static void check_relay_weld(fault_state_t *fs, evse_state_t *es,
                              int sensed_closed, int *weld_streak,
                              int *last_logged_sense,
@@ -124,11 +107,11 @@ static void check_relay_weld(fault_state_t *fs, evse_state_t *es,
     if (sensed_closed != *last_logged_sense) {
         printk("relay sense: %s (cmd=%s)\n",
                sensed_closed ? "CLOSED" : "open",
-               relay_commanded_closed() ? "close" : "open");
+               relay_main_commanded() ? "close" : "open");
         *last_logged_sense = sensed_closed;
     }
 
-    if (sensed_closed && !relay_commanded_closed()) {
+    if (sensed_closed && !relay_main_commanded()) {
         if (*weld_streak < (int)WELD_PERSIST_TICKS) ++(*weld_streak);
     } else {
         *weld_streak = 0;
@@ -188,7 +171,7 @@ static int self_test_adc_sanity(void)
 
 static int self_test_relay_open(void)
 {
-    if (relay_sense_closed()) {
+    if (relay_main_sense_closed()) {
         printk("self-test: PB12 reads CLOSED at boot\n");
         return 1;
     }
@@ -312,7 +295,7 @@ static void safety_task_run(void *arg)
         }
 
         check_safe_fail(&fs, &es, s, cp_mv);
-        check_relay_weld(&fs, &es, relay_sense_closed(),
+        check_relay_weld(&fs, &es, relay_main_sense_closed(),
                          &weld_streak, &last_logged_sense,
                          s, cp_mv);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
