@@ -541,3 +541,75 @@ M5.b.2 — calibration record. Same record convention, slots
 (slope = 3540/459, anchor_raw = 1462) into a `calibration_record`,
 read at boot into a RAM cache that `adc_inject.c`'s ISR consumes via
 `volatile` cached integers.
+
+---
+
+## M5.b.2 — calibration record + ISR cache
+
+**Date completed:** 2026-05-02
+**Spec section:** § 6 (calibration ping-pong)
+**Plan:** docs/superpowers/plans/2026-05-02-m5b2-calibration.md
+
+### Success criteria
+1. First flash → defaults written to slot A (anchor=1462, slope=3540/459).
+2. Reset → load unchanged.
+3. CP behaviour unchanged: state A still reports cp=12000 mV.
+4. Programmatic `calibration_set_cp(1500, 3600, 460)` → store + ISR
+   reads new values (proves cache is live).
+5. Restore defaults via the same path → cp=12000 mV again.
+
+### Observed result
+
+```
+=== boot N (post-flash, slots blank) ===
+calibration: defaults written -> slot A (counter=1, anchor=1462, slope=3540/459)
+J1772 state=A cp=12000 mV          ← unchanged from M3 baseline
+
+=== boot N+1 (monitor reset) ===
+calibration: loaded from slot A (counter=1, anchor=1462, slope=3540/459)
+J1772 state=A cp=12000 mV
+
+=== boot N+2 (after re-flash with one-shot set(1500,3600,460)) ===
+calibration: loaded from slot A (counter=1, anchor=1462, slope=3540/459)
+calibration: stored -> slot B (counter=2, anchor=1500, slope=3600/460)
+J1772 state=A cp=11703 mV          ← predicted (1463-1500)*3600/460+12000 = 11695
+
+=== boot N+3 (after re-flash with restore-defaults gate) ===
+calibration: loaded from slot B (counter=2, anchor=1500, slope=3600/460)
+calibration: stored -> slot A (counter=3, anchor=1462, slope=3540/459)
+J1772 state=A cp=12000 mV          ← restored
+```
+
+### Build size
+- text 16252 B (+660 vs M5.b.1: calibration.c + ISR plumbing),
+  data 20 B, bss 19340 B, flash 3.11 % of 512 KB.
+
+### Implementation notes
+1. **ISR cache uses volatile int32_t.** Three load-bearing values
+   (`s_anchor_raw`, `s_slope_num`, `s_slope_den`). Each is a single
+   word, so reads from the ISR are atomic on Cortex-M3 — no torn-read
+   risk. The setter publishes all three under `__disable_irq()` to
+   prevent the ISR from observing a half-updated triple. < 1 µs IRQ
+   blackout per setter call (very rare path).
+2. **Defaults match the bench fit.** `CAL_DEFAULT_*` constants in
+   `calibration.h` are the M3.4.5 values, so the first few ADC ISRs
+   that run *before* `calibration_load()` (very brief window between
+   `adc_inject_init()` in main and `calibration_load()` later in main)
+   produce correct cp_mv. No init-order shuffle needed.
+3. **Spec drift — calibration_record fields.** Spec § 6 listed
+   `cp_divider_trim_mv` (a single additive correction). The actual
+   M3 fit is non-additive (slope-and-anchor), so the field was
+   replaced with `(cp_anchor_raw, cp_slope_num, cp_slope_den)` — a
+   triple that captures the real fit. CT902 / leakage-CT / NTC trim
+   fields are reserved (struct fields present, no consumer yet).
+4. **Validation strategy.** Step 4 deliberately programs *bogus*
+   anchors and verifies the ISR reports the predicted bogus reading;
+   that's the only way to prove the cache is actually being read.
+   The math: `(1463 - 1500) × 3600 / 460 + 12000 = 11695`. Observed
+   11703 (raw fluctuates 1461–1463). Match.
+
+### Next milestone
+M5.b.3 — CRC16 helper + event_log scan-on-boot + append. event_log is
+the trickiest M5.b piece: ring buffer across 64 sectors, head discovery
+by scan, sector-erase on wrap. Spec § 6 explicitly avoids a header
+sector — head pointer is reconstructed from data on every boot.
