@@ -17,6 +17,7 @@
 #include "../core/system_state.h"
 #include "persist_task.h"
 #include "comms_task.h"
+#include "../diag/stack_watch.h"
 #include "queue.h"
 #include "gd32f20x.h"
 
@@ -809,10 +810,12 @@ void safety_task_create(void)
     s_safety_inbox = xQueueCreate(SAFETY_INBOX_DEPTH, sizeof(struct safety_req));
     configASSERT(s_safety_inbox != NULL);
 
+    TaskHandle_t h = NULL;
     xTaskCreate(safety_task_run,
                 "safety",
                 SAFETY_TASK_STACK_WORDS,
                 NULL,
                 SAFETY_TASK_PRIORITY,
-                NULL);
+                &h);
+    stack_watch_register("safety", h, SAFETY_TASK_STACK_WORDS);
 }

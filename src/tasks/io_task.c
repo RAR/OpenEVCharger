@@ -11,6 +11,7 @@
 #include "hal/adc_inject.h"
 #include "hal/ws2812.h"
 #include "tasks/persist_task.h"
+#include "diag/stack_watch.h"
 #include "gd32f20x.h"
 
 #define IO_TICK_MS        50
@@ -18,6 +19,7 @@
 #define DUMP_MS           5000
 #define ALIVE_MARKER_MS   60000U
 #define LED_BRIGHTNESS_PCT  60u
+#define STACK_DUMP_MS     30000U
 
 static void adc_dump(void)
 {
@@ -120,6 +122,7 @@ static void io_task_run(void *arg)
         }
 
         if ((ms % DUMP_MS) == 0) adc_dump();
+        if ((ms % STACK_DUMP_MS) == 0) stack_watch_dump();
 
         if (!alive_posted && ms >= ALIVE_MARKER_MS) {
             (void)persist_post_crash_state_reset();
@@ -134,10 +137,12 @@ static void io_task_run(void *arg)
 
 void io_task_create(void)
 {
+    TaskHandle_t h = NULL;
     xTaskCreate(io_task_run,
                 "io",
                 IO_TASK_STACK_WORDS,
                 NULL,
                 IO_TASK_PRIORITY,
-                NULL);
+                &h);
+    stack_watch_register("io", h, IO_TASK_STACK_WORDS);
 }

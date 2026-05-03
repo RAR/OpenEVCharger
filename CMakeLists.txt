@@ -83,6 +83,7 @@ set(APP_SRCS
     src/tasks/io_task.c
     src/tasks/comms_task.c
     src/tasks/persist_task.c
+    src/diag/stack_watch.c
 )
 
 # ---------- Target ----------
@@ -124,6 +125,14 @@ if(DEFINED OPENBHZD_WS2812_LEDS)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_WS2812_LEDS=${OPENBHZD_WS2812_LEDS})
 endif()
+# Bench survey of FreeRTOS task stack high-water marks. Prints a single
+# `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
+# Default ON for bench builds; pass -DOPENBHZD_STACK_WATCH=0 for production.
+if(NOT DEFINED OPENBHZD_STACK_WATCH)
+    set(OPENBHZD_STACK_WATCH 1)
+endif()
+target_compile_definitions(${TARGET} PRIVATE
+    OPENBHZD_STACK_WATCH=${OPENBHZD_STACK_WATCH})
 
 set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/gd32f205vc.ld)
 target_link_options(${TARGET} PRIVATE

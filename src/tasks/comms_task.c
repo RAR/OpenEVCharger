@@ -10,6 +10,7 @@
 #include "../core/fault.h"
 #include "../ui/led_patterns.h"
 #include "../ui/buzzer.h"
+#include "../diag/stack_watch.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
@@ -290,10 +291,12 @@ void comms_task_create(void)
     s_tx_mutex  = xSemaphoreCreateMutex();
     configASSERT(s_tx_mutex);
 
+    TaskHandle_t h = NULL;
     xTaskCreate(comms_task_run,
                 "comms",
                 COMMS_TASK_STACK_WORDS,
                 NULL,
                 COMMS_TASK_PRIORITY,
-                NULL);
+                &h);
+    stack_watch_register("comms", h, COMMS_TASK_STACK_WORDS);
 }

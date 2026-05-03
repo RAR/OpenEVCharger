@@ -6,6 +6,7 @@
 #include "../persist/boot_config.h"
 #include "../persist/calibration.h"
 #include "../proto/commands.h"
+#include "../diag/stack_watch.h"
 #include <string.h>
 
 typedef enum {
@@ -215,10 +216,12 @@ void persist_task_create(void)
         printk("persist: xQueueCreate FAIL\n");
         return;
     }
+    TaskHandle_t h = NULL;
     xTaskCreate(persist_task_run,
                 "persist",
                 PERSIST_TASK_STACK_WORDS,
                 NULL,
                 PERSIST_TASK_PRIORITY,
-                NULL);
+                &h);
+    stack_watch_register("persist", h, PERSIST_TASK_STACK_WORDS);
 }
