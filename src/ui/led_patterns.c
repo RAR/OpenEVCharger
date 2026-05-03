@@ -22,12 +22,17 @@ void led_override_get(uint8_t *mode, uint8_t rgb_out[3])
 }
 
 /* Triangle wave that oscillates between BREATHE_MIN..255 every period_ms.
- * The min floor keeps the strip visibly lit even at the bottom of the
- * dim phase — without it, gamma compression turns the lowest ~30
- * input values into a flat "off" segment that visibly snaps on at
- * each cycle. 48 → after scaled_gamma(48, 60) = (48²/255)*60/100 ≈ 5,
- * which is dim but clearly lit. */
-#define BREATHE_MIN  48u
+ *
+ * BREATHE_MIN = 180 puts the dim point at ~50% of peak brightness
+ * after gamma (scaled_gamma(180, 60) ≈ 76 vs scaled_gamma(255, 60) =
+ * 153). Two reasons for the high floor:
+ *   1. The strip is always clearly lit — no "snaps on each cycle"
+ *      visual artifact from gamma compression near zero.
+ *   2. Narrower input range = fewer output levels per frame to step
+ *      through. With min=180 the ramp covers 75 levels per half-cycle
+ *      → ≈1 output level per 25 ms frame at 40 fps, well below
+ *      perceptual stepping threshold. */
+#define BREATHE_MIN  180u
 
 static uint8_t breathe(uint32_t t_ms, uint32_t period_ms)
 {
