@@ -120,25 +120,38 @@
 
 /* ----- GFCI -----
  *
- * Stock fw V1.0.066 sense path (RE'd 2026-05-03 from
- * docs/re-stock-safety.md): the GFCI module's fault output is read
- * from PE2 in a polled 8-state TBB-dispatched state machine at
- * stock fw 0x08012824. NO EXTI is used — all EXTI vectors point
- * at the default trap stub. Polling cadence: ~5 s / cycle, with
- * mid-CAL-pulse PE2 sample expected HIGH (active-high fault).
+ * PE2 = GFCI fault sense. Bench-confirmed 2026-05-04 by driving the
+ * GFCI module's trip line HIGH externally and watching PE2 toggle
+ * via tools/gpio_diff.sh (PE2: 1 → 0 on assert, returns 1 on
+ * release). Polarity is ACTIVE-LOW at the MCU side: idle HIGH,
+ * pulls LOW when the GFCI module asserts its fault output.
  *
- * PIN_GFCI_SENSE is declared but NOT yet enabled — pinout.md
- * currently classifies PE2 as "DIP/strap, IDR=1 idle", which
- * conflicts with the stock fw's active-high interpretation. Bench
- * scope of PE2 during the PE3 CAL pulse is required before flipping
- * any GFCI gate. See docs/safety.md.
+ * This INVERTS the agent's static-decode hypothesis (which assumed
+ * active-high based on the bit-set ORing semantics in stock fw's
+ * polled state machine at 0x08012824 — see docs/re-stock-safety.md).
+ * Most likely the stock fw's "bit 1 set" means "PE2 stayed HIGH" =
+ * "no fault" rather than "fault asserted". Polled, no EXTI; ~5 s
+ * self-test cycle. Detector should be:
+ *   - PE2 input pull-up (or float — module pulls it high in normal op)
+ *   - Read at safety_task tick; debounce a few ticks
+ *   - PE2 LOW sustained → raise FAULT_GFCI (latched, power-cycle clear)
+ *
+ * PD6 (USART1-RX printk line) also moved during the bench wiggle —
+ * almost certainly capacitive coupling from the trip wire running
+ * adjacent on the bench harness, not a real second signal.
+ *
+ * PE3 = GFCI CAL output. Wire-traced 2026-05-02: MCU LOW → external
+ * level-shift transistor drives 5 V to the module's CAL input
+ * (active asserted); MCU HIGH → CAL idle. Stock fw drives PE3 in
+ * its 8-state self-test cycle; OpenBHZD will need to do the same
+ * once we wire `hal/gfci.c`.
  *
  * PE4 also driven in the stock state machine (probably "test latch"
  * or pre-charge bleed); role not yet decoded. */
 #define PIN_GFCI_CAL_PORT       GPIOE
 #define PIN_GFCI_CAL_PIN        GPIO_PIN_3     /* active-low at MCU; idle low (CAL inactive) */
 #define PIN_GFCI_SENSE_PORT     GPIOE
-#define PIN_GFCI_SENSE_PIN      GPIO_PIN_2     /* polled, active-high (per stock fw RE) */
+#define PIN_GFCI_SENSE_PIN      GPIO_PIN_2     /* polled, ACTIVE-LOW (bench-confirmed 2026-05-04) */
 
 /* ----- Buzzer ----- */
 #define PIN_BUZZER_PORT         GPIOB

@@ -65,28 +65,31 @@ Each row lists the fault, the missing input that gates it, the
 build/runtime flag that enables it, and the bench investigation needed
 to lift the gate. **Order roughly tracks production-blocker priority.**
 
-### `FAULT_GFCI` — gated (sense pin found, polarity unconfirmed)
+### `FAULT_GFCI` — sense pin + polarity confirmed; detector code still pending
 
-- **Static analysis (2026-05-03, `docs/re-stock-safety.md`):** stock
-  fw V1.0.066 polls **PE2** in an 8-state TBB-dispatched state
-  machine at flash `0x08012824`. NO EXTI is used — all EXTI vectors
-  point at the default trap stub. PE3 drives the CAL pulse, PE4 a
-  secondary line, PE2 is sampled mid-CAL-pulse expecting HIGH
-  (active-high fault output). 5 s self-test cycle. Pin declared as
-  `PIN_GFCI_SENSE_*` in `pin_map.h` but no detector wired yet.
-- **Why still gated:** `pinout.md` currently classifies PE2 as
-  "DIP/strap, IDR=1 idle". An idle-high reading on a fault-output
-  sense conflicts with the active-high interpretation — either the
-  fault output is active-low (and stock's bit-set semantics are
-  inverted from intuition), or PE2 is a strap and the GFCI
-  state-machine path is dormant.
-- **Bench needed:** Scope PE2 while running stock fw on AC and
-  watching for the CAL-pulse cycle (~5 s period). If PE2 toggles
-  HIGH inside the PE3 pulse window → confirmed; flip the gate. If
-  PE2 stays HIGH constantly → wrong pin or wrong polarity, hold.
-- **Enable (after bench):** Wire `hal/gfci.c` polled detector
-  matching the stock 8-state TBB. Latched, power-cycle-only clear
-  (spec § 4.2).
+- **Bench-confirmed 2026-05-04** via `tools/gpio_diff.sh`. With AC
+  live, driving the GFCI module's external trip line HIGH dropped
+  PE2 from 1 → 0; release returned PE2 to 1. PE2 is therefore the
+  GFCI fault sense, **ACTIVE-LOW** at the MCU (module pulls PE2
+  low when faulted; idle HIGH, likely open-drain output with an
+  internal/external pull-up).
+- **Polarity inverts the static-decode hypothesis.** The stock-fw
+  state machine (flash `0x08012824`) ORs PE2's value into a fault
+  byte at `[0x200026a0]`; the agent's read of "bit 1 set = fault"
+  was probably wrong — bit 1 set most likely means "PE2 read HIGH"
+  = "no fault, healthy". The static analysis stands as a structural
+  decode; only the polarity interpretation needs flipping.
+- **Bonus finding:** PD6 (USART1-RX printk line) also moved during
+  the wiggle — almost certainly capacitive coupling from the trip
+  wire on the bench harness, not a real second sense path. Documented
+  in `pin_map.h`, no further action.
+- **Enable (TODO):** Wire `hal/gfci.c` polled detector at the
+  safety_task tick. Configure PE2 as input pull-up (or float — the
+  module + its own pull-up keeps idle HIGH). Debounce 3–5 ticks of
+  PE2 LOW → raise `FAULT_GFCI`. Latched, power-cycle-only clear per
+  spec § 4.2 / UL2231. Optionally replicate the stock 8-state CAL
+  self-test (drive PE3 + PE4, expect PE2 LOW mid-cycle) for
+  `FAULT_GFCI_SELF_TEST` coverage.
 
 ### `FAULT_RELAY_WELD` / `FAULT_RELAY_STUCK_OPEN` — gated
 
