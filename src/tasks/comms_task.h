@@ -6,12 +6,18 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define COMMS_TASK_STACK_WORDS  1024U  /* M8.b: bumped after bench resets on
-                                        * inbound TLV. accum(64) + send_frame
-                                        * buf(64) + handler locals + nested
-                                        * call frames + FreeRTOS context save.
-                                        * Generous headroom for now; can trim
-                                        * once high-water-mark survey runs. */
+#define COMMS_TASK_STACK_WORDS  512U   /* Survey 2026-05-04: stack_watch_dump
+                                        * format had been misread (lo = FREE
+                                        * words, not used). Real high-water-
+                                        * mark on bench: ~10 W used out of
+                                        * 1024. accum(64 B) + send_frame buf
+                                        * (64 B) + handler locals + nested
+                                        * call frames + FreeRTOS context
+                                        * save fits comfortably under 256 W.
+                                        * 512 W keeps a 50× margin while
+                                        * recovering 2 KB RAM. Bumped from
+                                        * 384 originally on the same misread
+                                        * that flagged "tight" headroom. */
 #define COMMS_TASK_PRIORITY     2U
 
 void comms_task_create(void);

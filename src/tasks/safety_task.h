@@ -5,7 +5,12 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define SAFETY_TASK_STACK_WORDS  256U
+/* Bench survey 2026-05-04: peak ~122 W used / 256 W → 134 W free, ~50%
+ * headroom. Borderline tight on the safety-critical path under fault-
+ * flood (raise + persist post + comms publish in one tick). Bumped to
+ * 320 W for ~2× margin; cheap (256 B) versus the cost of a stack-overflow
+ * trip in the supervisor. */
+#define SAFETY_TASK_STACK_WORDS  320U
 #define SAFETY_TASK_PRIORITY     4U
 #define SAFETY_TASK_PERIOD_MS    20U
 #define SAFETY_INBOX_DEPTH       4U

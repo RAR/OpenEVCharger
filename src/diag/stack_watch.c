@@ -10,6 +10,7 @@ struct stack_watch_entry {
     const char  *name;
     TaskHandle_t handle;
     uint16_t     configured_words;
+    uint16_t     min_free_seen;     /* smallest free-word reading observed */
 };
 
 static struct stack_watch_entry s_entries[STACK_WATCH_MAX];
@@ -22,23 +23,32 @@ void stack_watch_register(const char *name, TaskHandle_t handle,
     s_entries[s_n].name = name;
     s_entries[s_n].handle = handle;
     s_entries[s_n].configured_words = configured_words;
+    s_entries[s_n].min_free_seen = configured_words;
     s_n++;
 }
 
 void stack_watch_dump(void)
 {
-    /* Per-task headroom in stack words (uxTaskGetStackHighWaterMark
-     * returns the smallest free-words observed since the task started).
-     * Idle task is omitted: configMINIMAL_STACK_SIZE=128 W is generous
-     * enough that idle is never the bottleneck, and surfacing its handle
-     * would require enabling INCLUDE_xTaskGetIdleTaskHandle. */
+    /* uxTaskGetStackHighWaterMark returns FREE words (smallest free-word
+     * reading observed since task start). To make the dump unambiguous —
+     * an earlier format printed "<name>=<free>/<total>" which got misread
+     * as used/total in persist_task.h — print the derived used count
+     * directly, and also track the deepest low-water-mark so far. A new
+     * worst-ever fires its own line so a fault-path that bumps usage
+     * shows up in logs even between dump cadences. */
     printk("stack:");
     for (uint8_t i = 0; i < s_n; ++i) {
-        UBaseType_t lo = uxTaskGetStackHighWaterMark(s_entries[i].handle);
+        UBaseType_t free_w = uxTaskGetStackHighWaterMark(s_entries[i].handle);
+        uint16_t total = s_entries[i].configured_words;
+        uint16_t used  = (free_w >= total) ? 0u : (uint16_t)(total - free_w);
+        if ((uint16_t)free_w < s_entries[i].min_free_seen) {
+            s_entries[i].min_free_seen = (uint16_t)free_w;
+            /* New worst-ever — surface immediately. */
+            printk(" [NEW PEAK %s used=%u/%u]",
+                   s_entries[i].name, (unsigned)used, (unsigned)total);
+        }
         printk(" %s=%u/%u",
-               s_entries[i].name,
-               (unsigned)lo,
-               (unsigned)s_entries[i].configured_words);
+               s_entries[i].name, (unsigned)used, (unsigned)total);
     }
     printk("\n");
 }

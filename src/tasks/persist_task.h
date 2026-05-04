@@ -6,10 +6,14 @@
 #include "../persist/event_log.h"
 #include "../persist/session_log.h"
 
-/* 384 W left only ~10 words headroom (374/384 high-water on bench) —
- * GET_FAULT_LOG plus a TLV publish from inside this task is the worst
- * case. Bumped to 512 W; trim later from a fresh stack_watch survey
- * once SPI flash + TLV traffic exercise the path under real load. */
+/* Survey 2026-05-04: previous "374/384 high-water" reading was misread —
+ * stack_watch dump prints free / configured (uxTaskGetStackHighWaterMark
+ * returns FREE words), so 374 was free, not used → ~10 W actually used.
+ * The old 384 W allocation already had ~95% margin; the bump to 512 was
+ * unnecessary. Holding 512 W for now though — GET_FAULT_LOG path runs
+ * comms_publish_event_seq from inside this task with a 63 B TLV frame
+ * buffer on stack per record (up to 32 records); next bench fault-flood
+ * survey will surface the real worst case via the [NEW PEAK] tag. */
 #define PERSIST_TASK_STACK_WORDS  512U
 #define PERSIST_TASK_PRIORITY     1U
 #define PERSIST_QUEUE_DEPTH       8U
