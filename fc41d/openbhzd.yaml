@@ -114,7 +114,8 @@ sensor:
       entity_category: diagnostic
     mains_voltage:
       name: "Mains Voltage"
-    mains_voltage_scale: 0.0587
+    # Calibrated 2026-05-03 against Fluke @ 123.9 V; raw≈2014 → 0.06151 V/count.
+    mains_voltage_scale: 0.06151
     evse_state_code:
       name: "EVSE State Code"
       entity_category: diagnostic
