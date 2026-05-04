@@ -180,6 +180,12 @@ sensor:
     # chassis scale needed.
     mains_frequency:
       name: "Mains Frequency"
+    # Card UID as a u32 number — sticky across card-removal so HA
+    # automations / templates can compare against tag IDs without
+    # racing the lift-off edge. The text-sensor "Last RFID UID" has
+    # the same value in colon-formatted form.
+    last_rfid_uid:
+      name: "Last RFID UID Number"
     # Per-chassis raw → engineering scales.
     #
     # Voltage: bench-anchored 2026-05-04 — Fluke reads 123.9 V when

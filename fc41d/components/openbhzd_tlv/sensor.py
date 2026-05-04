@@ -49,6 +49,7 @@ CONF_MAINS_CURRENT_A = "mains_current_a"
 CONF_MAINS_CURRENT_B = "mains_current_b"
 CONF_ACTIVE_POWER = "active_power"
 CONF_MAINS_FREQUENCY = "mains_frequency"
+CONF_LAST_RFID_UID = "last_rfid_uid"
 CONF_BL0939_V_UV_PER_RAW = "bl0939_v_uv_per_raw"
 CONF_BL0939_IA_UA_PER_RAW = "bl0939_ia_ua_per_raw"
 CONF_BL0939_IB_UA_PER_RAW = "bl0939_ib_ua_per_raw"
@@ -170,6 +171,13 @@ CONFIG_SCHEMA = cv.Schema(
             device_class=DEVICE_CLASS_FREQUENCY,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        # Card UID as a u32 number — same value the stock fw sees on
+        # ldr.w r1, [r0, #6]. Updated only on a card-present edge so
+        # the entity stays at the most-recent UID after the card is
+        # lifted off the reader.
+        cv.Optional(CONF_LAST_RFID_UID): sensor.sensor_schema(
+            accuracy_decimals=0,
+        ),
         # Per-chassis BL0939 raw → engineering scales. Default 0 means
         # skip the engineering-unit publish (raw counts still post).
         cv.Optional(CONF_BL0939_V_UV_PER_RAW, default=0): cv.int_,
@@ -204,6 +212,7 @@ _SETTERS = {
     CONF_MAINS_CURRENT_B: "set_mains_current_b_sensor",
     CONF_ACTIVE_POWER: "set_active_power_sensor",
     CONF_MAINS_FREQUENCY: "set_mains_frequency_sensor",
+    CONF_LAST_RFID_UID: "set_last_rfid_uid_sensor",
 }
 
 _SCALE_SETTERS = {

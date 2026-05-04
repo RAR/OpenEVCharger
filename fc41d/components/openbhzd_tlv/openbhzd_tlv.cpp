@@ -406,21 +406,33 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       uint32_t uid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
                      (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
       uint8_t present = p[4];
-      last_rfid_uid_u32_ = uid;
       last_rfid_present_ = (present != 0);
-      // MSB-first colon-separated form is what's printed on most
-      // Mifare cards and matches the OCPP idTag string convention.
-      char hex[12];
-      snprintf(hex, sizeof(hex), "%02X:%02X:%02X:%02X",
-               uint8_t(uid >> 24), uint8_t(uid >> 16),
-               uint8_t(uid >> 8),  uint8_t(uid));
-      last_rfid_uid_str_ = present ? std::string(hex) : std::string("");
+      // Only update the latched UID on a card-present edge — keep
+      // showing the last-seen UID after the card is lifted off so HA
+      // can read it any time. The "RFID Card Present" binary sensor
+      // is the live indicator of whether a card is currently on the
+      // reader.
+      if (present) {
+        last_rfid_uid_u32_ = uid;
+        // MSB-first colon-separated form matches what's printed on
+        // most Mifare cards and the OCPP idTag string convention.
+        char hex[12];
+        snprintf(hex, sizeof(hex), "%02X:%02X:%02X:%02X",
+                 uint8_t(uid >> 24), uint8_t(uid >> 16),
+                 uint8_t(uid >> 8),  uint8_t(uid));
+        last_rfid_uid_str_ = std::string(hex);
+      }
       ESP_LOGI(TAG, "RFID %s uid=%s",
                present ? "swipe" : "removed",
                last_rfid_uid_str_.c_str());
 #ifdef USE_TEXT_SENSOR
-      if (last_rfid_uid_tsensor_) {
+      if (present && last_rfid_uid_tsensor_) {
         last_rfid_uid_tsensor_->publish_state(last_rfid_uid_str_);
+      }
+#endif
+#ifdef USE_SENSOR
+      if (present && last_rfid_uid_sensor_) {
+        last_rfid_uid_sensor_->publish_state(float(last_rfid_uid_u32_));
       }
 #endif
 #ifdef USE_BINARY_SENSOR
