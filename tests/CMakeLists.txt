@@ -36,19 +36,23 @@ add_library(openbhzd_pure STATIC
     ${SRC_DIR}/persist/crc16.c
     ${SRC_DIR}/persist/crc.c
     ${SRC_DIR}/persist/pingpong.c
+    ${SRC_DIR}/persist/boot_config.c
     ${SRC_DIR}/proto/tlv.c
 )
 target_include_directories(openbhzd_pure PUBLIC
     ${SRC_DIR}/core
     ${SRC_DIR}/persist
     ${SRC_DIR}/proto
+    ${SRC_DIR}/hal
 )
 
-# Host-side mock of hal/w25q.h. Linked into tests that exercise persist
-# layers (pingpong, boot_config). Keeps the firmware build untouched —
-# the real w25q.c only ships in the arm-none-eabi target.
+# Host-side mock of hal/w25q.h + tiny stubs for printk / uart_*. Linked
+# into tests that exercise persist layers (pingpong, boot_config).
+# Keeps the firmware build untouched — the real w25q.c / uart.c only
+# ship in the arm-none-eabi target.
 add_library(openbhzd_w25q_mock STATIC
     mocks/w25q_mock.c
+    mocks/host_stubs.c
 )
 target_include_directories(openbhzd_w25q_mock PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -63,6 +67,7 @@ add_executable(openbhzd_tests
     test_fault.c
     test_tlv.c
     test_pingpong.c
+    test_boot_config.c
 )
 target_link_libraries(openbhzd_tests PRIVATE openbhzd_pure openbhzd_w25q_mock)
 target_include_directories(openbhzd_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
