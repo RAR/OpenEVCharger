@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #endif
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -387,8 +388,29 @@ void OpenbhzdTlv::publish_state_() {
   if (active_amps_sensor_) active_amps_sensor_->publish_state(s.active_amps_x10 / 10.0f);
   if (session_kwh_sensor_) session_kwh_sensor_->publish_state(s.session_mwh / 1000000.0f);
   // ntc1/ntc2_dC = deci-Celsius. Bench has no NTCs populated → comes through as 0.
-  if (ntc1_temp_sensor_) ntc1_temp_sensor_->publish_state(s.ntc1_dC / 10.0f);
-  if (ntc2_temp_sensor_) ntc2_temp_sensor_->publish_state(s.ntc2_dC / 10.0f);
+  // °C from raw via β-model. R_pull=10 kΩ pulldown topology, R0=10 kΩ
+  // at 25 °C, β=3380. Bench-validated 2026-05-03: NTC1 raw≈2050 →
+  // ~24.9 °C, user reported actual ≈23.9 °C (75 °F). β is a placeholder
+  // until a second-temperature calibration point is taken; expect
+  // ±2 °C drift across the operating range.
+  auto raw_to_c = [](uint16_t raw) -> float {
+    if (raw <= 100 || raw >= 3990) return NAN;
+    constexpr float r_pull = 10000.0f;
+    constexpr float r0 = 10000.0f;
+    constexpr float t0 = 298.15f;
+    constexpr float beta = 3380.0f;
+    float r_ntc = r_pull * raw / (4095.0f - raw);
+    float tk = 1.0f / (1.0f / t0 + (1.0f / beta) * std::log(r_ntc / r0));
+    return tk - 273.15f;
+  };
+  if (ntc1_temp_sensor_) {
+    float c = raw_to_c(s.ntc1_adc_raw);
+    if (!std::isnan(c)) ntc1_temp_sensor_->publish_state(c);
+  }
+  if (ntc2_temp_sensor_) {
+    float c = raw_to_c(s.ntc2_adc_raw);
+    if (!std::isnan(c)) ntc2_temp_sensor_->publish_state(c);
+  }
   if (evse_state_code_sensor_) evse_state_code_sensor_->publish_state(s.evse_state);
   if (j1772_state_code_sensor_) j1772_state_code_sensor_->publish_state(s.j1772_state);
   if (fault_count_sensor_) fault_count_sensor_->publish_state(fault_count_);

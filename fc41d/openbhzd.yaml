@@ -127,6 +127,16 @@ sensor:
     ntc2_adc_raw:
       name: "NTC2 ADC Raw"
       entity_category: diagnostic
+    # °C computed FC41D-side from raw via β-model. Defaults
+    # (β=3380, R0=10k @ 25 °C, R_pull=10k pulldown) match the bench
+    # NTC1 anchor (raw≈2050 ↔ 23.9 °C / 75 °F, 2026-05-03). Re-fit
+    # β on a populated production unit by anchoring two points.
+    # NaN (= unpopulated) is not published, so HA will show the
+    # last-known value rather than a misleading 0.
+    ntc1_temp:
+      name: "NTC1 Temperature"
+    ntc2_temp:
+      name: "NTC2 Temperature"
     evse_state_code:
       name: "EVSE State Code"
       entity_category: diagnostic
