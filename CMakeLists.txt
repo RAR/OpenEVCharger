@@ -55,6 +55,7 @@ set(APP_SRCS
     src/core/fault.c
     src/core/j1772.c
     src/core/over_temp.c
+    src/core/rfid.c
     src/core/system_state.c
     src/hal/clock.c
     src/hal/wdg.c
@@ -68,6 +69,7 @@ set(APP_SRCS
     src/hal/bl0939.c
     src/hal/spi3.c
     src/hal/uart5.c
+    src/hal/rfid.c
     src/hal/ws2812.c
     src/hal/w25q.c
     src/persist/crc.c

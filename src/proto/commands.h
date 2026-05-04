@@ -42,4 +42,10 @@
 #define EVT_LIFETIME_KWH          0x8Au
 #define EVT_DEVICE_ID             0x8Du   /* response to GET_DEVICE_ID: 12 B GD32 UID96 */
 
+/* Unsolicited RFID swipe edge.
+ *   payload (5 B, packed LE):
+ *     u32 uid     — 4-byte card UID, 0 on card-removed edge
+ *     u8  present — 1 = card put down, 0 = card lifted off */
+#define EVT_RFID_SWIPE            0x8Eu
+
 #endif /* OPENBHZD_PROTO_COMMANDS_H */

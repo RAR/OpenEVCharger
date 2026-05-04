@@ -7,10 +7,12 @@
 #include "../hal/relay.h"
 #include "../hal/gfci.h"
 #include "../hal/bl0939.h"
+#include "../hal/rfid.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
 #include "../core/over_temp.h"
+#include "../core/rfid.h"
 #include "../core/pin_map.h"
 #include "../persist/crash_state.h"
 #include "../persist/event_log.h"
@@ -75,6 +77,11 @@ static QueueHandle_t s_safety_inbox;
  * We poll at the END of the tick so the safety/CP/relay path runs
  * first on every tick — telemetry update is best-effort. */
 #define BL0939_POLL_TICKS  20U
+
+/* Stock fw cadence is ~3 Hz for the RFID keepalive. 17 ticks × 20 ms
+ * = 340 ms, close enough. The module is silent without our keepalive
+ * (request/response, not auto-stream — see docs/mcu-re/rfid-protocol.md). */
+#define RFID_KEEPALIVE_TICKS  17U
 
 /* BL0939-derived detector debounce. Each "tick" here is a successful
  * poll cycle, not a safety tick — so 3 means ~1.2 s sustained
@@ -1092,6 +1099,9 @@ static void safety_task_run(void *arg)
     int evse_c_streak = 0;
     int gfci_streak = 0;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
+    rfid_ctx_t      rfid_ctx;
+    rfid_init_ctx(&rfid_ctx);
+    unsigned        rfid_keepalive_div = 0;
     unsigned bl0939_poll_div = 0;
     unsigned ac_absent_streak = 0;
     unsigned weld_bl_streak = 0;
@@ -1101,6 +1111,7 @@ static void safety_task_run(void *arg)
 
     gfci_init();
     bl0939_init();
+    rfid_init();
     /* Soft-reset the BL0939's SPI state machine so the first poll
      * doesn't trip on half-frame state from a prior boot or transient.
      * Idempotent if the smoke-test build flag already ran reset. */
@@ -1259,6 +1270,35 @@ static void safety_task_run(void *arg)
                                           &stuck_open_bl_streak);
             check_hard_over_current(&fs, &es, &bl, s, cp_mv, &hoc_streak);
             check_soft_over_current(&fs, &es, &bl, s, cp_mv, &soc_streak);
+        }
+
+        /* RFID: drain RX ring + re-frame; periodic keepalive @ ~3 Hz.
+         * Module is silent without the keepalive — confirmed at the
+         * bench tap. Edge-detect new UID / removed-card transitions
+         * and publish EVT_RFID_SWIPE so HA gets a one-shot event per
+         * swipe, not a stream. */
+        {
+            uint8_t rx[RFID_FRAME_MAX_LEN * 2];
+            size_t  got = rfid_rx_pop(rx, sizeof(rx));
+            if (got > 0) {
+                rfid_action_t a;
+                (void)rfid_feed(&rfid_ctx, rx, got, &a);
+                if (a.edge) {
+                    struct __attribute__((packed)) {
+                        uint32_t uid;
+                        uint8_t  present;
+                    } payload = { .uid = a.uid, .present = a.present };
+                    (void)comms_publish_event(EVT_RFID_SWIPE,
+                                              &payload, sizeof payload);
+                    printk("RFID: %s uid=0x%08x\n",
+                           a.present ? "swipe" : "removed",
+                           (unsigned)a.uid);
+                }
+            }
+            if (++rfid_keepalive_div >= RFID_KEEPALIVE_TICKS) {
+                rfid_keepalive_div = 0;
+                rfid_send_keepalive();
+            }
         }
 
         /* Publish snapshot for comms / future UI consumers. */

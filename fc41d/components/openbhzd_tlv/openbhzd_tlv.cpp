@@ -400,6 +400,37 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       }
       break;
 
+    case EVT_RFID_SWIPE: {
+      // Payload: u32 uid (LE) + u8 present.
+      if (plen < 5) break;
+      uint32_t uid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                     (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      uint8_t present = p[4];
+      last_rfid_uid_u32_ = uid;
+      last_rfid_present_ = (present != 0);
+      // MSB-first colon-separated form is what's printed on most
+      // Mifare cards and matches the OCPP idTag string convention.
+      char hex[12];
+      snprintf(hex, sizeof(hex), "%02X:%02X:%02X:%02X",
+               uint8_t(uid >> 24), uint8_t(uid >> 16),
+               uint8_t(uid >> 8),  uint8_t(uid));
+      last_rfid_uid_str_ = present ? std::string(hex) : std::string("");
+      ESP_LOGI(TAG, "RFID %s uid=%s",
+               present ? "swipe" : "removed",
+               last_rfid_uid_str_.c_str());
+#ifdef USE_TEXT_SENSOR
+      if (last_rfid_uid_tsensor_) {
+        last_rfid_uid_tsensor_->publish_state(last_rfid_uid_str_);
+      }
+#endif
+#ifdef USE_BINARY_SENSOR
+      if (rfid_present_bsensor_) {
+        rfid_present_bsensor_->publish_state(last_rfid_present_);
+      }
+#endif
+      break;
+    }
+
     default:
       ESP_LOGD(TAG, "unhandled cmd=0x%02x seq=%u plen=%u", cmd, seq, (unsigned) plen);
       break;

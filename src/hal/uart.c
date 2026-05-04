@@ -50,38 +50,34 @@ static void semihost_write(const void *buf, size_t len)
 
 void uart_init(void)
 {
-    rcu_periph_clock_enable(PIN_USART1_RCU);
+    rcu_periph_clock_enable(PIN_LOG_UART_RCU);
     rcu_periph_clock_enable(RCU_AF);
-    rcu_periph_clock_enable(RCU_USART1);
+    rcu_periph_clock_enable(RCU_UART3);
 
-    /* SPL USART1 default pins are PA2/PA3; the bench routes the same
-     * peripheral to PD5/PD6 via this remap (RFID/NFC reader port —
-     * empty on bench, free for printk). */
-    gpio_pin_remap_config(GPIO_USART1_REMAP, ENABLE);
+    /* UART3 default pins (PC10 TX / PC11 RX). No remap needed. */
+    gpio_init(PIN_LOG_UART_TX_PORT, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ,
+              PIN_LOG_UART_TX_PIN);
+    gpio_init(PIN_LOG_UART_RX_PORT, GPIO_MODE_IN_FLOATING, GPIO_OSPEED_50MHZ,
+              PIN_LOG_UART_RX_PIN);
 
-    gpio_init(PIN_USART1_TX_PORT, GPIO_MODE_AF_PP, GPIO_OSPEED_50MHZ,
-              PIN_USART1_TX_PIN);
-    gpio_init(PIN_USART1_RX_PORT, GPIO_MODE_IN_FLOATING, GPIO_OSPEED_50MHZ,
-              PIN_USART1_RX_PIN);
-
-    usart_deinit(USART1);
-    usart_baudrate_set(USART1, 115200U);
-    usart_word_length_set(USART1, USART_WL_8BIT);
-    usart_stop_bit_set(USART1, USART_STB_1BIT);
-    usart_parity_config(USART1, USART_PM_NONE);
-    usart_hardware_flow_rts_config(USART1, USART_RTS_DISABLE);
-    usart_hardware_flow_cts_config(USART1, USART_CTS_DISABLE);
-    usart_receive_config(USART1, USART_RECEIVE_ENABLE);
-    usart_transmit_config(USART1, USART_TRANSMIT_ENABLE);
-    usart_enable(USART1);
+    usart_deinit(UART3);
+    usart_baudrate_set(UART3, 115200U);
+    usart_word_length_set(UART3, USART_WL_8BIT);
+    usart_stop_bit_set(UART3, USART_STB_1BIT);
+    usart_parity_config(UART3, USART_PM_NONE);
+    usart_hardware_flow_rts_config(UART3, USART_RTS_DISABLE);
+    usart_hardware_flow_cts_config(UART3, USART_CTS_DISABLE);
+    usart_receive_config(UART3, USART_RECEIVE_ENABLE);
+    usart_transmit_config(UART3, USART_TRANSMIT_ENABLE);
+    usart_enable(UART3);
 
     s_uart_ready = 1;
 }
 
 static void uart_putc(char c)
 {
-    while (RESET == usart_flag_get(USART1, USART_FLAG_TBE)) { }
-    usart_data_transmit(USART1, (uint8_t)c);
+    while (RESET == usart_flag_get(UART3, USART_FLAG_TBE)) { }
+    usart_data_transmit(UART3, (uint8_t)c);
 }
 
 size_t uart_write(const void *buf, size_t len)

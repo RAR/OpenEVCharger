@@ -67,6 +67,7 @@ static constexpr uint8_t EVT_FAULT_LOG_END = 0x89;
 static constexpr uint8_t EVT_LIFETIME_KWH = 0x8A;
 static constexpr uint8_t EVT_BUILD_INFO = 0x8C;
 static constexpr uint8_t EVT_DEVICE_ID = 0x8D;
+static constexpr uint8_t EVT_RFID_SWIPE = 0x8E;
 
 // Mirrors src/core/system_state.h. Keep in sync if the MCU schema changes.
 struct StateReport {
@@ -154,6 +155,9 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint32_t lifetime_mwh() const { return lifetime_mwh_; }
   const std::string &build_info() const { return build_info_; }
   const std::string &first_fault_name() const { return first_fault_name_; }
+  const std::string &last_rfid_uid_str() const { return last_rfid_uid_str_; }
+  uint32_t last_rfid_uid_u32() const { return last_rfid_uid_u32_; }
+  bool last_rfid_present() const { return last_rfid_present_; }
   uint32_t state_age_ms() const;
 
 #ifdef USE_SENSOR
@@ -205,6 +209,10 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_j1772_state_text_sensor(text_sensor::TextSensor *s) { j1772_state_tsensor_ = s; }
   void set_first_fault_text_sensor(text_sensor::TextSensor *s) { first_fault_tsensor_ = s; }
   void set_build_info_text_sensor(text_sensor::TextSensor *s) { build_info_tsensor_ = s; }
+  void set_last_rfid_uid_text_sensor(text_sensor::TextSensor *s) { last_rfid_uid_tsensor_ = s; }
+#endif
+#ifdef USE_BINARY_SENSOR
+  void set_rfid_present_bsensor(binary_sensor::BinarySensor *s) { rfid_present_bsensor_ = s; }
 #endif
 
   // Sub-entity registry — number/button platforms call these in to_code().
@@ -289,13 +297,18 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   binary_sensor::BinarySensor *ac_present_bsensor_{nullptr};
   binary_sensor::BinarySensor *fault_active_bsensor_{nullptr};
   binary_sensor::BinarySensor *contactor_cmd_bsensor_{nullptr};
+  binary_sensor::BinarySensor *rfid_present_bsensor_{nullptr};
 #endif
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *evse_state_tsensor_{nullptr};
   text_sensor::TextSensor *j1772_state_tsensor_{nullptr};
   text_sensor::TextSensor *first_fault_tsensor_{nullptr};
   text_sensor::TextSensor *build_info_tsensor_{nullptr};
+  text_sensor::TextSensor *last_rfid_uid_tsensor_{nullptr};
 #endif
+  std::string last_rfid_uid_str_;
+  uint32_t    last_rfid_uid_u32_{0};
+  bool        last_rfid_present_{false};
 #ifdef USE_NUMBER
   std::vector<OpenbhzdTlvNumber *> numbers_;
 #endif

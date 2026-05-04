@@ -21,16 +21,32 @@
 #define PIN_HEARTBEAT_PIN       GPIO_PIN_4
 #define PIN_HEARTBEAT_RCU       RCU_GPIOD
 
-/* ----- Debug UART: USART1 (SPL macro, = STM32 USART2) on PD5 TX /
- * PD6 RX via GPIO_USART1_REMAP. These are the silk-screened RFID/NFC
- * reader port pins — empty on the bench unit so we co-opt them for
- * printk. (SPL USART0 = chip pin PA9/PA10 which are physically
- * inaccessible on this PCB; that's why we don't use those.) */
-#define PIN_USART1_TX_PORT      GPIOD
-#define PIN_USART1_TX_PIN       GPIO_PIN_5
-#define PIN_USART1_RX_PORT      GPIOD
-#define PIN_USART1_RX_PIN       GPIO_PIN_6
-#define PIN_USART1_RCU          RCU_GPIOD
+/* ----- Debug UART: UART3 (SPL macro, = STM32 UART4) on default pins
+ * PC10 TX / PC11 RX, 115200 8N1.
+ *
+ * Moved here 2026-05-04 from USART1 remap PD5/PD6: those pins are the
+ * stock-fw RFID/NFC reader port (silk-screened on the PCB header)
+ * and the bench-validated protocol (see docs/mcu-re/rfid-protocol.md)
+ * needs the MCU to send a keepalive at ~3 Hz on PD5 for the module
+ * to talk back.
+ *
+ * PC10/PC11 are the stock-fw DWIN DGUS LCD HMI pads (4-pin connector
+ * exposed on the PCB) — physically accessible without poking inside,
+ * and the bench unit has no LCD attached so the pins are free. */
+#define PIN_LOG_UART_TX_PORT    GPIOC
+#define PIN_LOG_UART_TX_PIN     GPIO_PIN_10
+#define PIN_LOG_UART_RX_PORT    GPIOC
+#define PIN_LOG_UART_RX_PIN     GPIO_PIN_11
+#define PIN_LOG_UART_RCU        RCU_GPIOC
+
+/* ----- RFID reader port: USART1 remap PD5 TX / PD6 RX, 115200 8N1
+ * full-duplex. Reserved for the upcoming RFID HAL — see
+ * docs/mcu-re/rfid-protocol.md. */
+#define PIN_RFID_TX_PORT        GPIOD
+#define PIN_RFID_TX_PIN         GPIO_PIN_5
+#define PIN_RFID_RX_PORT        GPIOD
+#define PIN_RFID_RX_PIN         GPIO_PIN_6
+#define PIN_RFID_RCU            RCU_GPIOD
 
 /* ----- ADC analog inputs (rank order matches DMA buffer layout) -----
  *

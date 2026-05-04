@@ -10,6 +10,7 @@ CONF_EVSE_STATE = "evse_state"
 CONF_J1772_STATE = "j1772_state"
 CONF_FIRST_FAULT = "first_fault"
 CONF_BUILD_INFO = "build_info"
+CONF_LAST_RFID_UID = "last_rfid_uid"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -18,6 +19,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_J1772_STATE): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_FIRST_FAULT): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_BUILD_INFO): text_sensor.text_sensor_schema(),
+        cv.Optional(CONF_LAST_RFID_UID): text_sensor.text_sensor_schema(),
     }
 )
 
@@ -26,6 +28,7 @@ _SETTERS = {
     CONF_J1772_STATE: "set_j1772_state_text_sensor",
     CONF_FIRST_FAULT: "set_first_fault_text_sensor",
     CONF_BUILD_INFO: "set_build_info_text_sensor",
+    CONF_LAST_RFID_UID: "set_last_rfid_uid_text_sensor",
 }
 
 

@@ -18,6 +18,7 @@ CONF_CHARGING = "charging"
 CONF_AC_PRESENT = "ac_present"
 CONF_FAULT_ACTIVE = "fault_active"
 CONF_CONTACTOR_CMD = "contactor_cmd"
+CONF_RFID_PRESENT = "rfid_present"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -38,6 +39,7 @@ CONFIG_SCHEMA = cv.Schema(
             device_class=DEVICE_CLASS_PROBLEM,
         ),
         cv.Optional(CONF_CONTACTOR_CMD): binary_sensor.binary_sensor_schema(),
+        cv.Optional(CONF_RFID_PRESENT): binary_sensor.binary_sensor_schema(),
     }
 )
 
@@ -48,6 +50,7 @@ _SETTERS = {
     CONF_AC_PRESENT: "set_ac_present_bsensor",
     CONF_FAULT_ACTIVE: "set_fault_active_bsensor",
     CONF_CONTACTOR_CMD: "set_contactor_cmd_bsensor",
+    CONF_RFID_PRESENT: "set_rfid_present_bsensor",
 }
 
 

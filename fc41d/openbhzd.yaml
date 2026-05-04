@@ -229,6 +229,8 @@ binary_sensor:
     contactor_cmd:
       name: "Contactor Commanded Closed"
       entity_category: diagnostic
+    rfid_present:
+      name: "RFID Card Present"
 
 text_sensor:
   - platform: openbhzd_tlv
@@ -241,6 +243,8 @@ text_sensor:
     build_info:
       name: "MCU Build"
       entity_category: diagnostic
+    last_rfid_uid:
+      name: "Last RFID UID"
 
   - platform: debug
     reset_reason:
