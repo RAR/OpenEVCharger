@@ -64,6 +64,7 @@ set(APP_SRCS
     src/hal/adc_inject.c
     src/hal/cp_pwm.c
     src/hal/relay.c
+    src/hal/gfci.c
     src/hal/spi3.c
     src/hal/uart5.c
     src/hal/ws2812.c

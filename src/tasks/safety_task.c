@@ -5,6 +5,7 @@
 #include "../hal/adc_scan.h"
 #include "../hal/cp_pwm.h"
 #include "../hal/relay.h"
+#include "../hal/gfci.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
@@ -65,6 +66,13 @@ static QueueHandle_t s_safety_inbox;
 /* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
  * (60 ms). Spec § 4 #5. */
 #define CP_E_PERSIST_TICKS  3U
+
+/* GFCI fault sense (PE2 LOW) sustained for this many ticks before
+ * raising. 3 ticks @ 20 ms = 60 ms — well under UL2231's 25 ms +
+ * upstream contactor-open budget for the trip path, but long enough
+ * to ride out coupling glitches like the one we saw on PD6 during
+ * the bench wiggle. */
+#define GFCI_PERSIST_TICKS  3U
 
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
  * J1772 state C confirmed for an additional 50 ticks (1 s at the
@@ -726,6 +734,39 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* GFCI fault detector. Reads PE2 (active-low: module pulls LOW on
+ * fault, idle HIGH). Debounces GFCI_PERSIST_TICKS consecutive LOW
+ * reads before raising. FAULT_GFCI is latched + power-cycle-only
+ * clear per UL2231 (fault.c::fault_clear() refuses GFCI by id).
+ *
+ * Once raised, a GFCI fault keeps the EVSE in FAULT until
+ * power-cycle. We don't re-trigger on subsequent LOW reads — the
+ * fault_is_active() guard skips the raise path; the streak still
+ * accumulates harmlessly. The redundant force-open latch fired by
+ * evse_transition(EVSE_FAULT) ensures the contactor is mechanically
+ * latched open even if PE12 driver were stuck. */
+static void check_gfci(fault_state_t *fs, evse_state_t *es,
+                       j1772_state_t js, int32_t cp_mv,
+                       int *gfci_streak)
+{
+    if (gfci_fault_active()) {
+        if (*gfci_streak < (int)GFCI_PERSIST_TICKS) ++(*gfci_streak);
+    } else {
+        *gfci_streak = 0;
+    }
+
+    if (*gfci_streak >= (int)GFCI_PERSIST_TICKS &&
+        !fault_is_active(fs, FAULT_GFCI)) {
+        if (fault_raise(fs, FAULT_GFCI) == 1) {
+            printk("FAULT raised: %s (PE2=LOW for >=%u ticks)\n",
+                   fault_name(FAULT_GFCI),
+                   (unsigned)GFCI_PERSIST_TICKS);
+            post_fault_event(FAULT_GFCI, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
 /* Over-temp detector. The pure decision logic lives in core/over_temp.c
  * (β-model thresholds, populated guards, persistence streak). This
  * wrapper translates the edge result into firmware-side bookkeeping:
@@ -793,7 +834,10 @@ static void safety_task_run(void *arg)
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
     int evse_c_streak = 0;
+    int gfci_streak = 0;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
+
+    gfci_init();
 
     /* Boot path: BOOT -> SELF_TEST -> READY (or FAULT on failure /
      * safe-fail). 100 ms warm-up gives ADC scan + injected ADC time to
@@ -901,6 +945,7 @@ static void safety_task_run(void *arg)
 #else
         (void)weld_streak; (void)stuck_open_streak; (void)last_logged_sense;
 #endif
+        check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
         check_over_temp(&fs, &es,
                         adc_scan_rank(ADC_RANK_NTC1),
