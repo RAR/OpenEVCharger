@@ -91,6 +91,15 @@ sensor:
   - platform: openbhzd_tlv
     cp_high_mv:
       name: "CP High"
+    # Sampled mid-LOW phase via TIMER0 CH3 trigger swap (see
+    # src/hal/adc_inject.c). The OEM read divider can't resolve
+    # negative voltages so cp_low_mv reads ~0 mV for any actual CP
+    # negative excursion until a 5-point negative-half cal lands;
+    # value is diagnostic-grade, used to confirm the LOW-phase
+    # sampling path works.
+    cp_low_mv:
+      name: "CP Low"
+      entity_category: diagnostic
     advertised_amps:
       name: "Advertised Amps"
     active_amps:

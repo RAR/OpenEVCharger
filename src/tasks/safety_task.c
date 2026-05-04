@@ -1438,7 +1438,7 @@ static void safety_task_run(void *arg)
             .advertised_amps   = effective_advertised_amps(),
             .contactor_cmd     = (uint8_t)relay_main_commanded(),
             .cp_high_mv        = (int16_t)cp_mv,
-            .cp_low_mv         = 0,
+            .cp_low_mv         = (int16_t)cp_low_mv(),
             .active_amps_x10   = 0,
             .ntc1_dC           = 0,
             .ntc2_dC           = 0,
