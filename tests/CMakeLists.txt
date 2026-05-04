@@ -11,6 +11,18 @@ cmake_minimum_required(VERSION 3.20)
 # CMakeLists.txt so `cmake -S .` (firmware build) still requires the
 # arm-none-eabi toolchain file and isn't tempted to silently fall back to
 # the host compiler.
+#
+# Layout (94 cases as of 2026-05-03):
+#   openbhzd_pure         — pure-C modules built straight from src/.
+#                           No FreeRTOS / SPL / hardware headers.
+#   openbhzd_w25q_mock    — host-side simulated NOR flash backing
+#                           hal/w25q.h + tiny printk()/uart_* stubs.
+#   openbhzd_tests        — test binary; one suite_*() per module.
+#
+# Suites:
+#   crc16, crc32, j1772, fault, tlv          — pure logic
+#   pingpong, boot_config                    — persist/ on w25q mock
+#   over_temp                                — core/ pure detector
 
 project(openbhzd_host_tests C)
 
