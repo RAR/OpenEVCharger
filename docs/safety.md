@@ -5,7 +5,7 @@ is gated, and what each gated detector needs before it can be safely
 enabled. Source of truth — `projectstate.txt` summarises this; code
 comments cross-reference it.
 
-Last updated: 2026-05-03 (evening — channel-role correction).
+Last updated: 2026-05-04 (GFCI live + CP-duty fix + ADC sample-time fix).
 
 ## Channel-role correction (2026-05-03 evening)
 
@@ -51,6 +51,7 @@ TODO at the bottom.
 | `FAULT_CP_NO_PILOT` | J1772 state E sustained 60 ms | EVSE_FAULT, latched | `safety_task::check_cp_e` |
 | `FAULT_BOOT_SELF_TEST` | ADC sanity / relay-open / CP-A floor at boot | EVSE_FAULT, latched | `safety_task::run_boot_self_test` |
 | `FAULT_OVER_TEMP` | Per-channel NTC raw ≤ trip threshold sustained 100 ms (5 ticks) | EVSE_FAULT, self-clearing with 10 °C hyst | `safety_task::check_over_temp`. NTC1 (PA3, wall-plug NTC) on by default; NTC2 (PB0, non-thermistor) masked off. FC41D-side °C conversion uses the stock fw's 150-entry LUT (`fc41d/.../ntc_lut.h`); MCU-side raw thresholds still β-derived (532/672) pending Phase-2 migration to LUT-derived (396/525). **TODO**: also wire PA2 (gun NTC, currently named `ADC_RANK_AC`) into the detector — the gun is the more safety-critical of the two channels. |
+| **`FAULT_GFCI`** | PE2 LOW (active-low) sustained 60 ms (3 ticks) | EVSE_FAULT, latched, **power-cycle-only clear** | `hal/gfci.{c,h}` + `safety_task::check_gfci`. Bench-validated end-to-end 2026-05-04 — see tag `gfci-live` and the `78b6c16` commit. UL2231-compliant: `fault_clear()` refuses GFCI by id. Self-test (drive PE3 + PE4, sample PE2 mid-cycle) for `FAULT_GFCI_SELF_TEST` not yet implemented — runtime detection only. |
 | Hardware force-open latch | EVSE_FAULT entry | PB12 HIGH → contactor latched open | UL2231-style redundancy against PE12 driver failure. `relay_force_open_latch()`. |
 | User pause/resume | Top button or FC41D TLV `REQUEST_STOP/_RESUME` | EVSE_USER_PAUSED | Spec § 4.2; FC41D and physical button share the inbox path. |
 | CP idle-high in USER_PAUSED, state-F in FAULT | EVSE state machine | CP output | `safety_task::apply_cp_for_state` |
@@ -65,31 +66,18 @@ Each row lists the fault, the missing input that gates it, the
 build/runtime flag that enables it, and the bench investigation needed
 to lift the gate. **Order roughly tracks production-blocker priority.**
 
-### `FAULT_GFCI` — sense pin + polarity confirmed; detector code still pending
+### `FAULT_GFCI` — RESOLVED (live in `78b6c16`, tag `gfci-live`)
 
-- **Bench-confirmed 2026-05-04** via `tools/gpio_diff.sh`. With AC
-  live, driving the GFCI module's external trip line HIGH dropped
-  PE2 from 1 → 0; release returned PE2 to 1. PE2 is therefore the
-  GFCI fault sense, **ACTIVE-LOW** at the MCU (module pulls PE2
-  low when faulted; idle HIGH, likely open-drain output with an
-  internal/external pull-up).
-- **Polarity inverts the static-decode hypothesis.** The stock-fw
-  state machine (flash `0x08012824`) ORs PE2's value into a fault
-  byte at `[0x200026a0]`; the agent's read of "bit 1 set = fault"
-  was probably wrong — bit 1 set most likely means "PE2 read HIGH"
-  = "no fault, healthy". The static analysis stands as a structural
-  decode; only the polarity interpretation needs flipping.
-- **Bonus finding:** PD6 (USART1-RX printk line) also moved during
-  the wiggle — almost certainly capacitive coupling from the trip
-  wire on the bench harness, not a real second sense path. Documented
-  in `pin_map.h`, no further action.
-- **Enable (TODO):** Wire `hal/gfci.c` polled detector at the
-  safety_task tick. Configure PE2 as input pull-up (or float — the
-  module + its own pull-up keeps idle HIGH). Debounce 3–5 ticks of
-  PE2 LOW → raise `FAULT_GFCI`. Latched, power-cycle-only clear per
-  spec § 4.2 / UL2231. Optionally replicate the stock 8-state CAL
-  self-test (drive PE3 + PE4, expect PE2 LOW mid-cycle) for
-  `FAULT_GFCI_SELF_TEST` coverage.
+Listed in **Active detectors** above. PE2 sense + active-low polarity
+confirmed via `tools/gpio_diff.sh` wiggle 2026-05-04; detector wired
+in `hal/gfci.{c,h}` + `safety_task::check_gfci`; bench-validated
+end-to-end (real GFCI trip → 60 ms debounce → fault raised → EVSE
+FAULT → session persisted with `reason=FAULT` → CP state F → relay
+latched open). Polarity ended up inverted from the agent's
+static-decode hypothesis; static structure stands.
+
+**Still TODO:** stock 8-state CAL self-test (drive PE3 + PE4, expect
+PE2 LOW mid-cycle) for `FAULT_GFCI_SELF_TEST` coverage.
 
 ### `FAULT_RELAY_WELD` / `FAULT_RELAY_STUCK_OPEN` — gated
 
@@ -201,13 +189,19 @@ to lift the gate. **Order roughly tracks production-blocker priority.**
 To ship this firmware to a real install, the following gated
 detectors **must** be lifted (UL2231 / J1772 / NEC compliance):
 
-1. `FAULT_GFCI` — required by UL2231.
-2. `FAULT_RELAY_WELD` — required by UL2231.
+1. ~~`FAULT_GFCI`~~ — **DONE** (`78b6c16`, tag `gfci-live`).
+2. `FAULT_RELAY_WELD` — required by UL2231. Coupled to V/I path
+   (no discrete sense pin exists on this PCB; weld must be
+   inferred from PC0 current vs PE12+CP-state expectations).
 3. `FAULT_DIODE_CHECK` — required by SAE J1772 to detect
-   missing/shorted EV diode.
+   missing/shorted EV diode. Blocked on negative-half CP read-back.
 4. `FAULT_HARD_OVER_CURRENT` — required to prevent contactor /
-   wiring damage past hardware ratings.
+   wiring damage past hardware ratings. Blocked on V/I path
+   (U11 PGA bring-up + PC0/PC1 calibration).
 
 The remaining (`AC_ABSENT`, `SOFT_OVER_CURRENT`, `CC_OUT_OF_RANGE`,
 `STUCK_OPEN`) are strongly recommended but not strict compliance
-gates.
+gates. `STUCK_OPEN` shares the same V/I-path coupling as
+`RELAY_WELD`; landing the U11 / PC0 path unblocks both at once
+plus `HARD_OVER_CURRENT` and `SOFT_OVER_CURRENT` — the single
+highest-leverage outstanding bench task.

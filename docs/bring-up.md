@@ -1899,3 +1899,158 @@ Coverage at first landing (55 cases):
 depends on `hal/w25q.h` which would need a mock. Defer until there's
 a concrete reason beyond what the on-target ping-pong commit already
 exercises.
+
+(Update 2026-05-04: pingpong + boot_config + over_temp tests landed
+via subagent, suite is now 94 cases. See "Post-M9 milestones" below.)
+
+---
+
+## Post-M9 milestones (2026-05-03 → 2026-05-04)
+
+A running log of everything that landed after `m9-led-real`. Each
+bullet links to the commit; consult the commit body for full
+context. Bench-validated entries are marked ✅.
+
+### FC41D ESPHome integration (in-tree at `OpenBHZD/fc41d/`)
+
+- ESPHome external component `openbhzd_tlv` speaks the binary TLV
+  protocol over UART. Surfaces full state to Home Assistant
+  (CP voltages, advertised + active amps, lifetime / session kWh,
+  EVSE + J1772 state, fault status, contactor command). Writable
+  advertised-amps number; stop / start / clear-fault buttons.
+- DIP4-strap "FC41D flash mode" lets the BK7231N module be
+  reflashed with the MCU's TLV traffic suppressed; PC9 internal
+  button pulses CEN for ltchiptool handshake.
+- Per-unit MAC override from the GD32 UID96 (OEM ships every unit
+  with the same MAC → DHCP/mDNS collisions). FC41D issues
+  `CMD_GET_DEVICE_ID`, MCU returns UID96 from `0x1FFFF7E8`, FC41D
+  folds to 6 bytes + locally-administered OUI, calls
+  `WiFi.setMacAddress()` at `setup_priority::AFTER_WIFI`.
+
+### Top-button pause/start + PB12 force-open on FAULT (`7fcba09`) ✅
+
+External top button (BTN_TOP via the resistor ladder on PC3) toggles
+between `READY/CHARGING → USER_PAUSED` and `USER_PAUSED → READY`.
+PB12 force-open latch asserted on `EVSE_FAULT` entry / released on
+exit — UL2231-style redundant safety against a stuck-high PE12
+driver.
+
+### Over-temp robustness (`0b733d0` + `d7ee845`) ✅
+
+`OT_PERSIST_TICKS=5` (100 ms) before raising — filters single-sample
+ADC glitches. `OPENBHZD_NTC2_PRESENT=0` default since PB0 isn't a
+thermistor (see channel-role correction below).
+
+### Channel-role correction: PA2 = gun NTC (`a70a28e`) ✅
+
+Bench experiment grounding the front-block "NTC" pins zeroed PA2
+("AC") and PA3 ("NTC1") respectively, confirming both are populated
+NTC thermistors. The earlier "Mains Voltage @ 0.06151 V/count"
+calibration was coincidence — disconnected NTC pin float-railing at
+a value that scaled to a plausible mains number.
+
+Updated channel roles per OEM intent:
+- PA2 (rank "AC") = gun-cable NTC
+- PA3 (rank "NTC1") = wall-plug NTC
+- PB0 (rank "NTC2") = NOT a thermistor (probably AC-mains-presence
+  sense — bench shows it tracks current flow through the contactor)
+
+V/I sensing on this PCB does NOT route through PA2 — it likely runs
+through the U11 PGA (gain bits PB9 / PD15) and is not yet wired up.
+
+FC41D side renamed `ac_adc_raw` → `gun_ntc_adc_raw`; "Mains Voltage"
+HA entity dropped, replaced with "Gun NTC Temperature" via β-model
+(later upgraded to LUT — see below).
+
+### Stock-fw RE results (`ffbfc68`) — `docs/re-stock-safety.md`
+
+Three findings from a static analysis pass on stock fw V1.0.066:
+
+1. **NTC LUT extracted** (HIGH confidence): 150-entry direct
+   lookup at `0x08024f28..0x08025054`. `lut[idx] = raw_at(idx − 30 °C)`,
+   −30..+119 °C in 1 °C steps. Pull-up confirmed 10 kΩ (NOT 4.7 kΩ
+   as our pre-bench pinout guess assumed). Stock factory trip = 95 °C
+   @ raw=300; max user setpoint 120 °C. FC41D-side conversion now
+   uses this LUT (`fc41d/.../ntc_lut.h`) — the previous β=3380 model
+   was off by ~10 °C at 85 °C since the OEM thermistor's β is
+   closer to 3980. **Phase 2** (MCU-side `over_temp.h` thresholds
+   migrating from 532/672 → 396/525) is still pending — defers
+   until the test cases get updated alongside.
+2. **GFCI sense = PE2, polled** (MEDIUM-HIGH initial confidence):
+   stock fw's 8-state TBB at `0x08012824` drives PE3 (CAL pulse) +
+   PE4, samples PE2 mid-cycle. NO EXTI used — all EXTI vectors point
+   at the default trap stub.
+3. **Relay closed-feedback = no discrete pin** (LOW confidence):
+   exhaustive search of all 29 `GPIO_ReadInputDataBit` callsites
+   found no GPIOE-bit-12 read. Strong inference: stock fw infers
+   weld / stuck-open from PC0 (CT902 secondary load-current) vs
+   PE12 + CP-state expectations, not from a discrete sense pin.
+
+### GFCI live (`78b6c16`, tag `gfci-live`) ✅
+
+PE2 sense + active-low polarity bench-confirmed via
+`tools/gpio_diff.sh` wiggle 2026-05-04 (drove the GFCI module's
+external trip line HIGH; PE2 dropped 1 → 0, returned 1 on release).
+Polarity inverted from the agent's static-decode hypothesis; static
+structure stood.
+
+`hal/gfci.{c,h}` + `safety_task::check_gfci` debounce 3 ticks (60 ms)
+of PE2 LOW → `fault_raise(FAULT_GFCI)` + `evse_transition(EVSE_FAULT)`
++ PB12 force-open latch. Latched + power-cycle-only clear per UL2231
+(`fault.c::fault_clear` already refuses GFCI by id).
+
+End-to-end bench validation: real GFCI trip during CHARGING → 60 ms
+debounce → fault raised → EVSE FAULT → session persisted with
+reason=FAULT (dur_ms=11705) → CP state F → relay open and stays
+open until power cycle. Production blocker #1 retired.
+
+### Relay closed-feedback ruled out (`ee33c23`) ✅
+
+Bench `gpio_diff` snapshot before/after a contactor close (no load):
+zero new input bits changed across all 5 GPIO ports. The only diffs
+were the outputs we drove (PE12, PE13) plus a coincidental W25Q SPI
+MISO bit. Definitively rules out any coil-side feedback (aux
+contact / TCR sense) — those would move regardless of load.
+`FAULT_RELAY_WELD` and `FAULT_RELAY_STUCK_OPEN` are therefore
+coupled to the V/I path (PC0/U11) and cannot land independently.
+
+### CP advertise-duty inverted + ADC sample-time (`bf1051b`) ✅
+
+`cp_pwm_set_advertise_amps()` had the J1772 duty formula inverted —
+spec is `amps = duty% × 0.6` (so duty% = `amps / 0.6`), code had
+`amps × 0.6`. `48 A` advertised as **28% duty** instead of **80%**;
+a real EV would have charged at ~17 A, not 48 A. Bench-confirmed
+via multimeter: state-C charging averaged −2.7 V on CP (matches
+28% high) instead of the spec-correct ~+2.4 V (80% high).
+
+Same commit: bumped `adc_inject` S&H window from 28.5 → 239.5 cycles
+(~3 µs → ~24 µs). The 3 µs was sampling at the PWM rising edge before
+CP had settled in the no-load case. Symptom: `cp_high` stuck at
+~9.9 V once advertise PWM started, never returning to 12 V even on
+full disconnect — trapping the classifier in state B and breaking
+the `USER_PAUSED → READY` unplug-escape path. Both fixes
+bench-validated: boot=12 V ✓, state C=1.9 V avg ✓, state A/B
+disconnected=12 V ✓.
+
+### Test suite expansion to 94 cases (`0c6f745`, `32078cd`, `d273922`, `a4f0836`)
+
+- w25q HAL mock + pingpong tests (+12 cases)
+- boot_config tests (+8)
+- `core/over_temp.{c,h}` extracted to a pure header-inline module +
+  test suite (+19)
+- `tests/CMakeLists.txt` wire-up
+
+Net 55 → 94 cases, 1/1 PASS. Firmware -20 bytes from the over_temp
+refactor (header-only inline; safety_task inlines the same as
+before, host build links via the .c definition).
+
+### New tools
+
+- `tools/gfci_wiggle.sh` — non-destructive PE2 sense-pin tests:
+  `cal-test` (drive PE3, sample PE2), `seq-test` (full stock 8-state
+  cycle replay), `pull-test` (PE2 internal pull bias under stock fw).
+- `tools/gpio_diff.sh` — generic GPIO snapshot + diff helper for
+  "drive an external stimulus, see which MCU pin moves" pattern.
+  Reads all 5 GPIOx ISTAT under OpenOCD halt+poke, annotates diffs
+  with pinout labels (`PE2: 1 → 0  (GFCI-SENSE?)` etc.). Used to
+  confirm GFCI sense + rule out relay closed-feedback.
