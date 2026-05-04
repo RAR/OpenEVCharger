@@ -54,6 +54,7 @@ set(APP_SRCS
     src/main.c
     src/core/fault.c
     src/core/j1772.c
+    src/core/over_temp.c
     src/core/system_state.c
     src/hal/clock.c
     src/hal/wdg.c

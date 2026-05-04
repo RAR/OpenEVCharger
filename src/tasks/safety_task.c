@@ -8,6 +8,7 @@
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
+#include "../core/over_temp.h"
 #include "../core/pin_map.h"
 #include "../persist/crash_state.h"
 #include "../persist/event_log.h"
@@ -725,51 +726,19 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
     }
 }
 
-/* Over-temp detector. Reads NTC1 (PA3) + NTC2 (PB0) raw ADC counts
- * and trips on the hotter of the two. The NTC is wired as a pulldown
- * (10 kΩ pullup to 3.3 V), so as the thermistor heats and its
- * resistance drops, the divider voltage falls and the ADC count
- * decreases. Raw thresholds are pre-computed from a 10 kΩ NTC
- * β-model (β=3380, R0=10 kΩ at 25 °C) — we compare raw counts
- * directly to avoid pulling in libm/log() and __errno on this
- * stub-free target.
+/* Over-temp detector. The pure decision logic lives in core/over_temp.c
+ * (β-model thresholds, populated guards, persistence streak). This
+ * wrapper translates the edge result into firmware-side bookkeeping:
+ * fault_raise / fault_clear, EVSE_FAULT transition, post_fault_event,
+ * and the printk diagnostics. The constants live in over_temp.h.
  *
- * Pre-computed:
- *   85 °C → R_ntc ≈ 1.49 kΩ → raw ≈ 532 (trip threshold)
- *   75 °C → R_ntc ≈ 1.96 kΩ → raw ≈ 672 (clear threshold, +10 °C hyst)
- *
- * Recalibrate these once the production thermistor part number is
- * known. They WILL move if β is wrong. The defaults are intentionally
- * conservative for any reasonable 10 kΩ NTC family.
- *
- * Populated guard: counts in (100, 3990) only. Bench NTC2 reads 0
- * (grounded, no thermistor) and is correctly skipped. */
-#define OT_TRIP_RAW         532U
-#define OT_CLEAR_RAW        672U
-/* Populated guard: raw <= 300 ↔ "input near GND with no thermistor"
- * (bench NTC2 reads 0 idle, occasionally noise-spikes to ~234 on the
- * floating-near-ground PB0 input). With a real 10 kΩ NTC fitted, raw
- * crosses 300 only above ~115 °C — well past every safe operating
- * threshold (trip @ 85 °C is raw=532). raw >= 3990 ↔ pulled to VDD
- * (open thermistor or shorted upper resistor). */
-#define OT_GUARD_LO         300U
-#define OT_GUARD_HI         3990U
-/* Persistence: require an over-temp reading sustained for this many
- * 20 ms safety ticks before tripping. 100 ms filters single-sample ADC
- * glitches without delaying real thermal events meaningfully (NTC
- * thermal mass + heater rise time is seconds). */
-#define OT_PERSIST_TICKS    5U
-
-/* Per-channel NTC presence mask. The bench unit + early production
+ * Per-channel NTC presence masks. The bench unit + early production
  * units do not have the J1772 gun-cable thermistor populated (PB0 /
  * NTC2), so PB0 floats near GND and noise-spikes can wander into the
- * trip band. Default this channel OFF so OVER_TEMP only honours NTC1
- * (PCB-internal, populated). Override at build time once the gun
- * thermistor is fitted on a deployed unit. NTC1 is on the PCB and
- * always populated, so it stays on by default.
- *
- * Future: migrate to a runtime mask in boot_config so deployed units
- * can flip this without a reflash. */
+ * trip band. Default that channel OFF so OVER_TEMP only honours NTC1
+ * (PCB-internal, populated). NTC1 is on the PCB and always populated.
+ * Override at build time once the gun thermistor is fitted on a
+ * deployed unit. Future: runtime mask in boot_config. */
 #ifndef OPENBHZD_NTC1_PRESENT
 #define OPENBHZD_NTC1_PRESENT  1
 #endif
@@ -777,50 +746,32 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
 #define OPENBHZD_NTC2_PRESENT  0
 #endif
 
-static int ntc_populated(uint16_t raw)
-{
-    return (raw > OT_GUARD_LO) && (raw < OT_GUARD_HI);
-}
-
 static void check_over_temp(fault_state_t *fs, evse_state_t *es,
                             uint16_t ntc1_raw, uint16_t ntc2_raw,
-                            unsigned *trip_streak)
+                            over_temp_ctx_t *ot)
 {
-    int p1 = OPENBHZD_NTC1_PRESENT && ntc_populated(ntc1_raw);
-    int p2 = OPENBHZD_NTC2_PRESENT && ntc_populated(ntc2_raw);
-    if (!p1 && !p2) {
-        /* No populated NTC reachable. Leave any existing OT fault
-         * latched — don't auto-clear into a sensorless state. */
-        *trip_streak = 0;
-        return;
-    }
+    /* Re-sync ctx with the fault module — fault may have been cleared
+     * via the inbox path while the detector wasn't looking. */
+    ot->fault_active = fault_is_active(fs, FAULT_OVER_TEMP);
 
-    /* Hottest = smallest raw among the populated channels. */
-    uint16_t hottest_raw = 0xFFFFu;
-    if (p1 && ntc1_raw < hottest_raw) hottest_raw = ntc1_raw;
-    if (p2 && ntc2_raw < hottest_raw) hottest_raw = ntc2_raw;
+    over_temp_action_t act = over_temp_step(ot, ntc1_raw, ntc2_raw,
+                                            OPENBHZD_NTC1_PRESENT,
+                                            OPENBHZD_NTC2_PRESENT);
 
-    int active = fault_is_active(fs, FAULT_OVER_TEMP);
-    if (!active && hottest_raw <= OT_TRIP_RAW) {
-        if (*trip_streak < OT_PERSIST_TICKS) ++(*trip_streak);
-        if (*trip_streak >= OT_PERSIST_TICKS) {
-            if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
-                printk("FAULT raised: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
-                       "hottest=%u, trip<=%u, sustained %ux ticks)\n",
-                       (unsigned)ntc1_raw, (unsigned)ntc2_raw,
-                       (unsigned)hottest_raw, OT_TRIP_RAW,
-                       (unsigned)OT_PERSIST_TICKS);
-                post_fault_event(FAULT_OVER_TEMP, J1772_STATE_INVALID, *es, 0);
-            }
-            evse_transition(es, EVSE_FAULT);
+    if (act.trip) {
+        if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
+            printk("FAULT raised: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
+                   "trip<=%u, sustained %ux ticks)\n",
+                   (unsigned)ntc1_raw, (unsigned)ntc2_raw,
+                   OT_TRIP_RAW, (unsigned)OT_PERSIST_TICKS);
+            post_fault_event(FAULT_OVER_TEMP, J1772_STATE_INVALID, *es, 0);
         }
-    } else {
-        *trip_streak = 0;
-        if (active && hottest_raw >= OT_CLEAR_RAW) {
-            if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
-                printk("FAULT cleared: OVER_TEMP (hottest_raw=%u, clear>=%u)\n",
-                       (unsigned)hottest_raw, OT_CLEAR_RAW);
-            }
+        evse_transition(es, EVSE_FAULT);
+    } else if (act.clear) {
+        if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
+            printk("FAULT cleared: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
+                   "clear>=%u)\n",
+                   (unsigned)ntc1_raw, (unsigned)ntc2_raw, OT_CLEAR_RAW);
         }
     }
 }
@@ -842,7 +793,7 @@ static void safety_task_run(void *arg)
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
     int evse_c_streak = 0;
-    unsigned ot_trip_streak = 0;
+    over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
 
     /* Boot path: BOOT -> SELF_TEST -> READY (or FAULT on failure /
      * safe-fail). 100 ms warm-up gives ADC scan + injected ADC time to
@@ -954,7 +905,7 @@ static void safety_task_run(void *arg)
         check_over_temp(&fs, &es,
                         adc_scan_rank(ADC_RANK_NTC1),
                         adc_scan_rank(ADC_RANK_NTC2),
-                        &ot_trip_streak);
+                        &ot_ctx);
 
         /* After all fault checks: classifier-driven EVSE transitions,
          * relay state, and CP output. Faults preempt — helpers honor

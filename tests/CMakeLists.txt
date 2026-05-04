@@ -33,6 +33,7 @@ set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 add_library(openbhzd_pure STATIC
     ${SRC_DIR}/core/j1772.c
     ${SRC_DIR}/core/fault.c
+    ${SRC_DIR}/core/over_temp.c
     ${SRC_DIR}/persist/crc16.c
     ${SRC_DIR}/persist/crc.c
     ${SRC_DIR}/persist/pingpong.c
@@ -68,6 +69,7 @@ add_executable(openbhzd_tests
     test_tlv.c
     test_pingpong.c
     test_boot_config.c
+    test_over_temp.c
 )
 target_link_libraries(openbhzd_tests PRIVATE openbhzd_pure openbhzd_w25q_mock)
 target_include_directories(openbhzd_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
