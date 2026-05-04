@@ -18,28 +18,36 @@ to a plausible mains number.
 
 **V/I path: U11 = BL0939 (Shanghai Belling)** — visually-confirmed
 on the bench 2026-05-04. Single-phase metering IC, dual current
-channels + voltage channel, UART interface, hardware fault-output
-pin for differential-current (RCD) detection. NOT a PGA as our
-earlier guess assumed. Implications:
-- PB9 / PD15 are not gain bits — they're more likely CS / RESET /
-  mode straps for the BL0939.
-- PC0 / PC1 are probably not the calibrated CT ADCs we thought —
-  current data arrives over UART. PC0 / PC1 may be CT references
-  or unused on this SKU.
-- **PE2 (GFCI fault sense) is almost certainly the BL0939's
-  fault-output pin** — same chip handles RCD via L1−N current
-  differential; there is no separate "GFCI module". Today's
-  wiggle test simulated a fault at the BL0939's CAL/test input.
-- "Stock fw uses PC0 inference for weld detection" (the agent's
-  hypothesis from `docs/re-stock-safety.md`) is now suspect — the
-  current channels are read over UART, so weld inference would
-  read I_A / I_B off the BL0939, not raw PC0 ADC.
-- BL0939 datasheet is the new reference for V/I bring-up. UART
-  identification (which USART, which baud) is the next research
-  step. Family relative: BL0940 (single-channel) parser was searched
-  for in stock fw earlier and not found — BL0939 protocol differs
-  in details but the family is similar; re-search the stock fw
-  with BL0939-specific opcodes.
+channels + voltage channel, internal calibration, hardware
+fault-output pin for differential-current (RCD) detection. Comms
+via UART (4800 bps) OR SPI (900 kHz) per datasheet.
+
+MCU ↔ BL0939 wire-trace (bench-probed 2026-05-04):
+- **PB9 → BL0939 pin 13 (SCLK)** — SPI clock
+- **PD15 → BL0939 pin 14 (RX/SDI)** — SPI data MCU→BL0939
+- **PE2 ← BL0939 pin 10 (I_leak)** — RCD alarm, active-low
+- **PE3 → external CAL-injection transistor** — GFCI self-test
+- **TBD ← BL0939 pin 15 (TX/SDO)** — third trace not yet identified
+
+Comms mode: **SPI** (not UART) — neither traced MCU pin connects
+to BL0939 SEL pin, so SEL is hardwired. SCLK presence pins this
+as SPI mode. Bit-banged on the MCU side since GD32F205's SPI
+peripheral doesn't natively map to PB9+PD15.
+
+Cascade implications:
+- PC0 / PC1 are NOT calibrated CT ADCs — current data arrives over
+  SPI from the BL0939. PC0 / PC1 may be unused on this SKU.
+- "Stock fw uses PC0 inference for weld detection" (agent's
+  hypothesis in `docs/re-stock-safety.md`) is wrong direction — the
+  current channels are read over SPI, so weld inference would read
+  BL0939 I_A / I_B vs PE12 + CP-state expectations.
+- Stock-fw RE pass earlier searched for BL0940 UART parser
+  (single-channel sibling) and didn't find one. With SPI confirmed,
+  re-search the stock fw for SPI clocking on PB9 / SDI writes on
+  PD15 — the bit-bang loop signature is what to look for.
+- The third trace (BL0939 pin 15 → MCU) needs physical identification:
+  either (a) trace pin 15 backward to the MCU pad, or (b) check if
+  OEM uses 3-wire half-duplex SPI per datasheet §3.1.5.
 
 Updated channel roles:
 

@@ -174,23 +174,46 @@
 
 /* ----- U11 = BL0939 metering IC (Shanghai Belling) -----
  *
- * Visually-confirmed 2026-05-04: U11 is a Shanghai Belling BL0939,
- * NOT a PGA. Single-phase metering with two current channels + one
- * voltage channel, UART interface, internal calibration. Earlier
- * "PGA gain bits PB9 / PD15" interpretation was wrong — these are
- * almost certainly CS / RESET / mode straps for the BL0939, not
- * gain-select inputs. The BL0939 also has a hardware fault-output
- * pin for differential-current (RCD) detection, which is wired to
- * PE2 — i.e. there is no separate "GFCI module" on this board, the
- * BL0939 does both metering AND RCD.
+ * Visually-confirmed 2026-05-04: U11 is a Shanghai Belling BL0939
+ * (SOP16L). Single-phase metering with two current channels + one
+ * voltage channel, internal calibration. Has both UART (4800 bps)
+ * and SPI (900 kHz) interfaces, plus a hardware fault output for
+ * differential-current (RCD) detection.
  *
- * Names left as PIN_U11_G0/G1 for now (wide-grep stability) until
- * the BL0939 protocol is decoded and the pin roles are firmly
- * mapped. Update once `hal/bl0939.{c,h}` lands. */
+ * MCU ↔ BL0939 pin map (bench-confirmed via pin_probe wiggle
+ * 2026-05-04):
+ *   PB9   →  BL0939 pin 13 (SCLK, SPI clock)
+ *   PD15  →  BL0939 pin 14 (RX/SDI, SPI data MCU→BL0939)
+ *   PE2   ←  BL0939 pin 10 (I_leak, RCD/leak alarm — active-low)
+ *   PE3   →  external CAL-injection transistor (GFCI self-test)
+ *   ???   ←  BL0939 pin 15 (TX/SDO, SPI data BL0939→MCU)  — TBD
+ *
+ * Comm mode: **SPI**. SEL pin is hardwired (likely VDD) since
+ * neither MCU pin connects to SEL. This means BL0939 isn't doing
+ * the UART packet-send pattern; the MCU must clock SPI reads
+ * explicitly. SPI peripheral on GD32F205 doesn't natively map to
+ * PB9 + PD15 (no AF for SPI on those pads), so this is BIT-BANGED
+ * SPI at ≤ 900 kHz.
+ *
+ * The third trace (MCU ← BL0939 TX/SDO, pin 15) hasn't been
+ * traced yet. Either:
+ *   (a) a third MCU pin needs identifying, or
+ *   (b) OEM uses 3-wire half-duplex SPI per datasheet §3.1.5
+ *       (SDI + SDO multiplexed onto one line) — would require
+ *       MCU side to switch PD15 between input and output.
+ *
+ * Names kept as PIN_U11_G0/G1 (wide-grep stability) until
+ * `hal/bl0939.{c,h}` lands; new aliases below for clarity. */
 #define PIN_U11_G0_PORT         GPIOB
 #define PIN_U11_G0_PIN          GPIO_PIN_9
 #define PIN_U11_G1_PORT         GPIOD
 #define PIN_U11_G1_PIN          GPIO_PIN_15
+
+#define PIN_BL0939_SCLK_PORT    GPIOB
+#define PIN_BL0939_SCLK_PIN     GPIO_PIN_9      /* MCU SPI clock → BL0939 pin 13 */
+#define PIN_BL0939_SDI_PORT     GPIOD
+#define PIN_BL0939_SDI_PIN      GPIO_PIN_15     /* MCU data → BL0939 pin 14 (RX/SDI) */
+/* PIN_BL0939_SDO_* — TBD; trace BL0939 pin 15 backward to find it. */
 
 /* ----- FC41D Wi-Fi/BLE control (held OFF in M2) ----- */
 #define PIN_FC41D_VEN_PORT      GPIOE
