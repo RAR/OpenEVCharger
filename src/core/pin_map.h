@@ -118,13 +118,18 @@
 #define PIN_RELAY_FORCE_OPEN_PORT  GPIOB
 #define PIN_RELAY_FORCE_OPEN_PIN   GPIO_PIN_12
 
-/* ----- GFCI -----
+/* ----- GFCI / BL0939 fault sense -----
  *
- * PE2 = GFCI fault sense. Bench-confirmed 2026-05-04 by driving the
- * GFCI module's trip line HIGH externally and watching PE2 toggle
- * via tools/gpio_diff.sh (PE2: 1 → 0 on assert, returns 1 on
- * release). Polarity is ACTIVE-LOW at the MCU side: idle HIGH,
- * pulls LOW when the GFCI module asserts its fault output.
+ * PE2 = BL0939 fault output (= GFCI fault sense). Bench-confirmed
+ * 2026-05-04 by driving the BL0939's trip line HIGH externally and
+ * watching PE2 toggle via tools/gpio_diff.sh (PE2: 1 → 0 on assert,
+ * returns 1 on release). Polarity is ACTIVE-LOW at the MCU side:
+ * idle HIGH, pulls LOW when the BL0939 's fault output asserts.
+ *
+ * The "GFCI module" we'd been treating as a discrete chip is
+ * actually U11 = BL0939 (identified 2026-05-04). The same chip
+ * does V/I metering (over UART) AND differential-current detection
+ * (this fault output). PE3 → CAL is the BL0939's self-test input.
  *
  * This INVERTS the agent's static-decode hypothesis (which assumed
  * active-high based on the bit-set ORing semantics in stock fw's
@@ -167,7 +172,21 @@
 #define PIN_W25Q_CS_PORT        GPIOB
 #define PIN_W25Q_CS_PIN         GPIO_PIN_6     /* GPIO push-pull, idle HIGH (deasserted) */
 
-/* ----- U11 PGA gain-select bits ----- */
+/* ----- U11 = BL0939 metering IC (Shanghai Belling) -----
+ *
+ * Visually-confirmed 2026-05-04: U11 is a Shanghai Belling BL0939,
+ * NOT a PGA. Single-phase metering with two current channels + one
+ * voltage channel, UART interface, internal calibration. Earlier
+ * "PGA gain bits PB9 / PD15" interpretation was wrong — these are
+ * almost certainly CS / RESET / mode straps for the BL0939, not
+ * gain-select inputs. The BL0939 also has a hardware fault-output
+ * pin for differential-current (RCD) detection, which is wired to
+ * PE2 — i.e. there is no separate "GFCI module" on this board, the
+ * BL0939 does both metering AND RCD.
+ *
+ * Names left as PIN_U11_G0/G1 for now (wide-grep stability) until
+ * the BL0939 protocol is decoded and the pin roles are firmly
+ * mapped. Update once `hal/bl0939.{c,h}` lands. */
 #define PIN_U11_G0_PORT         GPIOB
 #define PIN_U11_G0_PIN          GPIO_PIN_9
 #define PIN_U11_G1_PORT         GPIOD

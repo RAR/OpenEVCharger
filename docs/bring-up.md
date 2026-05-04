@@ -2044,6 +2044,39 @@ Net 55 → 94 cases, 1/1 PASS. Firmware -20 bytes from the over_temp
 refactor (header-only inline; safety_task inlines the same as
 before, host build links via the .c definition).
 
+### U11 identified as BL0939 (Shanghai Belling) — 2026-05-04
+
+Visually-confirmed bench reading: U11 is a **Shanghai Belling
+BL0939**, not the PGA we'd assumed. Single-phase metering IC,
+**dual current channels + voltage**, UART interface, internal
+calibration, and a hardware fault-output pin for differential-current
+(RCD) detection. Three implications:
+
+1. **PB9 / PD15 are NOT "gain bits"** — likely CS / RESET / mode
+   straps for the BL0939 (final mapping pending datasheet review +
+   bench probe). Names kept as `PIN_U11_G0/G1` in `pin_map.h` until
+   the BL0939 protocol decode lands.
+2. **PC0 / PC1 are not the calibrated CT ADCs we thought.** Current
+   data arrives over UART, not analog. PC0 / PC1 may just be CT
+   secondary references or unused on this SKU.
+3. **There's no separate "GFCI module"** — the BL0939 itself does
+   the differential-current trip via its on-chip dual-current
+   path. The PE2 fault sense we wired today (`78b6c16`,
+   `gfci-live`) is the BL0939's fault output. PE3 (CAL) is the
+   BL0939's self-test input. Today's wiggle test simulated a fault
+   at the BL0939's CAL input.
+
+This collapses the gating chain: `BL0939 UART parser` is now the
+single highest-leverage outstanding task — it unblocks
+`HARD_OVER_CURRENT`, `SOFT_OVER_CURRENT`, `RELAY_WELD`, and
+`RELAY_STUCK_OPEN` simultaneously. The task is pure code +
+bench-scope investigation; no hardware mods needed.
+
+Stock-fw RE pass earlier searched for **BL0940** (single-channel
+sibling) and didn't find a parser. BL0939 protocol differs in
+detail; re-search the stock fw with BL0939-specific opcodes /
+register addresses next.
+
 ### New tools
 
 - `tools/gfci_wiggle.sh` — non-destructive PE2 sense-pin tests:

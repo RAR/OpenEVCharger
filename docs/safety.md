@@ -14,9 +14,32 @@ ADC channels we'd been calling "AC" (PA2) and "NTC1" (PA3),
 confirming both as populated thermistors. The previous "Mains
 Voltage @ 0.06151 V/count" calibration was a coincidence — a
 disconnected NTC pin happened to float-rail near a value that scaled
-to a plausible mains number. Real V/I sensing on this PCB likely
-runs through the U11 PGA (gain bits PB9 / PD15, output → some ADC
-channel still TBD); enabling it is a separate bench investigation.
+to a plausible mains number.
+
+**V/I path: U11 = BL0939 (Shanghai Belling)** — visually-confirmed
+on the bench 2026-05-04. Single-phase metering IC, dual current
+channels + voltage channel, UART interface, hardware fault-output
+pin for differential-current (RCD) detection. NOT a PGA as our
+earlier guess assumed. Implications:
+- PB9 / PD15 are not gain bits — they're more likely CS / RESET /
+  mode straps for the BL0939.
+- PC0 / PC1 are probably not the calibrated CT ADCs we thought —
+  current data arrives over UART. PC0 / PC1 may be CT references
+  or unused on this SKU.
+- **PE2 (GFCI fault sense) is almost certainly the BL0939's
+  fault-output pin** — same chip handles RCD via L1−N current
+  differential; there is no separate "GFCI module". Today's
+  wiggle test simulated a fault at the BL0939's CAL/test input.
+- "Stock fw uses PC0 inference for weld detection" (the agent's
+  hypothesis from `docs/re-stock-safety.md`) is now suspect — the
+  current channels are read over UART, so weld inference would
+  read I_A / I_B off the BL0939, not raw PC0 ADC.
+- BL0939 datasheet is the new reference for V/I bring-up. UART
+  identification (which USART, which baud) is the next research
+  step. Family relative: BL0940 (single-channel) parser was searched
+  for in stock fw earlier and not found — BL0939 protocol differs
+  in details but the family is similar; re-search the stock fw
+  with BL0939-specific opcodes.
 
 Updated channel roles:
 
@@ -94,16 +117,15 @@ PE2 LOW mid-cycle) for `FAULT_GFCI_SELF_TEST` coverage.
   PE13) plus a coincidental W25Q SPI flash MISO bit. This rules
   out any *coil-side* feedback (aux contact / TCR sense), since
   those would move regardless of load. A current-based feedback
-  on PC0 was untestable without load but is consistent with the
-  stock-fw inference.
-- **Why gated:** Strong inference — stock fw infers weld /
-  stuck-open from **PC0 (CT902 secondary load-current)** rather
-  than a discrete feedback pin. Welded contactor: PE12 commanded
-  LOW but PC0 reads non-zero current. Stuck-open: PE12 HIGH and
-  CP state expects current draw, but PC0 reads zero. Detection on
-  this hardware therefore *couples* to the V/I path
-  (HARD_OVER_CURRENT below) and cannot land independently.
-- **Bench needed:** Calibrate PC0 (V/I path via U11) first.
+  was untestable without load.
+- **Why gated:** Inference — stock fw infers weld / stuck-open
+  from **BL0939 current readings** (U11 is the BL0939 metering IC
+  identified 2026-05-04, not a PGA). Welded contactor: PE12
+  commanded LOW but BL0939 reports non-zero I. Stuck-open: PE12
+  HIGH and CP state expects current draw, but BL0939 reports zero.
+  Detection on this hardware therefore *couples* to the V/I path
+  (HARD_OVER_CURRENT above) and cannot land independently.
+- **Bench needed:** BL0939 UART parser (see HARD_OVER_CURRENT).
 - **Enable:** EITHER identify a real sense pin (then flip
   `OPENBHZD_RELAY_FEEDBACK_KNOWN=1`), OR land V/I path then add a
   current-inferred weld detector that watches PC0 vs PE12 + CP.
@@ -125,22 +147,21 @@ PE2 LOW mid-cycle) for `FAULT_GFCI_SELF_TEST` coverage.
 
 ### `FAULT_HARD_OVER_CURRENT` / `FAULT_SOFT_OVER_CURRENT` — gated
 
-- **Why gated:** CT secondary on PC0/PC1 routes through the U11 PGA
-  (gain-select bits PB9 / PD15) before reaching an ADC. U11 is not
-  yet initialised, the gain register is unknown, and the
-  raw → amps mapping is uncalibrated. Enabling at any threshold
-  without all three false-trips immediately or, worse, silently
-  misses real overcurrent.
-- **Bench needed:** (1) probe / scope U11 to identify part number +
-  gain-config protocol, (2) inject known currents (e.g. 0 A, 16 A,
-  32 A, 48 A) through the primary, capture PC0/PC1 raw at each
-  configured gain, (3) fit scale + offset; verify linearity. Decide
-  soft-trip threshold (= advertised amps × 1.10, say) and hard-trip
-  (≥ 60 A).
-- **Enable:** Add `hal/u11.{c,h}` for the PGA, land calibration
-  in `boot_config`. Update `system_state.active_amps_x10`; add
-  detector that compares active vs `effective_advertised_amps()` ×
-  tolerance.
+- **Why gated:** U11 = **BL0939** (Shanghai Belling, identified
+  2026-05-04). Single-phase metering IC with two current channels +
+  voltage, UART interface, internal calibration, RMS readouts.
+  Earlier "PGA gain bits" assumption was wrong — current readings
+  come over a serial protocol, not raw ADC.
+- **Bench needed:** (1) identify which UART carries BL0939 traffic
+  (scope candidate USARTs, look for the periodic packet pattern
+  documented in the BL0939 datasheet), (2) implement the protocol
+  parser (HAL `bl0939.{c,h}`), (3) cross-calibrate the BL0939's
+  internal scaling against a known-current reference once the
+  parser is reading frames cleanly.
+- **Enable:** Add `hal/bl0939.c` (UART driver + frame parser), wire
+  current/voltage into `system_state` (`active_amps_x10`,
+  `mains_v_x10`), add detector comparing active vs
+  `effective_advertised_amps() × tolerance`.
 
 ### `FAULT_AC_ABSENT` — gated
 
