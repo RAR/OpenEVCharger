@@ -100,6 +100,7 @@ struct StateReport {
   uint32_t bl0939_ia_rms{0};
   uint32_t bl0939_ib_rms{0};
   int32_t bl0939_a_watt{0};
+  uint16_t bl0939_freq_hz_x10{0};
   bool bl0939_valid{false};
   bool valid{false};
 };
@@ -169,6 +170,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_mains_current_a_sensor(sensor::Sensor *s) { mains_current_a_sensor_ = s; }
   void set_mains_current_b_sensor(sensor::Sensor *s) { mains_current_b_sensor_ = s; }
   void set_active_power_sensor(sensor::Sensor *s) { active_power_sensor_ = s; }
+  void set_mains_frequency_sensor(sensor::Sensor *s) { mains_frequency_sensor_ = s; }
   // Per-chassis BL0939 raw → engineering-unit scales. Pulled from YAML
   // substitutions; default 0 = no conversion (raw-only mode).
   void set_bl0939_v_uv_per_raw(int32_t s) { bl0939_v_uv_per_raw_ = s; }
@@ -264,6 +266,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *mains_current_a_sensor_{nullptr};
   sensor::Sensor *mains_current_b_sensor_{nullptr};
   sensor::Sensor *active_power_sensor_{nullptr};
+  sensor::Sensor *mains_frequency_sensor_{nullptr};
   int32_t bl0939_v_uv_per_raw_{0};
   int32_t bl0939_ia_ua_per_raw_{0};
   int32_t bl0939_ib_ua_per_raw_{0};

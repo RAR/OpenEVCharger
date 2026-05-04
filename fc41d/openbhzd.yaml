@@ -176,9 +176,23 @@ sensor:
       name: "Mains Current (Leg B)"
     active_power:
       name: "Active Power"
-    # Default 0 = uncalibrated. Replace with measured chassis
-    # values once a bench reference is on hand.
-    bl0939_v_uv_per_raw: 0
+    # BL0939 measures line period directly (TPS1 register); no per-
+    # chassis scale needed.
+    mains_frequency:
+      name: "Mains Frequency"
+    # Per-chassis raw → engineering scales.
+    #
+    # Voltage: bench-anchored 2026-05-04 — Fluke reads 123.9 V when
+    # scale=56 displayed 119.2 V → bumped to 58 µV/raw (= 56 × 123.9 /
+    # 119.2). i16 quantization gives ±0.5 V resolution at the wall.
+    # Re-fit with future deployments via:
+    #   bl0939_v_uv_per_raw = round(meter_mV * 1000 / V_RMS_raw)
+    bl0939_v_uv_per_raw: 58
+    # Current / power scales need a known load to fit (no-load IA_RMS
+    # has a bias offset). Stay 0 = uncalibrated until a 1 A reference
+    # load is on the bench. Solve from the load-cycle reading:
+    #   bl0939_ia_ua_per_raw = round(meter_mA * 1000 / IA_RMS_raw)
+    #   bl0939_pa_mw_per_raw = round(meter_W   * 1000 / A_WATT_raw)
     bl0939_ia_ua_per_raw: 0
     bl0939_ib_ua_per_raw: 0
     bl0939_pa_mw_per_raw: 0

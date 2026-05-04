@@ -267,12 +267,15 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
         s.bl0939_a_watt = int32_t(uint32_t(p[48]) | (uint32_t(p[49]) << 8) |
                                   (uint32_t(p[50]) << 16) | (uint32_t(p[51]) << 24));
         s.bl0939_valid = (p[52] != 0);
+        // p[53] = pad. p[54..55] = freq_hz × 10 (u16 LE).
+        s.bl0939_freq_hz_x10 = uint16_t(p[54] | (uint16_t(p[55]) << 8));
       } else {
         s.bl0939_v_rms = 0;
         s.bl0939_ia_rms = 0;
         s.bl0939_ib_rms = 0;
         s.bl0939_a_watt = 0;
         s.bl0939_valid = false;
+        s.bl0939_freq_hz_x10 = 0;
       }
       s.valid = true;
       first_fault_name_ = fault_name(s.first_fault_id);
@@ -462,6 +465,11 @@ void OpenbhzdTlv::publish_state_() {
     if (active_power_sensor_ && bl0939_pa_mw_per_raw_ != 0) {
       double w = double(s.bl0939_a_watt) * double(bl0939_pa_mw_per_raw_) / 1.0e3;
       active_power_sensor_->publish_state(float(w));
+    }
+    // Mains frequency is reported directly by the BL0939 — no per-
+    // chassis cal needed. 0 = no AC / read failed.
+    if (mains_frequency_sensor_ && s.bl0939_freq_hz_x10 != 0) {
+      mains_frequency_sensor_->publish_state(s.bl0939_freq_hz_x10 / 10.0f);
     }
   }
 #endif

@@ -8,6 +8,7 @@
 #include "../proto/build_info.h"
 #include "../core/system_state.h"
 #include "../core/fault.h"
+#include "../persist/boot_config.h"
 #include "../ui/led_patterns.h"
 #include "../ui/buzzer.h"
 #include "../diag/stack_watch.h"
@@ -120,10 +121,18 @@ static void handle_set_advertised_amps(const uint8_t *p, size_t plen)
     /* Payload: u8 amps. Spec § 5: "Clamped to DIP1 + hw cap." DIP1 is
      * sampled by safety_task each tick; we just clamp to the global
      * hardware cap here (48 A) and let safety_task apply the DIP1
-     * floor/ceiling via effective_advertised_amps(). */
+     * floor/ceiling via effective_advertised_amps().
+     *
+     * Idempotent: HA's number entity reconcile loop re-issues the
+     * desired value on every boot / link-up / state divergence, so a
+     * repeat-write of the current value is the common case and should
+     * be silent — both on the W25Q (boot_config_set_advertised_amps
+     * already short-circuits) and on the log. Compare against the
+     * cached config before queuing. */
     if (plen < 1) return;
     uint8_t amps = p[0];
     if (amps > COMMS_HW_AMPS_MAX) amps = COMMS_HW_AMPS_MAX;
+    if (amps == boot_config_advertised_amps()) return;
     int rc = persist_post_boot_config_amps(amps);
     if (rc != 0) {
         printk("comms: SET_ADVERTISED_AMPS persist post FAIL rc=%d\n", rc);

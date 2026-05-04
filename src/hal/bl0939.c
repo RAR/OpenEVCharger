@@ -122,11 +122,12 @@ static struct bl0939_readings s_readings;
 
 void bl0939_poll(void)
 {
-    uint32_t v = 0, ia = 0, ib = 0, aw = 0;
+    uint32_t v = 0, ia = 0, ib = 0, aw = 0, tp = 0;
     int rc_v  = bl0939_read_register(BL0939_REG_V_RMS,  &v);
     int rc_ia = bl0939_read_register(BL0939_REG_IA_RMS, &ia);
     int rc_ib = bl0939_read_register(BL0939_REG_IB_RMS, &ib);
     int rc_aw = bl0939_read_register(BL0939_REG_A_WATT, &aw);
+    int rc_tp = bl0939_read_register(BL0939_REG_TPS1,   &tp);
 
     /* Build a local snapshot; copy to s_readings under IRQ disable so
      * readers (other tasks) never see a partial update. */
@@ -136,7 +137,20 @@ void bl0939_poll(void)
     if (rc_ia == 0) snap.ia_rms = ia;      else snap.checksum_fail++;
     if (rc_ib == 0) snap.ib_rms = ib;      else snap.checksum_fail++;
     if (rc_aw == 0) snap.a_watt = bl0939_sx24(aw); else snap.checksum_fail++;
-    if ((rc_v | rc_ia | rc_ib | rc_aw) == 0) snap.valid = 1;
+    if (rc_tp == 0) {
+        snap.v_period = tp;
+        /* Empirical TPS calibration 2026-05-04: TPS_raw ≈ 453 at 60.02 Hz
+         * (Fluke). f_line × 10 = 271900 / TPS. The BL0939's internal
+         * period reference is ~27.19 kHz, not the 4 MHz MCLK the
+         * datasheet implies. Guard divide-by-zero / nonsense values;
+         * TPS < 50 would imply f > 540 Hz which is not a power-line
+         * frequency. */
+        snap.v_freq_hz_x10 = (tp >= 50u && tp <= 0x00FFFFFFu)
+            ? (uint16_t)(271900u / tp) : 0u;
+    } else {
+        snap.checksum_fail++;
+    }
+    if ((rc_v | rc_ia | rc_ib | rc_aw | rc_tp) == 0) snap.valid = 1;
 
     /* The struct is 28 B; copy under IRQ disable is < 1 µs. */
     __asm__ volatile ("cpsid i" ::: "memory");

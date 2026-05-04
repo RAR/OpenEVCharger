@@ -69,6 +69,8 @@ struct bl0939_readings {
     uint32_t ia_rms;           /* 0x04 — current A RMS, unsigned 24-bit */
     uint32_t ib_rms;           /* 0x05 — current B RMS, unsigned 24-bit */
     int32_t  a_watt;           /* 0x08 — channel A active power, signed 24-bit */
+    uint32_t v_period;         /* 0x0E — voltage zero-crossing period, raw */
+    uint16_t v_freq_hz_x10;    /* line frequency × 10 Hz (derived) */
     uint32_t poll_count;       /* total poll cycles attempted */
     uint32_t checksum_fail;    /* total reads that failed checksum */
     uint8_t  valid;            /* 0 until first poll completes any read */

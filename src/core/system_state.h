@@ -57,7 +57,8 @@ struct __attribute__((packed)) openbhzd_state {
     uint32_t bl0939_ib_rms;     /* 0x05 — current B RMS, unsigned 24-bit */
     int32_t  bl0939_a_watt;     /* 0x08 — channel A active power, sign-extended */
     uint8_t  bl0939_valid;      /* 1 once any read has succeeded */
-    uint8_t  bl0939_pad[3];
+    uint8_t  bl0939_pad;
+    uint16_t bl0939_freq_hz_x10;/* line frequency × 10 (BL0939 TPS1) */
 };
 /* Hits TLV_PAYLOAD_MAX (56 B) exactly — any future field addition needs
  * a payload-size bump on both sides, or a separate event/cmd. */

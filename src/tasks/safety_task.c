@@ -664,9 +664,12 @@ int safety_request_resume(void)
 }
 
 /* Apply one inbox entry. Returns the (possibly updated) EVSE state by
- * mutating *es. Emits TLV events on success. */
+ * mutating *es. Emits TLV events on success. The streak ptr lets
+ * the CLEAR_FAULT path reset cp_e_streak so the CP-settling window
+ * after FAULT → READY doesn't immediately re-fire CP_NO_PILOT. */
 static void process_request(struct safety_req *r,
-                            fault_state_t *fs, evse_state_t *es)
+                            fault_state_t *fs, evse_state_t *es,
+                            int *cp_e_streak)
 {
     switch (r->type) {
     case SAFETY_REQ_CLEAR_FAULT: {
@@ -693,6 +696,15 @@ static void process_request(struct safety_req *r,
         if (cleared) {
             uint32_t evt_id = fid;
             (void)comms_publish_event(EVT_FAULT_CLEARED, &evt_id, sizeof evt_id);
+            /* Clearing CP_NO_PILOT (or all-clearable that includes it)
+             * also resets the per-tick streak so the post-FAULT CP
+             * settling window — CP physically transitions from -12 V
+             * to idle high over a few ticks, J1772 classifier debounce
+             * holds state E for the same period — doesn't re-trip the
+             * detector immediately. */
+            if (fid == 0u || fid == (uint32_t)FAULT_CP_NO_PILOT) {
+                *cp_e_streak = 0;
+            }
         }
         /* If we're in EVSE_FAULT and no latched faults remain, return
          * to SELF_TEST so the boot self-test re-runs before READY.
@@ -702,6 +714,11 @@ static void process_request(struct safety_req *r,
             printk("safety: faults all clear -> SELF_TEST then READY\n");
             evse_transition(es, EVSE_READY);
             fs->first_raised = FAULT_NONE;
+            /* Belt-and-suspenders: same reset as above for the case
+             * where CP_NO_PILOT wasn't in the cleared bits but we're
+             * leaving FAULT (so apply_cp_for_state is about to swing
+             * CP from -12 V back to idle high). */
+            *cp_e_streak = 0;
         }
         break;
     }
@@ -730,7 +747,8 @@ static void process_request(struct safety_req *r,
     }
 }
 
-static void drain_inbox(fault_state_t *fs, evse_state_t *es)
+static void drain_inbox(fault_state_t *fs, evse_state_t *es,
+                        int *cp_e_streak)
 {
     if (s_safety_inbox == NULL) return;
     struct safety_req r;
@@ -738,7 +756,7 @@ static void drain_inbox(fault_state_t *fs, evse_state_t *es)
      * starve the safety loop. */
     for (int i = 0; i < 4; ++i) {
         if (xQueueReceive(s_safety_inbox, &r, 0) != pdTRUE) break;
-        process_request(&r, fs, es);
+        process_request(&r, fs, es, cp_e_streak);
     }
 }
 
@@ -855,14 +873,27 @@ static void check_ac_absent(fault_state_t *fs, evse_state_t *es,
 
 /* Relay weld via BL0939: current is flowing through the contactor
  * while we commanded it open. Latched fault per UL2231 — clearable
- * via FC41D CLEAR_FAULT (not GFCI-locked). Spec § 4 #2. */
+ * via FC41D CLEAR_FAULT (not GFCI-locked). Spec § 4 #2.
+ *
+ * Gated behind a non-zero IA cal scale: without calibration we
+ * can't reliably distinguish chip noise (bench observed 3-14 k raw
+ * floating around without real load) from a real low-current
+ * residual. Once the chassis is calibrated, the threshold rides
+ * on a real-amps comparison and the noise floor doesn't matter. */
 static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
                                     const struct bl0939_readings *bl,
                                     j1772_state_t js, int32_t cp_mv,
                                     unsigned *streak)
 {
     if (!bl->valid) return;
-    int sensing_flow = (bl->ia_rms >= BL0939_IA_RMS_FLOW_RAW);
+    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    if (scale <= 0) { *streak = 0; return; }
+    /* Real-amps threshold: any current ≥ 100 mA flowing through the
+     * contactor while we commanded it open is a weld. 100 mA is well
+     * above any realistic noise/leakage floor and well below a real
+     * EV load. */
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    int sensing_flow = (ma >= 100u);
     if (sensing_flow && !relay_main_commanded()) {
         if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
     } else {
@@ -871,8 +902,8 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
     if (*streak >= BL0939_DETECTOR_PERSIST &&
         !fault_is_active(fs, FAULT_RELAY_WELD)) {
         if (fault_raise(fs, FAULT_RELAY_WELD) == 1) {
-            printk("FAULT raised: RELAY_WELD (BL0939 IA_RMS=%u, "
-                   "cmd=open)\n", (unsigned)bl->ia_rms);
+            printk("FAULT raised: RELAY_WELD (mA=%u, cmd=open)\n",
+                   (unsigned)ma);
             post_fault_event(FAULT_RELAY_WELD, js, *es, cp_mv);
         }
         evse_transition(es, EVSE_FAULT);
@@ -885,18 +916,26 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
  *
  * Only meaningful in CHARGING — at idle (READY) the EV is not
  * drawing current even with the contactor closed, so an honest zero
- * IA_RMS isn't a fault. */
+ * IA_RMS isn't a fault. Same cal-scale gate as weld: silent until
+ * a real engineering-units threshold can be applied. */
 static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
                                           const struct bl0939_readings *bl,
                                           j1772_state_t js, int32_t cp_mv,
                                           unsigned *streak)
 {
     if (!bl->valid) return;
+    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    if (scale <= 0) { *streak = 0; return; }
     if (*es != EVSE_CHARGING || !relay_main_commanded()) {
         *streak = 0;
         return;
     }
-    if (bl->ia_rms < BL0939_IA_RMS_FLOW_RAW) {
+    /* < 500 mA flowing while commanded close + EVSE=CHARGING means
+     * the contactor isn't actually conducting. EVs draw at least
+     * a few amps when actively charging; 500 mA is a generous
+     * floor that won't trip on idle pre-charge currents. */
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    if (ma < 500u) {
         if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
     } else {
         *streak = 0;
@@ -904,8 +943,8 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
     if (*streak >= BL0939_DETECTOR_PERSIST &&
         !fault_is_active(fs, FAULT_RELAY_STUCK_OPEN)) {
         if (fault_raise(fs, FAULT_RELAY_STUCK_OPEN) == 1) {
-            printk("FAULT raised: RELAY_STUCK_OPEN (BL0939 IA_RMS=%u, "
-                   "cmd=close, EVSE=CHARGING)\n", (unsigned)bl->ia_rms);
+            printk("FAULT raised: RELAY_STUCK_OPEN (mA=%u, "
+                   "cmd=close, EVSE=CHARGING)\n", (unsigned)ma);
             post_fault_event(FAULT_RELAY_STUCK_OPEN, js, *es, cp_mv);
         }
         evse_transition(es, EVSE_FAULT);
@@ -1144,7 +1183,7 @@ static void safety_task_run(void *arg)
 
         /* Drain control inbox first so a CLEAR_FAULT or USER_PAUSE
          * lands before the rest of the tick reads/applies state. */
-        drain_inbox(&fs, &es);
+        drain_inbox(&fs, &es, &cp_e_streak);
 
         int32_t cp_mv = cp_high_mv();
         j1772_state_t s = j1772_step(&cp, cp_mv, J1772_DEBOUNCE_N);
@@ -1233,11 +1272,12 @@ static void safety_task_run(void *arg)
             .ac_adc_raw        = adc_scan_rank(ADC_RANK_AC),
             .ntc1_adc_raw      = adc_scan_rank(ADC_RANK_NTC1),
             .ntc2_adc_raw      = adc_scan_rank(ADC_RANK_NTC2),
-            .bl0939_v_rms      = bl.v_rms,
-            .bl0939_ia_rms     = bl.ia_rms,
-            .bl0939_ib_rms     = bl.ib_rms,
-            .bl0939_a_watt     = bl.a_watt,
-            .bl0939_valid      = bl.valid,
+            .bl0939_v_rms       = bl.v_rms,
+            .bl0939_ia_rms      = bl.ia_rms,
+            .bl0939_ib_rms      = bl.ib_rms,
+            .bl0939_a_watt      = bl.a_watt,
+            .bl0939_valid       = bl.valid,
+            .bl0939_freq_hz_x10 = bl.v_freq_hz_x10,
         };
         system_state_publish(&snap);
 

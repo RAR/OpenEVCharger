@@ -5,6 +5,7 @@ from esphome.const import (
     CONF_ID,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_ENERGY,
+    DEVICE_CLASS_FREQUENCY,
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
@@ -12,6 +13,7 @@ from esphome.const import (
     STATE_CLASS_TOTAL_INCREASING,
     UNIT_AMPERE,
     UNIT_CELSIUS,
+    UNIT_HERTZ,
     UNIT_KILOWATT_HOURS,
     UNIT_VOLT,
     UNIT_WATT,
@@ -46,6 +48,7 @@ CONF_MAINS_VOLTAGE = "mains_voltage"
 CONF_MAINS_CURRENT_A = "mains_current_a"
 CONF_MAINS_CURRENT_B = "mains_current_b"
 CONF_ACTIVE_POWER = "active_power"
+CONF_MAINS_FREQUENCY = "mains_frequency"
 CONF_BL0939_V_UV_PER_RAW = "bl0939_v_uv_per_raw"
 CONF_BL0939_IA_UA_PER_RAW = "bl0939_ia_ua_per_raw"
 CONF_BL0939_IB_UA_PER_RAW = "bl0939_ib_ua_per_raw"
@@ -161,6 +164,12 @@ CONFIG_SCHEMA = cv.Schema(
             device_class=DEVICE_CLASS_POWER,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        cv.Optional(CONF_MAINS_FREQUENCY): sensor.sensor_schema(
+            unit_of_measurement=UNIT_HERTZ,
+            accuracy_decimals=1,
+            device_class=DEVICE_CLASS_FREQUENCY,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
         # Per-chassis BL0939 raw → engineering scales. Default 0 means
         # skip the engineering-unit publish (raw counts still post).
         cv.Optional(CONF_BL0939_V_UV_PER_RAW, default=0): cv.int_,
@@ -194,6 +203,7 @@ _SETTERS = {
     CONF_MAINS_CURRENT_A: "set_mains_current_a_sensor",
     CONF_MAINS_CURRENT_B: "set_mains_current_b_sensor",
     CONF_ACTIVE_POWER: "set_active_power_sensor",
+    CONF_MAINS_FREQUENCY: "set_mains_frequency_sensor",
 }
 
 _SCALE_SETTERS = {
