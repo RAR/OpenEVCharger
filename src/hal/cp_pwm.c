@@ -53,15 +53,17 @@ void cp_pwm_init(void)
 
     timer_channel_output_pulse_value_config(TIMER0, TIMER_CH_2, CP_PWM_CCR_HIGH);
 
-    /* CH3 is configured for compare-only — no GPIO output; we just need
-     * the internal CCxIF event for the ADC inject trigger. The compare
+    /* CH3 is configured for compare-only — its internal CC3IF event
+     * drives the ADC1 inject trigger (T0_CH3 source). The compare
      * value is set by cp_pwm_set_advertise_amps to (CCR+ARR)/2 (mid-
      * LOW phase) so adc_inject can sample CP during the negative
-     * excursion. Default = ARR-1 which is harmless before any duty
-     * is set (samples near end of period). */
+     * excursion. CCxE = ENABLE because some timer revisions gate
+     * the trigger pulse on output-enable; the GPIO output goes to
+     * PE14 (full-remap) which isn't routed anywhere on this PCB,
+     * so enabling the output is harmless. */
     timer_oc_parameter_struct oc3;
     timer_channel_output_struct_para_init(&oc3);
-    oc3.outputstate    = TIMER_CCX_DISABLE;
+    oc3.outputstate    = TIMER_CCX_ENABLE;
     oc3.outputnstate   = TIMER_CCXN_DISABLE;
     oc3.ocpolarity     = TIMER_OC_POLARITY_HIGH;
     oc3.ocnpolarity    = TIMER_OCN_POLARITY_HIGH;

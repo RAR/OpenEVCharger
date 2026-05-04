@@ -17,15 +17,19 @@ uint16_t cp_high_raw(void);
  * Range: -12000..+12000 (clamped). */
 int32_t cp_high_mv(void);
 
-/* CP LOW-phase counterparts. Sampled by alternating the ADC injected
- * trigger source between TIMER0 update (start of period = HIGH phase)
- * and TIMER0 CH3 (mid-LOW phase, compare value managed by cp_pwm.c).
- * Result: cp_high and cp_low each refresh at ~1 kHz pair rate.
+/* CP LOW-phase counterparts. ADC0 captures cp_high every period
+ * triggered by TIMER0 update (T0_TRGO, start of period = HIGH
+ * phase). ADC1 (dedicated, see adc_inject.c) captures cp_low
+ * triggered by TIMER0 CH3 compare event (mid-LOW phase, compare
+ * value = (CCR+ARR)/2 maintained by cp_pwm.c). Both refresh at
+ * 1 kHz.
  *
  * Bench note: the OEM read divider can't resolve negative voltages —
  * any CP < 0 V pegs PA4 near 0 raw, so the converted cp_low_mv is
- * largely informational until a 5-point negative-half cal lands
- * (M5.b 5-point fit, gates FAULT_DIODE_CHECK). */
+ * informational only until a 5-point negative-half cal lands
+ * (M5.b 5-point fit, gates FAULT_DIODE_CHECK). cp_low reads
+ * +12000 mV in idle_high (whole period is HIGH on CP), and ~0 mV
+ * in any state where CP swings negative. */
 uint16_t cp_low_raw(void);
 int32_t  cp_low_mv(void);
 
