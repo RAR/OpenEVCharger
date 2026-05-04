@@ -744,10 +744,21 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
  *
  * Populated guard: counts in (100, 3990) only. Bench NTC2 reads 0
  * (grounded, no thermistor) and is correctly skipped. */
-#define OT_TRIP_RAW     532U
-#define OT_CLEAR_RAW    672U
-#define OT_GUARD_LO     100U
-#define OT_GUARD_HI     3990U
+#define OT_TRIP_RAW         532U
+#define OT_CLEAR_RAW        672U
+/* Populated guard: raw <= 300 ↔ "input near GND with no thermistor"
+ * (bench NTC2 reads 0 idle, occasionally noise-spikes to ~234 on the
+ * floating-near-ground PB0 input). With a real 10 kΩ NTC fitted, raw
+ * crosses 300 only above ~115 °C — well past every safe operating
+ * threshold (trip @ 85 °C is raw=532). raw >= 3990 ↔ pulled to VDD
+ * (open thermistor or shorted upper resistor). */
+#define OT_GUARD_LO         300U
+#define OT_GUARD_HI         3990U
+/* Persistence: require an over-temp reading sustained for this many
+ * 20 ms safety ticks before tripping. 100 ms filters single-sample ADC
+ * glitches without delaying real thermal events meaningfully (NTC
+ * thermal mass + heater rise time is seconds). */
+#define OT_PERSIST_TICKS    5U
 
 static int ntc_populated(uint16_t raw)
 {
@@ -755,13 +766,15 @@ static int ntc_populated(uint16_t raw)
 }
 
 static void check_over_temp(fault_state_t *fs, evse_state_t *es,
-                            uint16_t ntc1_raw, uint16_t ntc2_raw)
+                            uint16_t ntc1_raw, uint16_t ntc2_raw,
+                            unsigned *trip_streak)
 {
     int p1 = ntc_populated(ntc1_raw);
     int p2 = ntc_populated(ntc2_raw);
     if (!p1 && !p2) {
         /* No populated NTC reachable. Leave any existing OT fault
          * latched — don't auto-clear into a sensorless state. */
+        *trip_streak = 0;
         return;
     }
 
@@ -772,18 +785,25 @@ static void check_over_temp(fault_state_t *fs, evse_state_t *es,
 
     int active = fault_is_active(fs, FAULT_OVER_TEMP);
     if (!active && hottest_raw <= OT_TRIP_RAW) {
-        if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
-            printk("FAULT raised: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
-                   "hottest=%u, trip<=%u)\n",
-                   (unsigned)ntc1_raw, (unsigned)ntc2_raw,
-                   (unsigned)hottest_raw, OT_TRIP_RAW);
-            post_fault_event(FAULT_OVER_TEMP, J1772_STATE_INVALID, *es, 0);
+        if (*trip_streak < OT_PERSIST_TICKS) ++(*trip_streak);
+        if (*trip_streak >= OT_PERSIST_TICKS) {
+            if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
+                printk("FAULT raised: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
+                       "hottest=%u, trip<=%u, sustained %ux ticks)\n",
+                       (unsigned)ntc1_raw, (unsigned)ntc2_raw,
+                       (unsigned)hottest_raw, OT_TRIP_RAW,
+                       (unsigned)OT_PERSIST_TICKS);
+                post_fault_event(FAULT_OVER_TEMP, J1772_STATE_INVALID, *es, 0);
+            }
+            evse_transition(es, EVSE_FAULT);
         }
-        evse_transition(es, EVSE_FAULT);
-    } else if (active && hottest_raw >= OT_CLEAR_RAW) {
-        if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
-            printk("FAULT cleared: OVER_TEMP (hottest_raw=%u, clear>=%u)\n",
-                   (unsigned)hottest_raw, OT_CLEAR_RAW);
+    } else {
+        *trip_streak = 0;
+        if (active && hottest_raw >= OT_CLEAR_RAW) {
+            if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
+                printk("FAULT cleared: OVER_TEMP (hottest_raw=%u, clear>=%u)\n",
+                       (unsigned)hottest_raw, OT_CLEAR_RAW);
+            }
         }
     }
 }
@@ -805,6 +825,7 @@ static void safety_task_run(void *arg)
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
     int evse_c_streak = 0;
+    unsigned ot_trip_streak = 0;
 
     /* Boot path: BOOT -> SELF_TEST -> READY (or FAULT on failure /
      * safe-fail). 100 ms warm-up gives ADC scan + injected ADC time to
@@ -915,7 +936,8 @@ static void safety_task_run(void *arg)
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
         check_over_temp(&fs, &es,
                         adc_scan_rank(ADC_RANK_NTC1),
-                        adc_scan_rank(ADC_RANK_NTC2));
+                        adc_scan_rank(ADC_RANK_NTC2),
+                        &ot_trip_streak);
 
         /* After all fault checks: classifier-driven EVSE transitions,
          * relay state, and CP output. Faults preempt — helpers honor
