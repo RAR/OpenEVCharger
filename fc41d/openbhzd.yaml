@@ -289,6 +289,19 @@ button:
       name: "Push BL0939 Calibration"
       entity_category: config
 
+# P24 drives a status LED on the FC41D module (identified 2026-05-04 by
+# wiggle-test on P10/P22/P23/P24). ESPHome's status_led semantic: blinks
+# slowly during WiFi/API connect, fast on component errors, OFF when
+# everything is fine. Bench-observed 2026-05-04: bare `pin: P24` blinks
+# at boot then goes dark, which means the LED is wired active-high
+# (lit = pin HIGH = "warning"). Invert so the steady-state is "lit when
+# alive" — pin LOW pulls the LED on, pin HIGH on warning blanks it
+# briefly, fast-blink on error still legible.
+status_led:
+  pin:
+    number: P24
+    inverted: true
+
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
