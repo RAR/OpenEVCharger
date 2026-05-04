@@ -240,6 +240,14 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       s.ac_adc_raw = (plen >= 32)
           ? uint16_t(p[30] | (uint16_t(p[31]) << 8))
           : 0;
+      // NTC1 (PA3) at off 32, NTC2 (PB0) at off 34. Same back-compat:
+      // old MCU firmwares with 32 B payload won't carry these.
+      s.ntc1_adc_raw = (plen >= 34)
+          ? uint16_t(p[32] | (uint16_t(p[33]) << 8))
+          : 0;
+      s.ntc2_adc_raw = (plen >= 36)
+          ? uint16_t(p[34] | (uint16_t(p[35]) << 8))
+          : 0;
       s.valid = true;
       first_fault_name_ = fault_name(s.first_fault_id);
       // Count set bits for fault_count diagnostic.
@@ -385,6 +393,8 @@ void OpenbhzdTlv::publish_state_() {
   if (j1772_state_code_sensor_) j1772_state_code_sensor_->publish_state(s.j1772_state);
   if (fault_count_sensor_) fault_count_sensor_->publish_state(fault_count_);
   if (ac_adc_raw_sensor_) ac_adc_raw_sensor_->publish_state(s.ac_adc_raw);
+  if (ntc1_adc_raw_sensor_) ntc1_adc_raw_sensor_->publish_state(s.ntc1_adc_raw);
+  if (ntc2_adc_raw_sensor_) ntc2_adc_raw_sensor_->publish_state(s.ntc2_adc_raw);
   if (mains_voltage_sensor_) {
     // Phase-1 stopgap: linear ADC → volts. Default scale is a rough
     // guess (raw 2043 ≈ 120 V from the bench → 0.0587 V/count). YAML

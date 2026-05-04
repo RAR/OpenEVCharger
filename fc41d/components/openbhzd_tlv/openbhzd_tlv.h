@@ -85,6 +85,8 @@ struct StateReport {
   uint32_t first_fault_id{0};
   uint32_t session_mwh{0};
   uint16_t ac_adc_raw{0};       // PA2 ADC rank 0; calibrate to V via YAML filter
+  uint16_t ntc1_adc_raw{0};     // PA3; °C conversion deferred until NTC part is known
+  uint16_t ntc2_adc_raw{0};     // PB0; same caveat
   bool valid{false};
 };
 
@@ -144,6 +146,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_ac_adc_raw_sensor(sensor::Sensor *s) { ac_adc_raw_sensor_ = s; }
   void set_mains_voltage_sensor(sensor::Sensor *s) { mains_voltage_sensor_ = s; }
   void set_mains_voltage_scale(float scale) { mains_voltage_scale_ = scale; }
+  void set_ntc1_adc_raw_sensor(sensor::Sensor *s) { ntc1_adc_raw_sensor_ = s; }
+  void set_ntc2_adc_raw_sensor(sensor::Sensor *s) { ntc2_adc_raw_sensor_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_link_up_bsensor(binary_sensor::BinarySensor *s) { link_up_bsensor_ = s; }
@@ -224,6 +228,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *ac_adc_raw_sensor_{nullptr};
   sensor::Sensor *mains_voltage_sensor_{nullptr};
   float mains_voltage_scale_{0.0f};   // V per raw ADC count; 0 = use rough default
+  sensor::Sensor *ntc1_adc_raw_sensor_{nullptr};
+  sensor::Sensor *ntc2_adc_raw_sensor_{nullptr};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *link_up_bsensor_{nullptr};

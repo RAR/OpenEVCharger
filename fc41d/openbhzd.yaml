@@ -116,6 +116,17 @@ sensor:
       name: "Mains Voltage"
     # Calibrated 2026-05-03 against Fluke @ 123.9 V; raw≈2014 → 0.06151 V/count.
     mains_voltage_scale: 0.06151
+    # NTC raw counts only (no °C conversion yet — bench has no NTCs
+    # populated, and we haven't pinned the thermistor part on a
+    # production unit). Bench expectations: ntc1 ~ 2050 (PA3 floating
+    # ~1.7 V), ntc2 ~ 0 (PB0 grounded). Real units with NTCs fitted
+    # should show 4095 / (1 + R_pull/R_ntc) at the divider.
+    ntc1_adc_raw:
+      name: "NTC1 ADC Raw"
+      entity_category: diagnostic
+    ntc2_adc_raw:
+      name: "NTC2 ADC Raw"
+      entity_category: diagnostic
     evse_state_code:
       name: "EVSE State Code"
       entity_category: diagnostic

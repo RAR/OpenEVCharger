@@ -32,7 +32,13 @@ struct __attribute__((packed)) openbhzd_state {
                                  * is YAML-side via filter multiply.
                                  * Phase-1 voltage proxy until proper
                                  * RMS metering lands. */
-    uint16_t pad2;
+    uint16_t ntc1_adc_raw;      /* PA3 ADC rank 1 (12-bit). Phase-1
+                                 * raw exposure — °C conversion is
+                                 * YAML-side / TBD until thermistor
+                                 * part number is identified on a
+                                 * production unit. Bench has no NTC
+                                 * populated, reads ~1.7 V floating. */
+    uint16_t ntc2_adc_raw;      /* PB0 ADC rank 7. Same caveat. */
 };
 
 void                  system_state_publish(const struct openbhzd_state *s);

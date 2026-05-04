@@ -35,6 +35,8 @@ CONF_FAULT_COUNT = "fault_count"
 CONF_AC_ADC_RAW = "ac_adc_raw"
 CONF_MAINS_VOLTAGE = "mains_voltage"
 CONF_MAINS_VOLTAGE_SCALE = "mains_voltage_scale"
+CONF_NTC1_ADC_RAW = "ntc1_adc_raw"
+CONF_NTC2_ADC_RAW = "ntc2_adc_raw"
 
 UNIT_MILLIVOLT = "mV"
 
@@ -109,6 +111,14 @@ CONFIG_SCHEMA = cv.Schema(
             state_class=STATE_CLASS_MEASUREMENT,
         ),
         cv.Optional(CONF_MAINS_VOLTAGE_SCALE, default=0.0587): cv.float_,
+        cv.Optional(CONF_NTC1_ADC_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_NTC2_ADC_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
     }
 )
 
@@ -126,6 +136,8 @@ _SETTERS = {
     CONF_FAULT_COUNT: "set_fault_count_sensor",
     CONF_AC_ADC_RAW: "set_ac_adc_raw_sensor",
     CONF_MAINS_VOLTAGE: "set_mains_voltage_sensor",
+    CONF_NTC1_ADC_RAW: "set_ntc1_adc_raw_sensor",
+    CONF_NTC2_ADC_RAW: "set_ntc2_adc_raw_sensor",
 }
 
 
