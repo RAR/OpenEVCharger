@@ -51,6 +51,10 @@ declare -A LABEL=(
 )
 
 read_istats() {
+    # mdw prints e.g. "0x40010808: 0000abcd " (trailing colon on the
+    # address, no 0x prefix on the value). Strip the colon and re-add
+    # the 0x prefix so downstream arithmetic in bash treats values as
+    # hex (otherwise "00000000" parses as octal).
     openocd -f "$CFG" \
         -c init -c halt \
         -c "mdw $GPIOA_ISTAT 1" \
@@ -59,8 +63,8 @@ read_istats() {
         -c "mdw $GPIOD_ISTAT 1" \
         -c "mdw $GPIOE_ISTAT 1" \
         -c resume -c shutdown 2>&1 \
-        | grep -E "^0x4001(0|1)" \
-        | awk '{print $1, $NF}'
+        | grep -Eoi "0x4001(0808|0c08|1008|1408|1808):[[:space:]]+[0-9a-fA-F]+" \
+        | sed -E 's/:[[:space:]]+/ 0x/'
 }
 
 # Convert "0x40010808 0x0000abcd" lines to "GPIOA 0xabcd" mapping
@@ -68,9 +72,10 @@ parse_istats() {
     local istats=$1
     declare -A out
     while read -r addr val; do
+        [ -z "$addr" ] && continue
         case "$addr" in
             0x40010808) out[A]=$val ;;
-            0x40010C08) out[B]=$val ;;
+            0x40010C08|0x40010c08) out[B]=$val ;;
             0x40011008) out[C]=$val ;;
             0x40011408) out[D]=$val ;;
             0x40011808) out[E]=$val ;;
