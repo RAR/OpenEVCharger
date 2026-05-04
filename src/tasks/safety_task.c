@@ -1024,46 +1024,51 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
  * fault_raise / fault_clear, EVSE_FAULT transition, post_fault_event,
  * and the printk diagnostics. The constants live in over_temp.h.
  *
- * Per-channel NTC presence masks. The bench unit + early production
- * units do not have the J1772 gun-cable thermistor populated (PB0 /
- * NTC2), so PB0 floats near GND and noise-spikes can wander into the
- * trip band. Default that channel OFF so OVER_TEMP only honours NTC1
- * (PCB-internal, populated). NTC1 is on the PCB and always populated.
- * Override at build time once the gun thermistor is fitted on a
- * deployed unit. Future: runtime mask in boot_config. */
+ * Per-channel NTC presence masks.
+ *
+ *   NTC1 (PA3, wall-plug end NTC): on the PCB / inside the housing,
+ *     always populated. Default ON.
+ *   GUN_NTC (PA2, gun-cable NTC at the J1772 handle): populated on
+ *     production units; the bench unit may not have the gun cable
+ *     fitted. Default ON; override to 0 on a bench build that lacks
+ *     the gun cable.
+ *
+ * PB0 ("NTC2" in system_state) is NOT a thermistor — see pin_map.h —
+ * and is never fed to the over-temp detector. Future: runtime masks
+ * in boot_config so a single image runs on any chassis variant. */
 #ifndef OPENBHZD_NTC1_PRESENT
 #define OPENBHZD_NTC1_PRESENT  1
 #endif
-#ifndef OPENBHZD_NTC2_PRESENT
-#define OPENBHZD_NTC2_PRESENT  0
+#ifndef OPENBHZD_GUN_NTC_PRESENT
+#define OPENBHZD_GUN_NTC_PRESENT  1
 #endif
 
 static void check_over_temp(fault_state_t *fs, evse_state_t *es,
-                            uint16_t ntc1_raw, uint16_t ntc2_raw,
+                            uint16_t ntc1_raw, uint16_t gun_raw,
                             over_temp_ctx_t *ot)
 {
     /* Re-sync ctx with the fault module — fault may have been cleared
      * via the inbox path while the detector wasn't looking. */
     ot->fault_active = fault_is_active(fs, FAULT_OVER_TEMP);
 
-    over_temp_action_t act = over_temp_step(ot, ntc1_raw, ntc2_raw,
+    over_temp_action_t act = over_temp_step(ot, ntc1_raw, gun_raw,
                                             OPENBHZD_NTC1_PRESENT,
-                                            OPENBHZD_NTC2_PRESENT);
+                                            OPENBHZD_GUN_NTC_PRESENT);
 
     if (act.trip) {
         if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
-            printk("FAULT raised: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
+            printk("FAULT raised: OVER_TEMP (wall_raw=%u gun_raw=%u, "
                    "trip<=%u, sustained %ux ticks)\n",
-                   (unsigned)ntc1_raw, (unsigned)ntc2_raw,
+                   (unsigned)ntc1_raw, (unsigned)gun_raw,
                    OT_TRIP_RAW, (unsigned)OT_PERSIST_TICKS);
             post_fault_event(FAULT_OVER_TEMP, J1772_STATE_INVALID, *es, 0);
         }
         evse_transition(es, EVSE_FAULT);
     } else if (act.clear) {
         if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
-            printk("FAULT cleared: OVER_TEMP (ntc1_raw=%u ntc2_raw=%u, "
+            printk("FAULT cleared: OVER_TEMP (wall_raw=%u gun_raw=%u, "
                    "clear>=%u)\n",
-                   (unsigned)ntc1_raw, (unsigned)ntc2_raw, OT_CLEAR_RAW);
+                   (unsigned)ntc1_raw, (unsigned)gun_raw, OT_CLEAR_RAW);
         }
     }
 }
@@ -1217,9 +1222,13 @@ static void safety_task_run(void *arg)
 #endif
         check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
+        /* PA3 (rank NTC1) is the wall-plug NTC; PA2 (rank "AC", legacy
+         * name pre-channel-role correction) is the gun-cable NTC.
+         * PB0 ("NTC2") is exposed in system_state for diag but is not
+         * a thermistor and is intentionally not in this call. */
         check_over_temp(&fs, &es,
                         adc_scan_rank(ADC_RANK_NTC1),
-                        adc_scan_rank(ADC_RANK_NTC2),
+                        adc_scan_rank(ADC_RANK_AC),
                         &ot_ctx);
 
         /* After all fault checks: classifier-driven EVSE transitions,

@@ -14,6 +14,15 @@ static over_temp_action_t drive_n(over_temp_ctx_t *ctx, unsigned n,
     return a;
 }
 
+/* Phase-2 thresholds (LUT-derived from stock fw V1.0.066):
+ *   TRIP  = 396  (≈85 °C)
+ *   CLEAR = 525  (≈75 °C)
+ *
+ * Test canonical raw values were tuned for these:
+ *   "hot" sustained reading      = 350    (~88 °C, ≤ TRIP)
+ *   "cool but still active" raw  = 450    (between TRIP+1 and CLEAR-1)
+ *   "cleared" raw                = 525    (= CLEAR)
+ *   "well cool"                  = 2000   (~26 °C, plenty of room) */
 void suite_over_temp(void);
 void suite_over_temp(void)
 {
@@ -30,20 +39,20 @@ void suite_over_temp(void)
 
     TEST_CASE("single hot reading sustained 5 ticks → trip on the 5th");
     ctx = (over_temp_ctx_t){ 0, 0 };
-    /* raw=400 < TRIP=532. NTC1 populated, NTC2 not. */
+    /* raw=350 < TRIP=396. Wall-plug populated, gun not. */
     for (unsigned i = 0; i < OT_PERSIST_TICKS - 1U; ++i) {
-        a = over_temp_step(&ctx, 400, 0, 1, 0);
+        a = over_temp_step(&ctx, 350, 0, 1, 0);
         CHECK_EQ_INT(a.trip, 0);
         CHECK_EQ_INT(a.clear, 0);
     }
-    a = over_temp_step(&ctx, 400, 0, 1, 0);
+    a = over_temp_step(&ctx, 350, 0, 1, 0);
     CHECK_EQ_INT(a.trip, 1);
     CHECK_EQ_INT(a.clear, 0);
     CHECK_EQ_INT(ctx.fault_active, 1);
 
     TEST_CASE("trip is single-edge: subsequent hot ticks don't re-trip");
     /* Continue from above ctx (fault_active=1). */
-    a = over_temp_step(&ctx, 400, 0, 1, 0);
+    a = over_temp_step(&ctx, 350, 0, 1, 0);
     CHECK_EQ_INT(a.trip, 0);
     CHECK_EQ_INT(a.clear, 0);
     CHECK_EQ_INT(ctx.fault_active, 1);
@@ -51,7 +60,7 @@ void suite_over_temp(void)
     TEST_CASE("4 hot ticks then 1 cold tick → streak resets, no trip");
     ctx = (over_temp_ctx_t){ 0, 0 };
     for (unsigned i = 0; i < 4; ++i) {
-        a = over_temp_step(&ctx, 400, 0, 1, 0);
+        a = over_temp_step(&ctx, 350, 0, 1, 0);
         CHECK_EQ_INT(a.trip, 0);
     }
     /* Cold reading (well above CLEAR). */
@@ -60,21 +69,21 @@ void suite_over_temp(void)
     CHECK_EQ_INT(ctx.trip_streak, 0);
     /* Re-trip requires another full PERSIST_TICKS run. */
     for (unsigned i = 0; i < OT_PERSIST_TICKS - 1U; ++i) {
-        a = over_temp_step(&ctx, 400, 0, 1, 0);
+        a = over_temp_step(&ctx, 350, 0, 1, 0);
         CHECK_EQ_INT(a.trip, 0);
     }
-    a = over_temp_step(&ctx, 400, 0, 1, 0);
+    a = over_temp_step(&ctx, 350, 0, 1, 0);
     CHECK_EQ_INT(a.trip, 1);
 
     TEST_CASE("trip → 4 ticks at TRIP+1 (still cooler than CLEAR) → still active");
     /* Set up active fault. */
     ctx = (over_temp_ctx_t){ 0, 0 };
-    drive_n(&ctx, OT_PERSIST_TICKS, 400, 0, 1, 0);
+    drive_n(&ctx, OT_PERSIST_TICKS, 350, 0, 1, 0);
     CHECK_EQ_INT(ctx.fault_active, 1);
-    /* Reading raw=600: above TRIP=532 so the hot branch doesn't run, but
-     * still below CLEAR=672. Should NOT clear. */
+    /* Reading raw=450: above TRIP=396 so the hot branch doesn't run, but
+     * still below CLEAR=525. Should NOT clear. */
     for (unsigned i = 0; i < 4; ++i) {
-        a = over_temp_step(&ctx, 600, 0, 1, 0);
+        a = over_temp_step(&ctx, 450, 0, 1, 0);
         CHECK_EQ_INT(a.trip, 0);
         CHECK_EQ_INT(a.clear, 0);
     }
@@ -82,7 +91,7 @@ void suite_over_temp(void)
 
     TEST_CASE("trip → reading at CLEAR → clear edge fires once");
     ctx = (over_temp_ctx_t){ 0, 0 };
-    drive_n(&ctx, OT_PERSIST_TICKS, 400, 0, 1, 0);
+    drive_n(&ctx, OT_PERSIST_TICKS, 350, 0, 1, 0);
     CHECK_EQ_INT(ctx.fault_active, 1);
     a = over_temp_step(&ctx, OT_CLEAR_RAW, 0, 1, 0);
     CHECK_EQ_INT(a.clear, 1);
@@ -95,46 +104,51 @@ void suite_over_temp(void)
 
     TEST_CASE("trip → reading well above CLEAR → clear fires");
     ctx = (over_temp_ctx_t){ 0, 0 };
-    drive_n(&ctx, OT_PERSIST_TICKS, 400, 0, 1, 0);
+    drive_n(&ctx, OT_PERSIST_TICKS, 350, 0, 1, 0);
     a = over_temp_step(&ctx, 3000, 0, 1, 0);
     CHECK_EQ_INT(a.clear, 1);
     CHECK_EQ_INT(ctx.fault_active, 0);
 
-    TEST_CASE("NTC2 unpopulated (mask=0): noise spike to 234 must NOT trip");
-    /* PB0 floats and noise-spikes to ~234. With mask=0 it's ignored. */
+    TEST_CASE("gun unpopulated (mask=0): noise spike to 234 must NOT trip");
+    /* If the gun cable isn't fitted, PA2 may float. With mask=0 it's ignored. */
     ctx = (over_temp_ctx_t){ 0, 0 };
     a = drive_n(&ctx, OT_PERSIST_TICKS + 5U,
-                /* NTC1 cool */ 2000,
-                /* NTC2 noise spike, well below TRIP */ 234,
+                /* wall cool */ 2000,
+                /* gun noise spike, well below TRIP */ 234,
                 /* presence */ 1, 0);
     CHECK_EQ_INT(a.trip, 0);
     CHECK_EQ_INT(ctx.fault_active, 0);
 
-    TEST_CASE("NTC2 populated + raw=234 → still ignored by populated guard");
-    /* Cross-check: raw=234 is below OT_GUARD_LO=300, so even with the
-     * mask=1 the populated guard rejects it. NTC1=2000 is cool, so no
-     * trip. This is the bench's fail-safe against a floating-near-GND
-     * NTC2 input even if a future build sets the mask by accident. */
+    TEST_CASE("gun populated + raw=234 → still ignored by populated guard");
+    /* raw=234 is below OT_GUARD_LO=300, so even with mask=1 the populated
+     * guard rejects it. Wall=2000 is cool, so no trip. Fail-safe against
+     * a floating-near-GND input even if a future build sets the mask
+     * by accident. */
     ctx = (over_temp_ctx_t){ 0, 0 };
     a = drive_n(&ctx, OT_PERSIST_TICKS + 5U, 2000, 234, 1, 1);
     CHECK_EQ_INT(a.trip, 0);
 
-    TEST_CASE("NTC2 populated + raw=400 (clearly hot, above guard) → trips");
-    /* Sanity-check the mask is actually doing the work. raw=400 is
-     * above LO guard, below TRIP, so a real over-temp on NTC2. */
+    TEST_CASE("gun populated + raw=350 (clearly hot, above guard) → trips");
+    /* Sanity-check the mask is actually doing the work. raw=350 is
+     * above LO guard, below TRIP, so a real over-temp on the gun NTC. */
     ctx = (over_temp_ctx_t){ 0, 0 };
-    a = drive_n(&ctx, OT_PERSIST_TICKS, 2000, 400, 1, 1);
+    a = drive_n(&ctx, OT_PERSIST_TICKS, 2000, 350, 1, 1);
     CHECK_EQ_INT(a.trip, 1);
 
-    TEST_CASE("NTC1 alone, sustained low → trips after 5 ticks");
+    TEST_CASE("wall alone, sustained low → trips after 5 ticks");
     ctx = (over_temp_ctx_t){ 0, 0 };
-    a = drive_n(&ctx, OT_PERSIST_TICKS, 500, 4000 /* unpopulated rail */,
+    a = drive_n(&ctx, OT_PERSIST_TICKS, 380, 4000 /* unpopulated rail */,
                 1, 0);
     CHECK_EQ_INT(a.trip, 1);
 
-    TEST_CASE("hottest-of-two: NTC1=2000, NTC2=400 (both populated) → trip on NTC2");
+    TEST_CASE("hottest-of-two: wall=2000, gun=350 (both populated) → trip on gun");
     ctx = (over_temp_ctx_t){ 0, 0 };
-    a = drive_n(&ctx, OT_PERSIST_TICKS, 2000, 400, 1, 1);
+    a = drive_n(&ctx, OT_PERSIST_TICKS, 2000, 350, 1, 1);
+    CHECK_EQ_INT(a.trip, 1);
+
+    TEST_CASE("hottest-of-two: wall=350, gun=2000 (both populated) → trip on wall");
+    ctx = (over_temp_ctx_t){ 0, 0 };
+    a = drive_n(&ctx, OT_PERSIST_TICKS, 350, 2000, 1, 1);
     CHECK_EQ_INT(a.trip, 1);
 
     TEST_CASE("populated guard: raw=300 (lower edge, exclusive) ignored");
@@ -172,14 +186,27 @@ void suite_over_temp(void)
     TEST_CASE("populated lost mid-active: streak resets, fault stays latched");
     /* Trip first. */
     ctx = (over_temp_ctx_t){ 0, 0 };
-    drive_n(&ctx, OT_PERSIST_TICKS, 400, 0, 1, 0);
+    drive_n(&ctx, OT_PERSIST_TICKS, 350, 0, 1, 0);
     CHECK_EQ_INT(ctx.fault_active, 1);
-    /* Now drop both populated masks (e.g. someone unplugged the gun
-     * and the bench NTC1 was somehow unpopulated). Detector reports no
-     * action — the fault stays latched on the caller side. */
-    a = over_temp_step(&ctx, 400, 234, 0, 0);
+    /* Now drop both populated masks. Detector reports no action — the
+     * fault stays latched on the caller side. */
+    a = over_temp_step(&ctx, 350, 234, 0, 0);
     CHECK_EQ_INT(a.trip, 0);
     CHECK_EQ_INT(a.clear, 0);
     CHECK_EQ_INT(ctx.fault_active, 1);
     CHECK_EQ_INT(ctx.trip_streak, 0);
+
+    TEST_CASE("Phase-2 thresholds match LUT-derived 85 °C / 75 °C");
+    /* Sanity check: the constants compile-in match the documented
+     * 85 °C trip / 75 °C clear from stock fw NTC LUT. */
+    CHECK_EQ_INT((int)OT_TRIP_RAW,  396);
+    CHECK_EQ_INT((int)OT_CLEAR_RAW, 525);
+
+    TEST_CASE("regression: old β=3380 hot raw 400 must NOT trip post-Phase-2");
+    /* Pre-Phase-2 the canonical hot reading was 400 (just below the
+     * β=3380 trip of 532). With LUT thresholds it sits just above
+     * TRIP=396, so it should NOT trip. Catches accidental revert. */
+    ctx = (over_temp_ctx_t){ 0, 0 };
+    a = drive_n(&ctx, OT_PERSIST_TICKS + 5U, 400, 0, 1, 0);
+    CHECK_EQ_INT(a.trip, 0);
 }

@@ -4,20 +4,35 @@
 #include <stdint.h>
 
 /* Pure over-temp detector. Caller (safety_task) feeds in the latest
- * NTC1 / NTC2 raw ADC counts plus a per-channel "populated" mask, and
- * the function reports whether the FAULT_OVER_TEMP edge fired this
- * tick. The caller does the bookkeeping (fault_raise / fault_clear /
- * post_fault_event / EVSE transition / printk).
+ * raw ADC counts for two NTC channels plus per-channel "populated"
+ * masks, and the function reports whether the FAULT_OVER_TEMP edge
+ * fired this tick. The caller does the bookkeeping (fault_raise /
+ * fault_clear / post_fault_event / EVSE transition / printk).
  *
- * NTC wiring: 10 kΩ pulldown to GND with 10 kΩ pullup to 3.3 V. As the
- * thermistor heats, resistance drops, divider voltage drops, ADC count
- * drops. Trip / clear thresholds are pre-computed from a β=3380 model:
+ * Channel mapping after the 2026-05-04 channel-role correction:
+ *   ntc1 = PA3 wall-plug NTC (always populated on production units)
+ *   ntc2 = PA2 gun-cable NTC (populated on production; bench may not be)
+ *   PB0 ("NTC2 ADC raw" in system_state) is NOT a thermistor and is
+ *   never fed to this detector — it stays exposed as raw-only diag.
  *
- *   85 °C → R_ntc ≈ 1.49 kΩ → raw ≈ 532 (TRIP)
- *   75 °C → R_ntc ≈ 1.96 kΩ → raw ≈ 672 (CLEAR — +10 °C hysteresis)
+ * NTC wiring: 10 kΩ NTC pulldown to GND with 10 kΩ pullup to 3.3 V.
+ * 12-bit ADC. As the thermistor heats, resistance drops, divider
+ * voltage drops, raw count drops.
+ *
+ * Trip / clear thresholds are LUT-derived from the stock fw V1.0.066
+ * NTC table extracted at flash 0x08024f28 (commit ffbfc68; mirrored
+ * in fc41d/components/openbhzd_tlv/ntc_lut.h):
+ *
+ *   85 °C → raw 396 (TRIP)
+ *   75 °C → raw 525 (CLEAR — +10 °C hysteresis)
+ *
+ * Phase-2 (2026-05-04) replaced the earlier β=3380-derived thresholds
+ * (532/672) with the LUT-direct values; the OEM thermistor's β is
+ * actually closer to 3980 and the β-fit was off by ~10 °C at the trip
+ * point.
  *
  * Populated guard:
- *   raw <= 300  → input near GND, no thermistor (bench NTC2 floats here)
+ *   raw <= 300  → input near GND, no thermistor (PB0-style float)
  *   raw >= 3990 → input pulled to VDD (open thermistor / shorted upper
  *                 resistor)
  *
@@ -29,8 +44,8 @@
  * 5-arg-frame cost), while host tests can exercise it through a thin
  * non-inline wrapper provided by core/over_temp.c. */
 
-#define OT_TRIP_RAW         532U
-#define OT_CLEAR_RAW        672U
+#define OT_TRIP_RAW         396U
+#define OT_CLEAR_RAW        525U
 #define OT_GUARD_LO         300U
 #define OT_GUARD_HI        3990U
 #define OT_PERSIST_TICKS    5U
