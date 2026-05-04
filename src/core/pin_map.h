@@ -180,30 +180,20 @@
  * and SPI (900 kHz) interfaces, plus a hardware fault output for
  * differential-current (RCD) detection.
  *
- * MCU ↔ BL0939 pin map (bench-confirmed via pin_probe wiggle
- * 2026-05-04):
+ * MCU ↔ BL0939 pin map (bench-confirmed 2026-05-04 via pin wiggle
+ * + reverse-direction gpio_diff probe):
  *   PB9   →  BL0939 pin 13 (SCLK, SPI clock)
  *   PD15  →  BL0939 pin 14 (RX/SDI, SPI data MCU→BL0939)
+ *   PD14  ←  BL0939 pin 15 (TX/SDO, SPI data BL0939→MCU)
  *   PE2   ←  BL0939 pin 10 (I_leak, RCD/leak alarm — active-low)
  *   PE3   →  external CAL-injection transistor (GFCI self-test)
- *   ???   ←  BL0939 pin 15 (TX/SDO, SPI data BL0939→MCU)  — TBD
  *
- * Comm mode: **SPI**. SEL pin is hardwired (likely VDD) since
- * neither MCU pin connects to SEL. This means BL0939 isn't doing
- * the UART packet-send pattern; the MCU must clock SPI reads
- * explicitly. SPI peripheral on GD32F205 doesn't natively map to
- * PB9 + PD15 (no AF for SPI on those pads), so this is BIT-BANGED
- * SPI at ≤ 900 kHz.
- *
- * The third trace (MCU ← BL0939 TX/SDO, pin 15) hasn't been
- * traced yet. Either:
- *   (a) a third MCU pin needs identifying, or
- *   (b) OEM uses 3-wire half-duplex SPI per datasheet §3.1.5
- *       (SDI + SDO multiplexed onto one line) — would require
- *       MCU side to switch PD15 between input and output.
- *
- * Names kept as PIN_U11_G0/G1 (wide-grep stability) until
- * `hal/bl0939.{c,h}` lands; new aliases below for clarity. */
+ * Comm mode: **SPI** (not UART). SEL pin is hardwired (likely
+ * VDD) since none of the traced MCU pins connect to SEL.
+ * GD32F205's SPI peripheral doesn't natively map to PB9+PD15+PD14
+ * (no AF), so this is BIT-BANGED SPI at ≤ 900 kHz from the MCU
+ * side. PD14 (SDO input) needs an external pull-up per the
+ * datasheet — likely already on the OEM PCB. */
 #define PIN_U11_G0_PORT         GPIOB
 #define PIN_U11_G0_PIN          GPIO_PIN_9
 #define PIN_U11_G1_PORT         GPIOD
@@ -213,7 +203,8 @@
 #define PIN_BL0939_SCLK_PIN     GPIO_PIN_9      /* MCU SPI clock → BL0939 pin 13 */
 #define PIN_BL0939_SDI_PORT     GPIOD
 #define PIN_BL0939_SDI_PIN      GPIO_PIN_15     /* MCU data → BL0939 pin 14 (RX/SDI) */
-/* PIN_BL0939_SDO_* — TBD; trace BL0939 pin 15 backward to find it. */
+#define PIN_BL0939_SDO_PORT     GPIOD
+#define PIN_BL0939_SDO_PIN      GPIO_PIN_14     /* MCU data ← BL0939 pin 15 (TX/SDO) */
 
 /* ----- FC41D Wi-Fi/BLE control (held OFF in M2) ----- */
 #define PIN_FC41D_VEN_PORT      GPIOE

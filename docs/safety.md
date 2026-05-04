@@ -22,17 +22,17 @@ channels + voltage channel, internal calibration, hardware
 fault-output pin for differential-current (RCD) detection. Comms
 via UART (4800 bps) OR SPI (900 kHz) per datasheet.
 
-MCU ↔ BL0939 wire-trace (bench-probed 2026-05-04):
+MCU ↔ BL0939 wire-trace (bench-probed 2026-05-04, full closure):
 - **PB9 → BL0939 pin 13 (SCLK)** — SPI clock
 - **PD15 → BL0939 pin 14 (RX/SDI)** — SPI data MCU→BL0939
+- **PD14 ← BL0939 pin 15 (TX/SDO)** — SPI data BL0939→MCU
 - **PE2 ← BL0939 pin 10 (I_leak)** — RCD alarm, active-low
 - **PE3 → external CAL-injection transistor** — GFCI self-test
-- **TBD ← BL0939 pin 15 (TX/SDO)** — third trace not yet identified
 
-Comms mode: **SPI** (not UART) — neither traced MCU pin connects
-to BL0939 SEL pin, so SEL is hardwired. SCLK presence pins this
-as SPI mode. Bit-banged on the MCU side since GD32F205's SPI
-peripheral doesn't natively map to PB9+PD15.
+Comms mode: **SPI** (not UART) — none of the traced MCU pins
+connects to BL0939 SEL pin, so SEL is hardwired. SCLK presence
+pins this as SPI mode. Bit-banged on the MCU side since
+GD32F205's SPI peripheral doesn't natively map to PB9+PD15+PD14.
 
 Cascade implications:
 - PC0 / PC1 are NOT calibrated CT ADCs — current data arrives over
