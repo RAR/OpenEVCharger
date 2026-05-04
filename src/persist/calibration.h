@@ -14,8 +14,15 @@
 #define CAL_DEFAULT_CP_SLOPE_DEN     459
 
 /* 32 bytes total. Same envelope convention as boot_config (counter @ 4,
- * CRC @ end). The CT/leakage/NTC trim fields are reserved for M6/M7
- * and not yet read by any consumer. */
+ * CRC @ end).
+ *
+ * BL0939 scales are *chassis* calibrations: BL0939 raw count → mains-
+ * referenced engineering units. They fold the chip's internal datasheet
+ * scale (V_pin = raw × Vref / 79793) with the OEM PCB's voltage divider
+ * + CT ratio in one factor, so a single bench-cycle bench reference
+ * (known mains V + clamp-meter A) lets us solve for them. Default 0 =
+ * "uncalibrated" — the FC41D side leaves the engineering-unit entity
+ * unpublished and exposes the raw count for diagnostic instead. */
 struct __attribute__((packed)) calibration {
     uint8_t  version;                   /* 1 */
     uint8_t  pad0[3];
@@ -23,10 +30,11 @@ struct __attribute__((packed)) calibration {
     int16_t  cp_anchor_raw;             /* raw ADC value at +12 V */
     int16_t  cp_slope_num;              /* mV/raw numerator */
     int16_t  cp_slope_den;              /* mV/raw denominator */
-    int16_t  ct902_zero_offset;         /* reserved (M6) */
-    int16_t  leakage_ct_zero_offset;    /* reserved (M6) */
-    int16_t  ntc_pullup_trim_pct;       /* reserved (M6) */
-    uint8_t  reserved[8];
+    int16_t  bl0939_v_uv_per_raw;       /* V_RMS raw × this = mains µV */
+    int16_t  bl0939_ia_ua_per_raw;      /* IA_RMS raw × this = mains µA */
+    int16_t  bl0939_ib_ua_per_raw;      /* IB_RMS raw × this = mains µA */
+    int16_t  bl0939_pa_mw_per_raw;      /* A_WATT raw × this = mains mW */
+    uint8_t  reserved[6];
     uint32_t crc32;                     /* helper-managed */
 };
 _Static_assert(sizeof(struct calibration) == 32, "calibration must be 32 B");
@@ -47,5 +55,20 @@ int calibration_set_cp(int16_t anchor_raw, int16_t slope_num, int16_t slope_den)
 int32_t calibration_cp_anchor_raw(void);
 int32_t calibration_cp_slope_num(void);
 int32_t calibration_cp_slope_den(void);
+
+/* BL0939 chassis-scale accessors. Return 0 if uncalibrated; consumers
+ * treat 0 as "use raw count for diagnostic; don't compute engineering
+ * units". */
+int16_t calibration_bl0939_v_uv_per_raw(void);
+int16_t calibration_bl0939_ia_ua_per_raw(void);
+int16_t calibration_bl0939_ib_ua_per_raw(void);
+int16_t calibration_bl0939_pa_mw_per_raw(void);
+
+/* Replace the BL0939 chassis scales and persist. Idempotent if all
+ * four fields match. Returns 0 on success, <0 on error. */
+int calibration_set_bl0939(int16_t v_uv_per_raw,
+                           int16_t ia_ua_per_raw,
+                           int16_t ib_ua_per_raw,
+                           int16_t pa_mw_per_raw);
 
 #endif

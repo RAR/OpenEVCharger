@@ -6,6 +6,7 @@
 #include "../hal/cp_pwm.h"
 #include "../hal/relay.h"
 #include "../hal/gfci.h"
+#include "../hal/bl0939.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
@@ -15,6 +16,7 @@
 #include "../persist/event_log.h"
 #include "../persist/session_log.h"
 #include "../persist/boot_config.h"
+#include "../persist/calibration.h"
 #include "../proto/commands.h"
 #include "../core/system_state.h"
 #include "persist_task.h"
@@ -66,6 +68,45 @@ static QueueHandle_t s_safety_inbox;
 /* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
  * (60 ms). Spec § 4 #5. */
 #define CP_E_PERSIST_TICKS  3U
+
+/* BL0939 RMS registers update on a 400-800 ms internal cadence per
+ * datasheet § 3.2.4. Polling faster than 400 ms repeats stale data and
+ * wastes ~1 ms of bit-banged SPI per round. 20 ticks @ 20 ms = 400 ms.
+ * We poll at the END of the tick so the safety/CP/relay path runs
+ * first on every tick — telemetry update is best-effort. */
+#define BL0939_POLL_TICKS  20U
+
+/* BL0939-derived detector debounce. Each "tick" here is a successful
+ * poll cycle, not a safety tick — so 3 means ~1.2 s sustained
+ * condition. Gives plenty of margin against AC zero-crossing
+ * transients and the chip's own 400-800 ms RMS update window. */
+#define BL0939_DETECTOR_PERSIST  3U
+
+/* AC presence threshold — V_RMS *raw* below this means the chip is
+ * not seeing mains. Bench reading at 120 V was 0x208cae (≈ 2.13 M);
+ * 0x080000 (≈ 524 k) is well below any plausible mains and well
+ * above the no-AC noise floor. Tune once we've bench-tested with
+ * a brown-out scenario. */
+#define BL0939_V_RMS_AC_PRESENT_RAW  0x00080000U
+
+/* IA_RMS *raw* current-flow threshold for relay weld / stuck-open.
+ * Bench no-load IA_RMS = 0x000a70 (= 2672); choosing 0x002000 (= 8192)
+ * = ~3× no-load offset. A real load draws orders-of-magnitude more
+ * raw counts than this, so the signal is unambiguous. Tune lower once
+ * we've validated against a low-current bench load (e.g. 1 A LED
+ * dummy). */
+#define BL0939_IA_RMS_FLOW_RAW       0x00002000U
+
+/* Hard / soft over-current thresholds. Both ride on top of a per-
+ * chassis raw → mA scale (see calibration.c). Until the scale is
+ * non-zero, both detectors are silent. Soft OC trips at advertised
+ * × 1.20 (matches OpenEVSE 20 % overcurrent margin). Hard OC trips
+ * at (DIP1 cap or hw cap) × 1.25 — anything past that is broken
+ * hardware. */
+#define BL0939_SOC_TOL_NUM  120U   /* / 100 — i.e. 20 % over advertised */
+#define BL0939_SOC_TOL_DEN  100U
+#define BL0939_HOC_TOL_NUM  125U   /* / 100 — i.e. 25 % over hw cap */
+#define BL0939_HOC_TOL_DEN  100U
 
 /* GFCI fault sense (PE2 LOW) sustained for this many ticks before
  * raising. 3 ticks @ 20 ms = 60 ms — well under UL2231's 25 ms +
@@ -767,6 +808,177 @@ static void check_gfci(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* --- BL0939-derived detectors --------------------------------------------
+ *
+ * The BL0939 metering IC is the single source of truth for V/I/W on this
+ * PCB. There's no discrete relay closed-feedback signal, so weld /
+ * stuck-open detection rides on "is current flowing through the contactor
+ * at all?" — a question only the BL0939 can answer.
+ *
+ * Each detector receives the latest poll snapshot via *bl. They run only
+ * on the BL0939 poll cadence (400 ms) — not every safety tick — to
+ * avoid debouncing repeats of identical data. The streak counters are
+ * stored persist-across-call via static. */
+
+/* AC mains presence. Self-clearing fault. Trips when V_RMS raw drops
+ * below the AC-present floor for BL0939_DETECTOR_PERSIST consecutive
+ * polls; clears on first poll above the floor. */
+static void check_ac_absent(fault_state_t *fs, evse_state_t *es,
+                            const struct bl0939_readings *bl,
+                            j1772_state_t js, int32_t cp_mv,
+                            unsigned *streak)
+{
+    if (!bl->valid) return;
+    if (bl->v_rms < BL0939_V_RMS_AC_PRESENT_RAW) {
+        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+    } else {
+        *streak = 0;
+        if (fault_is_active(fs, FAULT_AC_ABSENT)) {
+            if (fault_clear(fs, FAULT_AC_ABSENT) == 1) {
+                printk("FAULT cleared: AC_ABSENT (V_RMS raw=%u)\n",
+                       (unsigned)bl->v_rms);
+            }
+        }
+        return;
+    }
+    if (*streak >= BL0939_DETECTOR_PERSIST &&
+        !fault_is_active(fs, FAULT_AC_ABSENT)) {
+        if (fault_raise(fs, FAULT_AC_ABSENT) == 1) {
+            printk("FAULT raised: AC_ABSENT (V_RMS raw=%u, threshold=%u)\n",
+                   (unsigned)bl->v_rms, (unsigned)BL0939_V_RMS_AC_PRESENT_RAW);
+            post_fault_event(FAULT_AC_ABSENT, js, *es, cp_mv);
+        }
+        /* Self-clearing: don't transition to EVSE_FAULT — it's safe to
+         * let the state machine keep running with no contactor close. */
+    }
+}
+
+/* Relay weld via BL0939: current is flowing through the contactor
+ * while we commanded it open. Latched fault per UL2231 — clearable
+ * via FC41D CLEAR_FAULT (not GFCI-locked). Spec § 4 #2. */
+static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
+                                    const struct bl0939_readings *bl,
+                                    j1772_state_t js, int32_t cp_mv,
+                                    unsigned *streak)
+{
+    if (!bl->valid) return;
+    int sensing_flow = (bl->ia_rms >= BL0939_IA_RMS_FLOW_RAW);
+    if (sensing_flow && !relay_main_commanded()) {
+        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+    } else {
+        *streak = 0;
+    }
+    if (*streak >= BL0939_DETECTOR_PERSIST &&
+        !fault_is_active(fs, FAULT_RELAY_WELD)) {
+        if (fault_raise(fs, FAULT_RELAY_WELD) == 1) {
+            printk("FAULT raised: RELAY_WELD (BL0939 IA_RMS=%u, "
+                   "cmd=open)\n", (unsigned)bl->ia_rms);
+            post_fault_event(FAULT_RELAY_WELD, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
+/* Relay stuck open via BL0939: no current flowing while commanded
+ * close + EVSE in CHARGING state (so the EV is plugged in and
+ * requesting current). Spec § 4 #3.
+ *
+ * Only meaningful in CHARGING — at idle (READY) the EV is not
+ * drawing current even with the contactor closed, so an honest zero
+ * IA_RMS isn't a fault. */
+static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
+                                          const struct bl0939_readings *bl,
+                                          j1772_state_t js, int32_t cp_mv,
+                                          unsigned *streak)
+{
+    if (!bl->valid) return;
+    if (*es != EVSE_CHARGING || !relay_main_commanded()) {
+        *streak = 0;
+        return;
+    }
+    if (bl->ia_rms < BL0939_IA_RMS_FLOW_RAW) {
+        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+    } else {
+        *streak = 0;
+    }
+    if (*streak >= BL0939_DETECTOR_PERSIST &&
+        !fault_is_active(fs, FAULT_RELAY_STUCK_OPEN)) {
+        if (fault_raise(fs, FAULT_RELAY_STUCK_OPEN) == 1) {
+            printk("FAULT raised: RELAY_STUCK_OPEN (BL0939 IA_RMS=%u, "
+                   "cmd=close, EVSE=CHARGING)\n", (unsigned)bl->ia_rms);
+            post_fault_event(FAULT_RELAY_STUCK_OPEN, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
+/* Hard over-current — > hw_cap × 1.25. Latched. Spec § 4. Active
+ * only once a per-chassis raw → mA cal scale is non-zero in
+ * boot_config. */
+static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
+                                    const struct bl0939_readings *bl,
+                                    j1772_state_t js, int32_t cp_mv,
+                                    unsigned *streak)
+{
+    if (!bl->valid) return;
+    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    if (scale <= 0) { *streak = 0; return; }
+    /* mA = raw * (uA/raw) / 1000. Use uint64_t for headroom. */
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    uint64_t threshold_ma = (uint64_t)HW_AMPS_MAX * 1000u
+                            * BL0939_HOC_TOL_NUM / BL0939_HOC_TOL_DEN;
+    if (ma > threshold_ma) {
+        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+    } else {
+        *streak = 0;
+    }
+    if (*streak >= BL0939_DETECTOR_PERSIST &&
+        !fault_is_active(fs, FAULT_HARD_OVER_CURRENT)) {
+        if (fault_raise(fs, FAULT_HARD_OVER_CURRENT) == 1) {
+            printk("FAULT raised: HARD_OVER_CURRENT (mA=%u > %u)\n",
+                   (unsigned)ma, (unsigned)threshold_ma);
+            post_fault_event(FAULT_HARD_OVER_CURRENT, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
+/* Soft over-current — > advertised × 1.20. Self-clearing.
+ * Same gate on cal scale. */
+static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
+                                    const struct bl0939_readings *bl,
+                                    j1772_state_t js, int32_t cp_mv,
+                                    unsigned *streak)
+{
+    if (!bl->valid) return;
+    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    if (scale <= 0) { *streak = 0; return; }
+    uint8_t adv = effective_advertised_amps();
+    if (adv == 0) { *streak = 0; return; }
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    uint64_t threshold_ma = (uint64_t)adv * 1000u
+                            * BL0939_SOC_TOL_NUM / BL0939_SOC_TOL_DEN;
+    if (ma > threshold_ma) {
+        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+    } else {
+        *streak = 0;
+        if (fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
+            (void)fault_clear(fs, FAULT_SOFT_OVER_CURRENT);
+        }
+        return;
+    }
+    if (*streak >= BL0939_DETECTOR_PERSIST &&
+        !fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
+        if (fault_raise(fs, FAULT_SOFT_OVER_CURRENT) == 1) {
+            printk("FAULT raised: SOFT_OVER_CURRENT (mA=%u > advertised %uA × 1.2)\n",
+                   (unsigned)ma, (unsigned)adv);
+            post_fault_event(FAULT_SOFT_OVER_CURRENT, js, *es, cp_mv);
+        }
+        /* Self-clearing — don't transition to FAULT; classifier opens
+         * the relay via apply_relay_state once the fault is active. */
+    }
+}
+
 /* Over-temp detector. The pure decision logic lives in core/over_temp.c
  * (β-model thresholds, populated guards, persistence streak). This
  * wrapper translates the edge result into firmware-side bookkeeping:
@@ -836,8 +1048,19 @@ static void safety_task_run(void *arg)
     int evse_c_streak = 0;
     int gfci_streak = 0;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
+    unsigned bl0939_poll_div = 0;
+    unsigned ac_absent_streak = 0;
+    unsigned weld_bl_streak = 0;
+    unsigned stuck_open_bl_streak = 0;
+    unsigned hoc_streak = 0;
+    unsigned soc_streak = 0;
 
     gfci_init();
+    bl0939_init();
+    /* Soft-reset the BL0939's SPI state machine so the first poll
+     * doesn't trip on half-frame state from a prior boot or transient.
+     * Idempotent if the smoke-test build flag already ran reset. */
+    bl0939_soft_reset();
 
     /* Boot path: BOOT -> SELF_TEST -> READY (or FAULT on failure /
      * safe-fail). 100 ms warm-up gives ADC scan + injected ADC time to
@@ -943,7 +1166,15 @@ static void safety_task_run(void *arg)
         check_relay_stuck_open(&fs, &es, sensed,
                                &stuck_open_streak, s, cp_mv);
 #else
+        /* The PB12-based relay-feedback path was retired on 2026-05-04
+         * once gpio_diff confirmed there's no discrete relay closed-
+         * feedback signal. Weld / stuck-open detection now rides on
+         * BL0939 IA_RMS (see check_relay_weld_bl0939 below). The
+         * legacy detectors are kept compiled-in so a future PCB
+         * revision that adds a real sense pin can flip the flag
+         * without re-writing the code. */
         (void)weld_streak; (void)stuck_open_streak; (void)last_logged_sense;
+        (void)check_relay_weld; (void)check_relay_stuck_open;
 #endif
         check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
@@ -958,6 +1189,29 @@ static void safety_task_run(void *arg)
         update_evse_from_j1772(&es, s, &evse_c_streak);
         apply_relay_state(s, es, &fs);
         apply_cp_for_state(es, s);
+
+        /* BL0939 telemetry poll. Best-effort, ~1 ms of bit-banged SPI
+         * once per 400 ms — no checksum/timing impact on the safety
+         * loop. The BL0939-derived detectors (AC absent, weld,
+         * stuck-open, hard/soft over-current) run only on this same
+         * cadence — debounce streaks count poll cycles, not safety
+         * ticks. */
+        int bl0939_polled = 0;
+        if (++bl0939_poll_div >= BL0939_POLL_TICKS) {
+            bl0939_poll_div = 0;
+            bl0939_poll();
+            bl0939_polled = 1;
+        }
+        struct bl0939_readings bl;
+        bl0939_get_readings(&bl);
+        if (bl0939_polled) {
+            check_ac_absent(&fs, &es, &bl, s, cp_mv, &ac_absent_streak);
+            check_relay_weld_bl0939(&fs, &es, &bl, s, cp_mv, &weld_bl_streak);
+            check_relay_stuck_open_bl0939(&fs, &es, &bl, s, cp_mv,
+                                          &stuck_open_bl_streak);
+            check_hard_over_current(&fs, &es, &bl, s, cp_mv, &hoc_streak);
+            check_soft_over_current(&fs, &es, &bl, s, cp_mv, &soc_streak);
+        }
 
         /* Publish snapshot for comms / future UI consumers. */
         struct openbhzd_state snap = {
@@ -979,6 +1233,11 @@ static void safety_task_run(void *arg)
             .ac_adc_raw        = adc_scan_rank(ADC_RANK_AC),
             .ntc1_adc_raw      = adc_scan_rank(ADC_RANK_NTC1),
             .ntc2_adc_raw      = adc_scan_rank(ADC_RANK_NTC2),
+            .bl0939_v_rms      = bl.v_rms,
+            .bl0939_ia_rms     = bl.ia_rms,
+            .bl0939_ib_rms     = bl.ib_rms,
+            .bl0939_a_watt     = bl.a_watt,
+            .bl0939_valid      = bl.valid,
         };
         system_state_publish(&snap);
 

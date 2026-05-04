@@ -53,6 +53,38 @@ int bl0939_write_register(uint8_t addr, uint32_t val);
  * boot before any owning task starts using the link. */
 void bl0939_smoke_test(void);
 
+/* --- Periodic poll cache ------------------------------------------ */
+
+/* Snapshot of the BL0939 RMS / power registers. All fields are 24-bit
+ * raw values from the chip; signed registers (A_WATT, B_WATT) are
+ * sign-extended into int32_t. checksum_fail counts read failures since
+ * boot — useful for the link-health binary sensor on the FC41D side.
+ * `valid` is 0 before the first successful poll round.
+ *
+ * Updated atomically (struct copy under irq-disable in writer) by
+ * bl0939_poll(); readers via bl0939_get_readings() see a consistent
+ * snapshot. */
+struct bl0939_readings {
+    uint32_t v_rms;            /* 0x06 — voltage RMS, unsigned 24-bit */
+    uint32_t ia_rms;           /* 0x04 — current A RMS, unsigned 24-bit */
+    uint32_t ib_rms;           /* 0x05 — current B RMS, unsigned 24-bit */
+    int32_t  a_watt;           /* 0x08 — channel A active power, signed 24-bit */
+    uint32_t poll_count;       /* total poll cycles attempted */
+    uint32_t checksum_fail;    /* total reads that failed checksum */
+    uint8_t  valid;            /* 0 until first poll completes any read */
+};
+
+/* Run one poll cycle: read V_RMS, IA_RMS, IB_RMS, A_WATT and update
+ * the cache. Bit-banged transfers take ~1 ms total at the current
+ * 5 µs bit timing. Caller is responsible for cadence (BL0939 RMS
+ * registers update at 400-800 ms; polling faster wastes cycles). */
+void bl0939_poll(void);
+
+/* Snapshot the latest readings into *out. Safe to call from any
+ * task; uses irq-disable around the copy (struct < 32 bytes).
+ * Returns *out unchanged if no poll has run yet (valid == 0). */
+void bl0939_get_readings(struct bl0939_readings *out);
+
 /* --- Register map (datasheet, partial) ------------------------------ */
 
 #define BL0939_REG_IA_FAST_RMS      0x00

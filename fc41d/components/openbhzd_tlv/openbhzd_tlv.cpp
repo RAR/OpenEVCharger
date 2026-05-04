@@ -253,6 +253,27 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       s.ntc2_adc_raw = (plen >= 36)
           ? uint16_t(p[34] | (uint16_t(p[35]) << 8))
           : 0;
+      // BL0939 metering — V_RMS/IA_RMS/IB_RMS (u32) at off 36/40/44,
+      // A_WATT (i32, sign-extended) at off 48, valid flag at off 52.
+      // Older MCU firmwares (pre BL0939 integration) emit a 36 B
+      // payload; in that case all fields stay 0.
+      if (plen >= 56) {
+        s.bl0939_v_rms = uint32_t(p[36]) | (uint32_t(p[37]) << 8) |
+                         (uint32_t(p[38]) << 16) | (uint32_t(p[39]) << 24);
+        s.bl0939_ia_rms = uint32_t(p[40]) | (uint32_t(p[41]) << 8) |
+                          (uint32_t(p[42]) << 16) | (uint32_t(p[43]) << 24);
+        s.bl0939_ib_rms = uint32_t(p[44]) | (uint32_t(p[45]) << 8) |
+                          (uint32_t(p[46]) << 16) | (uint32_t(p[47]) << 24);
+        s.bl0939_a_watt = int32_t(uint32_t(p[48]) | (uint32_t(p[49]) << 8) |
+                                  (uint32_t(p[50]) << 16) | (uint32_t(p[51]) << 24));
+        s.bl0939_valid = (p[52] != 0);
+      } else {
+        s.bl0939_v_rms = 0;
+        s.bl0939_ia_rms = 0;
+        s.bl0939_ib_rms = 0;
+        s.bl0939_a_watt = 0;
+        s.bl0939_valid = false;
+      }
       s.valid = true;
       first_fault_name_ = fault_name(s.first_fault_id);
       // Count set bits for fault_count diagnostic.
@@ -417,6 +438,32 @@ void OpenbhzdTlv::publish_state_() {
   if (gun_ntc_adc_raw_sensor_) gun_ntc_adc_raw_sensor_->publish_state(s.gun_ntc_adc_raw);
   if (ntc1_adc_raw_sensor_) ntc1_adc_raw_sensor_->publish_state(s.ntc1_adc_raw);
   if (ntc2_adc_raw_sensor_) ntc2_adc_raw_sensor_->publish_state(s.ntc2_adc_raw);
+
+  // BL0939 metering — raw counts always; engineering units only when
+  // a per-chassis scale has been wired up via YAML (default 0 = skip).
+  if (bl0939_v_rms_raw_sensor_) bl0939_v_rms_raw_sensor_->publish_state(s.bl0939_v_rms);
+  if (bl0939_ia_rms_raw_sensor_) bl0939_ia_rms_raw_sensor_->publish_state(s.bl0939_ia_rms);
+  if (bl0939_ib_rms_raw_sensor_) bl0939_ib_rms_raw_sensor_->publish_state(s.bl0939_ib_rms);
+  if (bl0939_a_watt_raw_sensor_) bl0939_a_watt_raw_sensor_->publish_state(s.bl0939_a_watt);
+  if (s.bl0939_valid) {
+    if (mains_voltage_sensor_ && bl0939_v_uv_per_raw_ != 0) {
+      // raw × µV/raw → µV; / 1e6 → V
+      double v = double(s.bl0939_v_rms) * double(bl0939_v_uv_per_raw_) / 1.0e6;
+      mains_voltage_sensor_->publish_state(float(v));
+    }
+    if (mains_current_a_sensor_ && bl0939_ia_ua_per_raw_ != 0) {
+      double a = double(s.bl0939_ia_rms) * double(bl0939_ia_ua_per_raw_) / 1.0e6;
+      mains_current_a_sensor_->publish_state(float(a));
+    }
+    if (mains_current_b_sensor_ && bl0939_ib_ua_per_raw_ != 0) {
+      double a = double(s.bl0939_ib_rms) * double(bl0939_ib_ua_per_raw_) / 1.0e6;
+      mains_current_b_sensor_->publish_state(float(a));
+    }
+    if (active_power_sensor_ && bl0939_pa_mw_per_raw_ != 0) {
+      double w = double(s.bl0939_a_watt) * double(bl0939_pa_mw_per_raw_) / 1.0e3;
+      active_power_sensor_->publish_state(float(w));
+    }
+  }
 #endif
 
 #ifdef USE_BINARY_SENSOR

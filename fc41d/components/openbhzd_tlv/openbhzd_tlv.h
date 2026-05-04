@@ -91,6 +91,16 @@ struct StateReport {
   uint16_t gun_ntc_adc_raw{0};  // PA2 ADC rank 0 — gun-cable NTC raw
   uint16_t ntc1_adc_raw{0};     // PA3 — wall-plug NTC raw
   uint16_t ntc2_adc_raw{0};     // PB0 — non-thermistor; raw exposed for diag
+  // BL0939 metering chip — raw 24-bit register reads. Engineering-unit
+  // conversion (V/A/W) requires per-chassis calibration scales which
+  // currently live in MCU boot_config; until those are populated we
+  // surface raw counts only. v_rms/ia_rms/ib_rms are unsigned, a_watt
+  // is sign-extended (signed power flow).
+  uint32_t bl0939_v_rms{0};
+  uint32_t bl0939_ia_rms{0};
+  uint32_t bl0939_ib_rms{0};
+  int32_t bl0939_a_watt{0};
+  bool bl0939_valid{false};
   bool valid{false};
 };
 
@@ -151,6 +161,20 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_gun_ntc_temp_sensor(sensor::Sensor *s) { gun_ntc_temp_sensor_ = s; }
   void set_ntc1_adc_raw_sensor(sensor::Sensor *s) { ntc1_adc_raw_sensor_ = s; }
   void set_ntc2_adc_raw_sensor(sensor::Sensor *s) { ntc2_adc_raw_sensor_ = s; }
+  void set_bl0939_v_rms_raw_sensor(sensor::Sensor *s) { bl0939_v_rms_raw_sensor_ = s; }
+  void set_bl0939_ia_rms_raw_sensor(sensor::Sensor *s) { bl0939_ia_rms_raw_sensor_ = s; }
+  void set_bl0939_ib_rms_raw_sensor(sensor::Sensor *s) { bl0939_ib_rms_raw_sensor_ = s; }
+  void set_bl0939_a_watt_raw_sensor(sensor::Sensor *s) { bl0939_a_watt_raw_sensor_ = s; }
+  void set_mains_voltage_sensor(sensor::Sensor *s) { mains_voltage_sensor_ = s; }
+  void set_mains_current_a_sensor(sensor::Sensor *s) { mains_current_a_sensor_ = s; }
+  void set_mains_current_b_sensor(sensor::Sensor *s) { mains_current_b_sensor_ = s; }
+  void set_active_power_sensor(sensor::Sensor *s) { active_power_sensor_ = s; }
+  // Per-chassis BL0939 raw → engineering-unit scales. Pulled from YAML
+  // substitutions; default 0 = no conversion (raw-only mode).
+  void set_bl0939_v_uv_per_raw(int32_t s) { bl0939_v_uv_per_raw_ = s; }
+  void set_bl0939_ia_ua_per_raw(int32_t s) { bl0939_ia_ua_per_raw_ = s; }
+  void set_bl0939_ib_ua_per_raw(int32_t s) { bl0939_ib_ua_per_raw_ = s; }
+  void set_bl0939_pa_mw_per_raw(int32_t s) { bl0939_pa_mw_per_raw_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_link_up_bsensor(binary_sensor::BinarySensor *s) { link_up_bsensor_ = s; }
@@ -232,6 +256,18 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *gun_ntc_temp_sensor_{nullptr};
   sensor::Sensor *ntc1_adc_raw_sensor_{nullptr};
   sensor::Sensor *ntc2_adc_raw_sensor_{nullptr};
+  sensor::Sensor *bl0939_v_rms_raw_sensor_{nullptr};
+  sensor::Sensor *bl0939_ia_rms_raw_sensor_{nullptr};
+  sensor::Sensor *bl0939_ib_rms_raw_sensor_{nullptr};
+  sensor::Sensor *bl0939_a_watt_raw_sensor_{nullptr};
+  sensor::Sensor *mains_voltage_sensor_{nullptr};
+  sensor::Sensor *mains_current_a_sensor_{nullptr};
+  sensor::Sensor *mains_current_b_sensor_{nullptr};
+  sensor::Sensor *active_power_sensor_{nullptr};
+  int32_t bl0939_v_uv_per_raw_{0};
+  int32_t bl0939_ia_ua_per_raw_{0};
+  int32_t bl0939_ib_ua_per_raw_{0};
+  int32_t bl0939_pa_mw_per_raw_{0};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *link_up_bsensor_{nullptr};

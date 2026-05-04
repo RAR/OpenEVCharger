@@ -108,6 +108,50 @@ int bl0939_write_register(uint8_t addr, uint32_t v)
     return 0;
 }
 
+/* --- Periodic poll cache ----------------------------------------- */
+
+/* Sign-extend a 24-bit two's complement value to int32_t. A_WATT and
+ * B_WATT are signed per datasheet § 3.2 (active power flows in either
+ * direction); the rest of the register set is unsigned. */
+static int32_t bl0939_sx24(uint32_t v)
+{
+    return (v & 0x00800000u) ? (int32_t)(v | 0xFF000000u) : (int32_t)v;
+}
+
+static struct bl0939_readings s_readings;
+
+void bl0939_poll(void)
+{
+    uint32_t v = 0, ia = 0, ib = 0, aw = 0;
+    int rc_v  = bl0939_read_register(BL0939_REG_V_RMS,  &v);
+    int rc_ia = bl0939_read_register(BL0939_REG_IA_RMS, &ia);
+    int rc_ib = bl0939_read_register(BL0939_REG_IB_RMS, &ib);
+    int rc_aw = bl0939_read_register(BL0939_REG_A_WATT, &aw);
+
+    /* Build a local snapshot; copy to s_readings under IRQ disable so
+     * readers (other tasks) never see a partial update. */
+    struct bl0939_readings snap = s_readings;
+    snap.poll_count++;
+    if (rc_v == 0)  snap.v_rms  = v;       else snap.checksum_fail++;
+    if (rc_ia == 0) snap.ia_rms = ia;      else snap.checksum_fail++;
+    if (rc_ib == 0) snap.ib_rms = ib;      else snap.checksum_fail++;
+    if (rc_aw == 0) snap.a_watt = bl0939_sx24(aw); else snap.checksum_fail++;
+    if ((rc_v | rc_ia | rc_ib | rc_aw) == 0) snap.valid = 1;
+
+    /* The struct is 28 B; copy under IRQ disable is < 1 µs. */
+    __asm__ volatile ("cpsid i" ::: "memory");
+    s_readings = snap;
+    __asm__ volatile ("cpsie i" ::: "memory");
+}
+
+void bl0939_get_readings(struct bl0939_readings *out)
+{
+    if (out == 0) return;
+    __asm__ volatile ("cpsid i" ::: "memory");
+    *out = s_readings;
+    __asm__ volatile ("cpsie i" ::: "memory");
+}
+
 void bl0939_smoke_test(void)
 {
     bl0939_init();

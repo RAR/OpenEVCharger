@@ -5,6 +5,7 @@ from esphome.const import (
     CONF_ID,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_ENERGY,
+    DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
     STATE_CLASS_MEASUREMENT,
@@ -13,6 +14,7 @@ from esphome.const import (
     UNIT_CELSIUS,
     UNIT_KILOWATT_HOURS,
     UNIT_VOLT,
+    UNIT_WATT,
 )
 
 from . import openbhzd_tlv_ns, OpenbhzdTlv
@@ -36,6 +38,18 @@ CONF_FAULT_COUNT = "fault_count"
 CONF_GUN_NTC_ADC_RAW = "gun_ntc_adc_raw"
 CONF_NTC1_ADC_RAW = "ntc1_adc_raw"
 CONF_NTC2_ADC_RAW = "ntc2_adc_raw"
+CONF_BL0939_V_RMS_RAW = "bl0939_v_rms_raw"
+CONF_BL0939_IA_RMS_RAW = "bl0939_ia_rms_raw"
+CONF_BL0939_IB_RMS_RAW = "bl0939_ib_rms_raw"
+CONF_BL0939_A_WATT_RAW = "bl0939_a_watt_raw"
+CONF_MAINS_VOLTAGE = "mains_voltage"
+CONF_MAINS_CURRENT_A = "mains_current_a"
+CONF_MAINS_CURRENT_B = "mains_current_b"
+CONF_ACTIVE_POWER = "active_power"
+CONF_BL0939_V_UV_PER_RAW = "bl0939_v_uv_per_raw"
+CONF_BL0939_IA_UA_PER_RAW = "bl0939_ia_ua_per_raw"
+CONF_BL0939_IB_UA_PER_RAW = "bl0939_ib_ua_per_raw"
+CONF_BL0939_PA_MW_PER_RAW = "bl0939_pa_mw_per_raw"
 
 UNIT_MILLIVOLT = "mV"
 
@@ -117,6 +131,42 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        cv.Optional(CONF_BL0939_V_RMS_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_BL0939_IA_RMS_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_BL0939_IB_RMS_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_BL0939_A_WATT_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_MAINS_VOLTAGE): sensor.sensor_schema(
+            unit_of_measurement=UNIT_VOLT,
+            accuracy_decimals=1,
+            device_class=DEVICE_CLASS_VOLTAGE,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_MAINS_CURRENT_A): _AMP_SCHEMA,
+        cv.Optional(CONF_MAINS_CURRENT_B): _AMP_SCHEMA,
+        cv.Optional(CONF_ACTIVE_POWER): sensor.sensor_schema(
+            unit_of_measurement=UNIT_WATT,
+            accuracy_decimals=1,
+            device_class=DEVICE_CLASS_POWER,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        # Per-chassis BL0939 raw → engineering scales. Default 0 means
+        # skip the engineering-unit publish (raw counts still post).
+        cv.Optional(CONF_BL0939_V_UV_PER_RAW, default=0): cv.int_,
+        cv.Optional(CONF_BL0939_IA_UA_PER_RAW, default=0): cv.int_,
+        cv.Optional(CONF_BL0939_IB_UA_PER_RAW, default=0): cv.int_,
+        cv.Optional(CONF_BL0939_PA_MW_PER_RAW, default=0): cv.int_,
     }
 )
 
@@ -136,6 +186,21 @@ _SETTERS = {
     CONF_GUN_NTC_ADC_RAW: "set_gun_ntc_adc_raw_sensor",
     CONF_NTC1_ADC_RAW: "set_ntc1_adc_raw_sensor",
     CONF_NTC2_ADC_RAW: "set_ntc2_adc_raw_sensor",
+    CONF_BL0939_V_RMS_RAW: "set_bl0939_v_rms_raw_sensor",
+    CONF_BL0939_IA_RMS_RAW: "set_bl0939_ia_rms_raw_sensor",
+    CONF_BL0939_IB_RMS_RAW: "set_bl0939_ib_rms_raw_sensor",
+    CONF_BL0939_A_WATT_RAW: "set_bl0939_a_watt_raw_sensor",
+    CONF_MAINS_VOLTAGE: "set_mains_voltage_sensor",
+    CONF_MAINS_CURRENT_A: "set_mains_current_a_sensor",
+    CONF_MAINS_CURRENT_B: "set_mains_current_b_sensor",
+    CONF_ACTIVE_POWER: "set_active_power_sensor",
+}
+
+_SCALE_SETTERS = {
+    CONF_BL0939_V_UV_PER_RAW: "set_bl0939_v_uv_per_raw",
+    CONF_BL0939_IA_UA_PER_RAW: "set_bl0939_ia_ua_per_raw",
+    CONF_BL0939_IB_UA_PER_RAW: "set_bl0939_ib_ua_per_raw",
+    CONF_BL0939_PA_MW_PER_RAW: "set_bl0939_pa_mw_per_raw",
 }
 
 
@@ -145,3 +210,5 @@ async def to_code(config):
         if conf := config.get(key):
             s = await sensor.new_sensor(conf)
             cg.add(getattr(parent, setter)(s))
+    for key, setter in _SCALE_SETTERS.items():
+        cg.add(getattr(parent, setter)(config[key]))

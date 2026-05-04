@@ -46,7 +46,23 @@ struct __attribute__((packed)) openbhzd_state {
                                  * presence sense. OVER_TEMP detector
                                  * masks this channel via
                                  * OPENBHZD_NTC2_PRESENT (default 0). */
+
+    /* BL0939 metering chip — raw 24-bit register reads. Engineering-
+     * unit conversion (V, A, W) is done FC41D-side via per-chassis
+     * calibration scales loaded from boot_config. Until the chassis
+     * has been calibrated against a Fluke + clamp, these stay as raw
+     * counts in HA. Polled every 400 ms by safety_task. */
+    uint32_t bl0939_v_rms;      /* 0x06 — voltage RMS, unsigned 24-bit */
+    uint32_t bl0939_ia_rms;     /* 0x04 — current A RMS, unsigned 24-bit */
+    uint32_t bl0939_ib_rms;     /* 0x05 — current B RMS, unsigned 24-bit */
+    int32_t  bl0939_a_watt;     /* 0x08 — channel A active power, sign-extended */
+    uint8_t  bl0939_valid;      /* 1 once any read has succeeded */
+    uint8_t  bl0939_pad[3];
 };
+/* Hits TLV_PAYLOAD_MAX (56 B) exactly — any future field addition needs
+ * a payload-size bump on both sides, or a separate event/cmd. */
+_Static_assert(sizeof(struct openbhzd_state) == 56,
+               "openbhzd_state must equal TLV_PAYLOAD_MAX (56 B)");
 
 void                  system_state_publish(const struct openbhzd_state *s);
 struct openbhzd_state system_state_snapshot(void);

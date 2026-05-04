@@ -109,9 +109,8 @@ sensor:
     # confirming it as the gun thermistor. The earlier
     # "Fluke @ 123.9 V → 0.06151 V/count" calibration was a
     # coincidence — disconnected NTC pin floated at a value that
-    # multiplied to a plausible mains number. Real V/I sensing on
-    # this PCB likely runs through the U11 PGA (PB9/PD15 gain
-    # bits) and is not yet wired up.
+    # multiplied to a plausible mains number. Real V/I sensing
+    # comes from the BL0939 metering IC at U11 (see further down).
     gun_ntc_adc_raw:
       name: "Gun NTC ADC Raw"
       entity_category: diagnostic
@@ -146,6 +145,43 @@ sensor:
     j1772_state_code:
       name: "J1772 State Code"
       entity_category: diagnostic
+
+    # BL0939 metering chip. Polled every 400 ms by safety_task.
+    # Raw counts are always exposed; engineering-unit entities
+    # (Mains Voltage / Current A,B / Active Power) only publish
+    # once the per-chassis bl0939_*_per_raw scales below are set
+    # to non-zero values. Calibrate against a Fluke + clamp at
+    # one operating point and solve for the slope:
+    #   bl0939_v_uv_per_raw  = round(meter_mV * 1000 / V_RMS_raw)
+    #   bl0939_ia_ua_per_raw = round(meter_mA * 1000 / IA_RMS_raw)
+    #   bl0939_ib_ua_per_raw = round(meter_mA * 1000 / IB_RMS_raw)
+    #   bl0939_pa_mw_per_raw = round(meter_W   * 1000 / A_WATT_raw)
+    bl0939_v_rms_raw:
+      name: "BL0939 V_RMS Raw"
+      entity_category: diagnostic
+    bl0939_ia_rms_raw:
+      name: "BL0939 IA_RMS Raw"
+      entity_category: diagnostic
+    bl0939_ib_rms_raw:
+      name: "BL0939 IB_RMS Raw"
+      entity_category: diagnostic
+    bl0939_a_watt_raw:
+      name: "BL0939 A_WATT Raw"
+      entity_category: diagnostic
+    mains_voltage:
+      name: "Mains Voltage"
+    mains_current_a:
+      name: "Mains Current (Leg A)"
+    mains_current_b:
+      name: "Mains Current (Leg B)"
+    active_power:
+      name: "Active Power"
+    # Default 0 = uncalibrated. Replace with measured chassis
+    # values once a bench reference is on hand.
+    bl0939_v_uv_per_raw: 0
+    bl0939_ia_ua_per_raw: 0
+    bl0939_ib_ua_per_raw: 0
+    bl0939_pa_mw_per_raw: 0
 
   - platform: wifi_signal
     name: "WiFi Signal"
