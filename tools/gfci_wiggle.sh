@@ -51,7 +51,8 @@
 #              that stock fw's GFCI state machine is actually running.
 #
 # Usage:
-#   tools/gfci_wiggle.sh cal-test       # PE3 wiggle + PE2 sample (any fw)
+#   tools/gfci_wiggle.sh cal-test       # PE3 wiggle (1 s hold) + PE2 sample (any fw)
+#   tools/gfci_wiggle.sh seq-test       # full stock CAL sequence + PE2 sample (any fw)
 #   tools/gfci_wiggle.sh pull-test      # PE2 pull bias + fault byte (stock fw)
 #   tools/gfci_wiggle.sh read           # one-shot status read
 #   tools/gfci_wiggle.sh pull-up        # apply pull-up + resume
@@ -186,16 +187,93 @@ drive_pe3_and_sample() {
     else
         set_cmd="mww $GPIOE_BC $PE3_HIGH_BIT"
     fi
+    # Hold time matches stock fw's CAL pulse window (~800 ms). 100 ms
+    # was too short — the GFCI module's internal integrator doesn't
+    # commit a fault output transition that fast. OpenOCD telnet sleep
+    # is in ms.
     run_ocd \
         -c init -c halt \
         -c "mmw $GPIOE_CTL0 $PE3_OUTPUT_PP_2MHZ_SET $PE3_SLOT_CLR" \
         -c "$set_cmd" \
-        -c "sleep 100" \
+        -c "sleep 1000" \
         -c "mdw $GPIOE_ISTAT 1" \
         -c resume -c shutdown 2>&1 | grep "0x40011808" | head -1
 }
 
+# Run the full stock GFCI state-machine sequence and sample PE2 at
+# the post-CAL settle point (case 4 of the agent's decode at flash
+# 0x080128CE). Sequence:
+#   step 0: PE3=0, PE4=0   1100 ms idle
+#   step 1: PE3=1 (CAL on per agent's decode)  800 ms
+#   step 2: PE3=0, PE4=0   550 ms (post-CAL settle)
+#   step 3: PE4=1          200 ms
+#   step 4: SAMPLE PE2 — should read HIGH if active-high & sense OK
+#   step 5: PE4=0
+#   restore PE3 / PE4 to inputs
+#
+# Note: agent decoded "PE3=1 = CAL on" but pinout.md says MCU low →
+# CAL active. If agent's polarity is wrong, swap step 1's drive.
+PE4_HIGH_BIT=0x00000010
+PE4_SLOT_CLR=0x000F0000
+PE4_OUTPUT_PP_2MHZ_SET=0x00020000
+
+drive_full_sequence() {
+    local pe3_active=$1   # "high" or "low"
+    local set_pe3 clr_pe3
+    if [ "$pe3_active" = "high" ]; then
+        set_pe3="mww $GPIOE_BOP $PE3_HIGH_BIT"
+        clr_pe3="mww $GPIOE_BC $PE3_HIGH_BIT"
+    else
+        set_pe3="mww $GPIOE_BC $PE3_HIGH_BIT"
+        clr_pe3="mww $GPIOE_BOP $PE3_HIGH_BIT"
+    fi
+    run_ocd \
+        -c init -c halt \
+        -c "mmw $GPIOE_CTL0 $PE3_OUTPUT_PP_2MHZ_SET $PE3_SLOT_CLR" \
+        -c "mmw $GPIOE_CTL0 $PE4_OUTPUT_PP_2MHZ_SET $PE4_SLOT_CLR" \
+        -c "$clr_pe3" \
+        -c "mww $GPIOE_BC $PE4_HIGH_BIT" \
+        -c "sleep 1100" \
+        -c "$set_pe3" \
+        -c "sleep 800" \
+        -c "$clr_pe3" \
+        -c "sleep 550" \
+        -c "mww $GPIOE_BOP $PE4_HIGH_BIT" \
+        -c "sleep 200" \
+        -c "mdw $GPIOE_ISTAT 1" \
+        -c "mww $GPIOE_BC $PE4_HIGH_BIT" \
+        -c "mmw $GPIOE_CTL0 $PE2_INPUT_FLOAT_SET $PE3_SLOT_CLR" \
+        -c "mmw $GPIOE_CTL0 $PE2_INPUT_FLOAT_SET $PE4_SLOT_CLR" \
+        -c resume -c shutdown 2>&1 | grep "0x40011808" | head -1
+}
+
 case "${1:-help}" in
+    seq-test)
+        echo "GFCI sequenced wiggle: full stock-fw CAL state machine, sample at case 4"
+        echo "REQUIREMENT: AC must be live so the GFCI module is powered."
+        echo
+
+        echo "Phase 1: baseline (no driver)"
+        restore_float
+        read_phase baseline
+
+        echo "Phase 2: full sequence with PE3 ACTIVE = LOW (per pinout.md polarity)"
+        out=$(drive_full_sequence low)
+        idr=$(echo "$out" | awk '{print $NF}')
+        pe2=$(hex_bit2 "$idr")
+        printf '%-12s PE2=%s   (GPIOE.IDR=%s)\n' "seq-low" "$pe2" "$idr"
+
+        echo "Phase 3: full sequence with PE3 ACTIVE = HIGH (per agent's polarity)"
+        out=$(drive_full_sequence high)
+        idr=$(echo "$out" | awk '{print $NF}')
+        pe2=$(hex_bit2 "$idr")
+        printf '%-12s PE2=%s   (GPIOE.IDR=%s)\n' "seq-high" "$pe2" "$idr"
+
+        echo
+        echo "If EITHER seq-low or seq-high shows PE2 differing from baseline,"
+        echo "PE2 is the fault sense and the diff direction nails the polarity."
+        ;;
+
     cal-test)
         echo "GFCI cal wiggle: drive PE3, observe PE2 (works under any fw)"
         echo "REQUIREMENT: AC must be live so the GFCI module is powered."
