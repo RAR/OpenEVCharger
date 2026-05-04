@@ -16,4 +16,10 @@ void buttons_init(void);
  * press and release transitions. */
 void buttons_poll(void);
 
+/* One-shot press consumer. Returns the most recently committed press
+ * (BTN_TOP / BTN_MID / BTN_BOT / BTN_PC9) since the last call, then
+ * clears it. Returns BTN_NONE if nothing was pressed since last drain.
+ * Press-only — release transitions are ignored. */
+button_id_t buttons_consume_event(void);
+
 #endif

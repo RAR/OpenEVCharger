@@ -22,6 +22,12 @@ static int         s_pc9_committed = 0;     /* 1 = pressed (active-low IDR=0) */
 static int         s_pc9_candidate = 0;
 static unsigned    s_pc9_count = 0;
 
+/* One-shot press latch drained by buttons_consume_event(). Holds only
+ * the most recent press; if the consumer is slow, an older queued press
+ * is dropped. Sized at 1 entry intentionally — UI semantics here are
+ * "act on the latest intent", not a typeahead buffer. */
+static volatile button_id_t s_pending_event = BTN_NONE;
+
 static const char *btn_name(button_id_t b)
 {
     switch (b) {
@@ -63,8 +69,10 @@ void buttons_poll(void)
     }
     if (s_count >= DEBOUNCE_N && s_committed != s_candidate) {
         if (s_committed != BTN_NONE) printk("BTN release %s\n", btn_name(s_committed));
-        if (s_candidate != BTN_NONE) printk("BTN press %s (raw=%u)\n",
-                                            btn_name(s_candidate), raw);
+        if (s_candidate != BTN_NONE) {
+            printk("BTN press %s (raw=%u)\n", btn_name(s_candidate), raw);
+            s_pending_event = s_candidate;
+        }
         s_committed = s_candidate;
     }
 
@@ -79,5 +87,13 @@ void buttons_poll(void)
     if (s_pc9_count >= DEBOUNCE_N && s_pc9_committed != s_pc9_candidate) {
         s_pc9_committed = s_pc9_candidate;
         printk("BTN %s pc9\n", s_pc9_committed ? "press" : "release");
+        if (s_pc9_committed) s_pending_event = BTN_PC9;
     }
+}
+
+button_id_t buttons_consume_event(void)
+{
+    button_id_t e = s_pending_event;
+    s_pending_event = BTN_NONE;
+    return e;
 }

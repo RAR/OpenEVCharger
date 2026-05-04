@@ -11,6 +11,7 @@
 #include "hal/adc_inject.h"
 #include "hal/ws2812.h"
 #include "tasks/persist_task.h"
+#include "tasks/safety_task.h"
 #include "diag/stack_watch.h"
 #include "gd32f20x.h"
 
@@ -79,6 +80,34 @@ static void io_task_run(void *arg)
         buttons_poll();
 
         struct openbhzd_state s = system_state_snapshot();
+
+        /* Top button = pause/start toggle. Mid/bot remain unmapped
+         * (future: brightness, fault clear, etc.). PC9 internal button
+         * is reserved for FC41D flash-helper mode (handled elsewhere
+         * when DIP4 is held) — silently ignore here.
+         *
+         * Toggle policy:
+         *   READY / CHARGING → request PAUSE
+         *   USER_PAUSED      → request RESUME
+         *   FAULT / BOOT / SELF_TEST / COOLING_DOWN → ignore
+         * The safety_task inbox handler enforces the same policy and
+         * logs ignored requests. */
+        button_id_t btn_evt = buttons_consume_event();
+        if (btn_evt == BTN_TOP) {
+            switch (s.evse_state) {
+            case EVSE_READY:
+            case EVSE_CHARGING:
+                (void)safety_request_pause(/*reason=*/1u);   /* 1 = button */
+                break;
+            case EVSE_USER_PAUSED:
+                (void)safety_request_resume();
+                break;
+            default:
+                printk("BTN top ignored (evse=%s)\n",
+                       evse_state_name((evse_state_t)s.evse_state));
+                break;
+            }
+        }
 
         /* Buzzer one-shots on EVSE transitions / fault edges. */
         if (boot_buzz_armed && s.evse_state != EVSE_BOOT &&

@@ -280,11 +280,24 @@ static void evse_transition(evse_state_t *cur, evse_state_t next)
     }
 
     *cur = next;
-    /* FAULT entry must drive CP to state F immediately (don't wait
-     * for the next 20 ms tick). Other states refresh per-tick from
-     * apply_cp_for_state(). */
     if (next == EVSE_FAULT) {
+        /* FAULT entry must drive CP to state F immediately (don't wait
+         * for the next 20 ms tick). Other states refresh per-tick from
+         * apply_cp_for_state(). */
         cp_pwm_set_state_f();
+        /* Hard-open the contactor and arm the redundant force-open
+         * latch (PB12) per spec § 4 / pin_map.h. PE12 is already LOW
+         * (apply_relay_state will keep it that way), but if the PE12
+         * driver were stuck HIGH from any cause, asserting PB12 HIGH
+         * forces the contactor open via the hardware latch. */
+        relay_main_open();
+        relay_force_open_latch();
+    } else if (*cur != next && relay_force_open_active()) {
+        /* Leaving FAULT (typically via CLEAR_FAULT → READY): drop the
+         * force-open assert so future close commands aren't latched
+         * out. PE12 is currently LOW so the latch is already disarmed
+         * mechanically; this just cleans up the GPIO state. */
+        relay_force_open_release();
     }
 }
 
