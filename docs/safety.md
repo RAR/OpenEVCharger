@@ -100,6 +100,14 @@ to lift the gate. **Order roughly tracks production-blocker priority.**
   and "Relay Action" (id=0xd) strings exist and are reachable, but
   the *raising* code path goes through a fault-sub-code halfword
   at RAM `0x200026b0`, not a discrete sense pin.
+- **Bench-confirmed 2026-05-04** (`tools/gpio_diff.sh` snapshot
+  before/after a contactor close on AC, no load): zero new input
+  bits changed. The only diffs were the outputs we drove (PE12,
+  PE13) plus a coincidental W25Q SPI flash MISO bit. This rules
+  out any *coil-side* feedback (aux contact / TCR sense), since
+  those would move regardless of load. A current-based feedback
+  on PC0 was untestable without load but is consistent with the
+  stock-fw inference.
 - **Why gated:** Strong inference — stock fw infers weld /
   stuck-open from **PC0 (CT902 secondary load-current)** rather
   than a discrete feedback pin. Welded contactor: PE12 commanded
@@ -107,9 +115,7 @@ to lift the gate. **Order roughly tracks production-blocker priority.**
   CP state expects current draw, but PC0 reads zero. Detection on
   this hardware therefore *couples* to the V/I path
   (HARD_OVER_CURRENT below) and cannot land independently.
-- **Bench needed:** (a) scope every otherwise-unassigned MCU input
-  during PE12 toggles under live AC to rule out a missed sense
-  pin; (b) if confirmed absent, calibrate PC0 first.
+- **Bench needed:** Calibrate PC0 (V/I path via U11) first.
 - **Enable:** EITHER identify a real sense pin (then flip
   `OPENBHZD_RELAY_FEEDBACK_KNOWN=1`), OR land V/I path then add a
   current-inferred weld detector that watches PC0 vs PE12 + CP.
