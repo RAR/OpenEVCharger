@@ -146,6 +146,20 @@ static void publish_rfid_config(void);
  * the bench wiggle. */
 #define GFCI_PERSIST_TICKS  3U
 
+/* PE continuity sense (PC5, ADC_RANK_PE). When the protective-earth
+ * wire is intact the divider pulls PC5 to ~0 V (bench: raw 0..3 with
+ * AC absent, single-digit raw with AC live). A broken / disconnected
+ * PE lets the node float toward the rail or pick up mains-coupled
+ * noise. Spec § 4 #4: raise FAULT_PE_CONTINUITY when PC5 is "out of
+ * expected band" for >10 ticks (200 ms @ 50 Hz).
+ *
+ * Threshold raw 400 ≈ 0.32 V is well above any plausible
+ * intact-PE reading and well below what a floating input would
+ * settle to. Tune once we've bench-tested with the PE wire
+ * intentionally lifted. */
+#define PE_OK_RAW_MAX        400U
+#define PE_PERSIST_TICKS     10U
+
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
  * J1772 state C confirmed for an additional 50 ticks (1 s at the
  * 50 Hz safety tick) before closing the relay. Prevents rapid
@@ -868,6 +882,46 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* PE-continuity loss detector (spec § 4 #4). PC5 reads ~0 raw when
+ * the PE wire is bonded to mains earth — the OEM divider yanks the
+ * node low. A broken or disconnected PE wire lets PC5 float toward
+ * the rail or bias on mains-coupled noise. Out-of-band for
+ * PE_PERSIST_TICKS consecutive 50 Hz ticks (≥200 ms) raises a
+ * latched fault.
+ *
+ * Suppressed during BOOT/SELF_TEST to avoid raising before the ADC
+ * scan has converged on its first stable values; the boot self-test
+ * has its own ADC-rail check. Suppressed in FAULT to avoid noise
+ * during the post-fault settling window. */
+static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
+                                j1772_state_t js, int32_t cp_mv,
+                                int *pe_streak)
+{
+    if (*es == EVSE_BOOT || *es == EVSE_SELF_TEST || *es == EVSE_FAULT) {
+        *pe_streak = 0;
+        return;
+    }
+
+    uint16_t raw = adc_scan_rank(ADC_RANK_PE);
+    if (raw > (uint16_t)PE_OK_RAW_MAX) {
+        if (*pe_streak < (int)PE_PERSIST_TICKS) ++(*pe_streak);
+    } else {
+        *pe_streak = 0;
+    }
+
+    if (*pe_streak >= (int)PE_PERSIST_TICKS &&
+        !fault_is_active(fs, FAULT_PE_CONTINUITY)) {
+        if (fault_raise(fs, FAULT_PE_CONTINUITY) == 1) {
+            printk("FAULT raised: %s (PC5 raw=%u >%u for >=%u ticks)\n",
+                   fault_name(FAULT_PE_CONTINUITY),
+                   (unsigned)raw, (unsigned)PE_OK_RAW_MAX,
+                   (unsigned)PE_PERSIST_TICKS);
+            post_fault_event(FAULT_PE_CONTINUITY, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
 /* GFCI fault detector. Reads PE2 (active-low: module pulls LOW on
  * fault, idle HIGH). Debounces GFCI_PERSIST_TICKS consecutive LOW
  * reads before raising. FAULT_GFCI is latched + power-cycle-only
@@ -1166,6 +1220,7 @@ static void safety_task_run(void *arg)
     int cp_e_streak = 0;
     int evse_c_streak = 0;
     int gfci_streak = 0;
+    int pe_streak = 0;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
     rfid_ctx_t      rfid_ctx;
     rfid_init_ctx(&rfid_ctx);
@@ -1300,6 +1355,7 @@ static void safety_task_run(void *arg)
         (void)check_relay_weld; (void)check_relay_stuck_open;
 #endif
         check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
+        check_pe_continuity(&fs, &es, s, cp_mv, &pe_streak);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
         /* PA3 (rank NTC1) is the wall-plug NTC; PA2 (rank "AC", legacy
          * name pre-channel-role correction) is the gun-cable NTC.
