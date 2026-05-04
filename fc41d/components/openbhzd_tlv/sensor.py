@@ -32,6 +32,9 @@ CONF_NTC2_TEMP = "ntc2_temp"
 CONF_EVSE_STATE_CODE = "evse_state_code"
 CONF_J1772_STATE_CODE = "j1772_state_code"
 CONF_FAULT_COUNT = "fault_count"
+CONF_AC_ADC_RAW = "ac_adc_raw"
+CONF_MAINS_VOLTAGE = "mains_voltage"
+CONF_MAINS_VOLTAGE_SCALE = "mains_voltage_scale"
 
 UNIT_MILLIVOLT = "mV"
 
@@ -95,6 +98,17 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        cv.Optional(CONF_AC_ADC_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_MAINS_VOLTAGE): sensor.sensor_schema(
+            unit_of_measurement=UNIT_VOLT,
+            accuracy_decimals=1,
+            device_class=DEVICE_CLASS_VOLTAGE,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        cv.Optional(CONF_MAINS_VOLTAGE_SCALE, default=0.0587): cv.float_,
     }
 )
 
@@ -110,6 +124,8 @@ _SETTERS = {
     CONF_EVSE_STATE_CODE: "set_evse_state_code_sensor",
     CONF_J1772_STATE_CODE: "set_j1772_state_code_sensor",
     CONF_FAULT_COUNT: "set_fault_count_sensor",
+    CONF_AC_ADC_RAW: "set_ac_adc_raw_sensor",
+    CONF_MAINS_VOLTAGE: "set_mains_voltage_sensor",
 }
 
 
@@ -119,3 +135,4 @@ async def to_code(config):
         if conf := config.get(key):
             s = await sensor.new_sensor(conf)
             cg.add(getattr(parent, setter)(s))
+    cg.add(parent.set_mains_voltage_scale(config[CONF_MAINS_VOLTAGE_SCALE]))

@@ -103,6 +103,18 @@ sensor:
     fault_count:
       name: "Active Faults"
       entity_category: diagnostic
+    # Phase-1 mains voltage proxy: PA2 ADC raw scaled to V. Default
+    # scale 0.0587 V/count was estimated from raw≈2043 at 120 V on
+    # this bench unit; tune `mains_voltage_scale:` after observing
+    # `ac_adc_raw` against a known mains reading. NOT RMS — this is
+    # a single-sample readout. Real RMS will replace this once the
+    # injected-channel sampler lands on the MCU.
+    ac_adc_raw:
+      name: "AC ADC Raw"
+      entity_category: diagnostic
+    mains_voltage:
+      name: "Mains Voltage"
+    mains_voltage_scale: 0.0587
     evse_state_code:
       name: "EVSE State Code"
       entity_category: diagnostic

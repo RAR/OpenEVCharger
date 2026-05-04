@@ -84,6 +84,7 @@ struct StateReport {
   uint32_t fault_active_bits{0};
   uint32_t first_fault_id{0};
   uint32_t session_mwh{0};
+  uint16_t ac_adc_raw{0};       // PA2 ADC rank 0; calibrate to V via YAML filter
   bool valid{false};
 };
 
@@ -140,6 +141,9 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_evse_state_code_sensor(sensor::Sensor *s) { evse_state_code_sensor_ = s; }
   void set_j1772_state_code_sensor(sensor::Sensor *s) { j1772_state_code_sensor_ = s; }
   void set_fault_count_sensor(sensor::Sensor *s) { fault_count_sensor_ = s; }
+  void set_ac_adc_raw_sensor(sensor::Sensor *s) { ac_adc_raw_sensor_ = s; }
+  void set_mains_voltage_sensor(sensor::Sensor *s) { mains_voltage_sensor_ = s; }
+  void set_mains_voltage_scale(float scale) { mains_voltage_scale_ = scale; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_link_up_bsensor(binary_sensor::BinarySensor *s) { link_up_bsensor_ = s; }
@@ -217,6 +221,9 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *evse_state_code_sensor_{nullptr};
   sensor::Sensor *j1772_state_code_sensor_{nullptr};
   sensor::Sensor *fault_count_sensor_{nullptr};
+  sensor::Sensor *ac_adc_raw_sensor_{nullptr};
+  sensor::Sensor *mains_voltage_sensor_{nullptr};
+  float mains_voltage_scale_{0.0f};   // V per raw ADC count; 0 = use rough default
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *link_up_bsensor_{nullptr};

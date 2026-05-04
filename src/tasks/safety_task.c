@@ -862,6 +862,8 @@ static void safety_task_run(void *arg)
             .fault_active_bits = fs.active_bits,
             .first_fault_id    = (uint32_t)fs.first_raised,
             .session_mwh       = 0,
+            .ac_adc_raw        = adc_scan_rank(ADC_RANK_AC),
+            .pad2              = 0,
         };
         system_state_publish(&snap);
 

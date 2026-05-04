@@ -235,6 +235,11 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
                          (uint32_t(p[24]) << 16) | (uint32_t(p[25]) << 24);
       s.session_mwh = uint32_t(p[26]) | (uint32_t(p[27]) << 8) |
                       (uint32_t(p[28]) << 16) | (uint32_t(p[29]) << 24);
+      // Phase-1 voltage proxy: PA2 ADC raw at offset 30. Older MCU
+      // firmwares emit 30-byte payloads — leave the field 0 in that case.
+      s.ac_adc_raw = (plen >= 32)
+          ? uint16_t(p[30] | (uint16_t(p[31]) << 8))
+          : 0;
       s.valid = true;
       first_fault_name_ = fault_name(s.first_fault_id);
       // Count set bits for fault_count diagnostic.
@@ -379,6 +384,17 @@ void OpenbhzdTlv::publish_state_() {
   if (evse_state_code_sensor_) evse_state_code_sensor_->publish_state(s.evse_state);
   if (j1772_state_code_sensor_) j1772_state_code_sensor_->publish_state(s.j1772_state);
   if (fault_count_sensor_) fault_count_sensor_->publish_state(fault_count_);
+  if (ac_adc_raw_sensor_) ac_adc_raw_sensor_->publish_state(s.ac_adc_raw);
+  if (mains_voltage_sensor_) {
+    // Phase-1 stopgap: linear ADC → volts. Default scale is a rough
+    // guess (raw 2043 ≈ 120 V from the bench → 0.0587 V/count). YAML
+    // can override via mains_voltage_scale to match the deployed sense
+    // circuit. Real RMS metering is queued for later — at that point
+    // the firmware will supply mains_v_x10 directly and the scale
+    // becomes 0.1 V/count.
+    float scale = mains_voltage_scale_ > 0.0f ? mains_voltage_scale_ : 0.0587f;
+    mains_voltage_sensor_->publish_state(s.ac_adc_raw * scale);
+  }
 #endif
 
 #ifdef USE_BINARY_SENSOR

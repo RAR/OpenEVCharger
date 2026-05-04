@@ -27,6 +27,12 @@ struct __attribute__((packed)) openbhzd_state {
     uint32_t fault_active_bits; /* fault_state.active_bits */
     uint32_t first_fault_id;    /* fault_state.first_raised */
     uint32_t session_mwh;       /* 0 until M7 CT integration */
+    uint16_t ac_adc_raw;        /* PA2 ADC rank 0 (12-bit). Scale to V
+                                 * on the consumer side — calibration
+                                 * is YAML-side via filter multiply.
+                                 * Phase-1 voltage proxy until proper
+                                 * RMS metering lands. */
+    uint16_t pad2;
 };
 
 void                  system_state_publish(const struct openbhzd_state *s);
