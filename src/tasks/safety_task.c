@@ -760,6 +760,23 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
  * thermal mass + heater rise time is seconds). */
 #define OT_PERSIST_TICKS    5U
 
+/* Per-channel NTC presence mask. The bench unit + early production
+ * units do not have the J1772 gun-cable thermistor populated (PB0 /
+ * NTC2), so PB0 floats near GND and noise-spikes can wander into the
+ * trip band. Default this channel OFF so OVER_TEMP only honours NTC1
+ * (PCB-internal, populated). Override at build time once the gun
+ * thermistor is fitted on a deployed unit. NTC1 is on the PCB and
+ * always populated, so it stays on by default.
+ *
+ * Future: migrate to a runtime mask in boot_config so deployed units
+ * can flip this without a reflash. */
+#ifndef OPENBHZD_NTC1_PRESENT
+#define OPENBHZD_NTC1_PRESENT  1
+#endif
+#ifndef OPENBHZD_NTC2_PRESENT
+#define OPENBHZD_NTC2_PRESENT  0
+#endif
+
 static int ntc_populated(uint16_t raw)
 {
     return (raw > OT_GUARD_LO) && (raw < OT_GUARD_HI);
@@ -769,8 +786,8 @@ static void check_over_temp(fault_state_t *fs, evse_state_t *es,
                             uint16_t ntc1_raw, uint16_t ntc2_raw,
                             unsigned *trip_streak)
 {
-    int p1 = ntc_populated(ntc1_raw);
-    int p2 = ntc_populated(ntc2_raw);
+    int p1 = OPENBHZD_NTC1_PRESENT && ntc_populated(ntc1_raw);
+    int p2 = OPENBHZD_NTC2_PRESENT && ntc_populated(ntc2_raw);
     if (!p1 && !p2) {
         /* No populated NTC reachable. Leave any existing OT fault
          * latched — don't auto-clear into a sensorless state. */
