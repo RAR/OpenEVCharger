@@ -517,15 +517,26 @@ static void check_relay_stuck_open(fault_state_t *fs, evse_state_t *es,
  *   READY    + J1772=C → CHARGING
  *   CHARGING + J1772≠C → READY (C->B regression is a transient pause;
  *                       relay opens immediately; allows re-progression)
- * Sticky: BOOT, SELF_TEST, FAULT, USER_PAUSED do not transition out via
- * this path. USER_PAUSED is exited only by safety_request_resume.
+ *   USER_PAUSED + J1772=A → READY (unplug ends the paused session;
+ *                       USER_PAUSED otherwise exits only via RESUME)
+ * Sticky: BOOT, SELF_TEST, FAULT do not transition out via this path.
  * COOLING_DOWN is M6.b territory, not entered yet. */
 static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js,
                                    int *c_streak)
 {
-    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST ||
-        *es == EVSE_USER_PAUSED) {
+    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST) {
         *c_streak = 0;
+        return;
+    }
+    if (*es == EVSE_USER_PAUSED) {
+        *c_streak = 0;
+        /* Unplug ends the paused session — clears USER_PAUSED back to
+         * READY so the next plug-in starts fresh. Holding the gun in
+         * (J1772 in B/C/D) keeps the pause sticky as the user
+         * intended. RESUME also exits, handled in the inbox path. */
+        if (js == J1772_STATE_A) {
+            evse_transition(es, EVSE_READY);
+        }
         return;
     }
     if (js == J1772_STATE_C) {
