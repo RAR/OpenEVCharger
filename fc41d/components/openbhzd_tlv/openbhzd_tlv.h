@@ -23,6 +23,9 @@
 #ifdef USE_NUMBER
 #include "esphome/components/number/number.h"
 #endif
+#ifdef USE_SWITCH
+#include "esphome/components/switch/switch.h"
+#endif
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
@@ -56,6 +59,8 @@ static constexpr uint8_t CMD_RFID_LEARN_NEXT = 0x0F;
 static constexpr uint8_t CMD_RFID_REMOVE_UID = 0x10;
 static constexpr uint8_t CMD_RFID_CLEAR_LIST = 0x11;
 static constexpr uint8_t CMD_RFID_GET_LIST = 0x12;
+static constexpr uint8_t CMD_SET_REQUIRE_RFID_AUTH = 0x13;
+static constexpr uint8_t CMD_GET_RFID_CONFIG = 0x14;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -75,6 +80,7 @@ static constexpr uint8_t EVT_RFID_SWIPE = 0x8E;
 static constexpr uint8_t EVT_RFID_AUTH_RESULT = 0x8F;
 static constexpr uint8_t EVT_RFID_LIST_ENTRY = 0x90;
 static constexpr uint8_t EVT_RFID_LIST_END = 0x91;
+static constexpr uint8_t EVT_RFID_CONFIG = 0x92;
 
 // RFID auth-result codes (mirror src/proto/commands.h).
 static constexpr uint8_t RFID_AUTH_RESULT_LEARNED = 0;
@@ -167,6 +173,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t send_rfid_clear_list();
   uint8_t send_rfid_get_list();
   uint8_t send_rfid_remove_uid(uint32_t uid);
+  uint8_t send_set_require_rfid_auth(bool enable);
+  uint8_t send_get_rfid_config();
 
   // Cached state.
   const StateReport &state() const { return state_; }
@@ -180,6 +188,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t rfid_authlist_count() const { return rfid_authlist_count_; }
   uint8_t last_rfid_auth_result() const { return last_rfid_auth_result_; }
   uint32_t last_rfid_auth_uid() const { return last_rfid_auth_uid_; }
+  bool require_rfid_auth() const { return require_rfid_auth_; }
+  bool session_authorized() const { return session_authorized_; }
   uint32_t state_age_ms() const;
 
 #ifdef USE_SENSOR
@@ -238,6 +248,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
 #ifdef USE_BINARY_SENSOR
   void set_rfid_present_bsensor(binary_sensor::BinarySensor *s) { rfid_present_bsensor_ = s; }
   void set_rfid_last_accepted_bsensor(binary_sensor::BinarySensor *s) { rfid_last_accepted_bsensor_ = s; }
+  void set_session_authorized_bsensor(binary_sensor::BinarySensor *s) { session_authorized_bsensor_ = s; }
 #endif
 #ifdef USE_TEXT_SENSOR
   void set_last_auth_result_text_sensor(text_sensor::TextSensor *s) { last_auth_result_tsensor_ = s; }
@@ -250,6 +261,9 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
 #endif
 #ifdef USE_BUTTON
   void register_button(OpenbhzdTlvButton *b) { buttons_.push_back(b); }
+#endif
+#ifdef USE_SWITCH
+  void set_require_rfid_auth_switch(class OpenbhzdTlvSwitch *s) { require_rfid_auth_switch_ = s; }
 #endif
 
   static const char *evse_state_name(uint8_t s);
@@ -330,6 +344,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   binary_sensor::BinarySensor *contactor_cmd_bsensor_{nullptr};
   binary_sensor::BinarySensor *rfid_present_bsensor_{nullptr};
   binary_sensor::BinarySensor *rfid_last_accepted_bsensor_{nullptr};
+  binary_sensor::BinarySensor *session_authorized_bsensor_{nullptr};
 #endif
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *evse_state_tsensor_{nullptr};
@@ -347,6 +362,11 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t     last_rfid_auth_result_{0xFF};
   uint32_t    last_rfid_auth_uid_{0};
   std::string last_rejected_uid_str_;
+  bool        require_rfid_auth_{false};
+  bool        session_authorized_{false};
+#ifdef USE_SWITCH
+  class OpenbhzdTlvSwitch *require_rfid_auth_switch_{nullptr};
+#endif
 #ifdef USE_NUMBER
   std::vector<OpenbhzdTlvNumber *> numbers_;
 #endif
@@ -391,6 +411,28 @@ class OpenbhzdTlvNumber : public number::Number, public Component {
   void control(float value) override;
   OpenbhzdTlv *parent_{nullptr};
   NumberKind kind_{NumberKind::ADVERTISED_AMPS};
+};
+#endif
+
+#ifdef USE_SWITCH
+class OpenbhzdTlvSwitch : public switch_::Switch, public Component {
+ public:
+  void set_parent(OpenbhzdTlv *p) { parent_ = p; }
+  void setup() override {}
+  float get_setup_priority() const override { return setup_priority::DATA; }
+  // Pushed by EVT_RFID_CONFIG dispatch — bypasses control() so the
+  // confirmed-from-MCU state lands cleanly without echoing back over UART.
+  void publish_from_mcu(bool state) {
+    if (this->state != state) this->publish_state(state);
+  }
+
+ protected:
+  void write_state(bool state) override {
+    if (parent_) parent_->send_set_require_rfid_auth(state);
+    // Optimistic — confirmed by next EVT_RFID_CONFIG.
+    this->publish_state(state);
+  }
+  OpenbhzdTlv *parent_{nullptr};
 };
 #endif
 

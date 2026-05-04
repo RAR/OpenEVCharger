@@ -271,6 +271,25 @@ static void handle_rfid_get_list(uint8_t seq)
     }
 }
 
+static void handle_set_require_rfid_auth(const uint8_t *p, size_t plen)
+{
+    if (plen < 1) return;
+    int rc = persist_post_require_rfid_auth(p[0]);
+    if (rc != 0) {
+        printk("comms: SET_REQUIRE_RFID_AUTH persist post FAIL rc=%d\n", rc);
+    } else {
+        printk("comms: SET_REQUIRE_RFID_AUTH=%u (queued)\n", (unsigned)p[0]);
+    }
+}
+
+static void handle_get_rfid_config(void)
+{
+    int rc = safety_request_publish_rfid_config();
+    if (rc != 0) {
+        printk("comms: GET_RFID_CONFIG inbox post FAIL rc=%d\n", rc);
+    }
+}
+
 static void handle_request_stop(const uint8_t *p, size_t plen)
 {
     uint8_t reason = (plen >= 1) ? p[0] : 0u;
@@ -304,6 +323,8 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_RFID_REMOVE_UID:       handle_rfid_remove_uid(payload, plen); break;
     case CMD_RFID_CLEAR_LIST:       handle_rfid_clear_list(); break;
     case CMD_RFID_GET_LIST:         handle_rfid_get_list(seq); break;
+    case CMD_SET_REQUIRE_RFID_AUTH: handle_set_require_rfid_auth(payload, plen); break;
+    case CMD_GET_RFID_CONFIG:       handle_get_rfid_config(); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

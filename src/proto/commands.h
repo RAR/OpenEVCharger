@@ -34,6 +34,15 @@
 #define CMD_RFID_CLEAR_LIST       0x11u
 #define CMD_RFID_GET_LIST         0x12u
 
+/* Session authorization mode. Payload (1 B): u8 enable. When enable=1,
+ * charging is gated on a matched authorized-tag swipe per session
+ * (J1772-A unplug clears the per-session grant). When enable=0,
+ * plug-in alone starts charging — the original behaviour. The current
+ * value (plus the live session_authorized bit) is published via
+ * EVT_RFID_CONFIG, on change and as the response to CMD_GET_RFID_CONFIG. */
+#define CMD_SET_REQUIRE_RFID_AUTH 0x13u
+#define CMD_GET_RFID_CONFIG       0x14u
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */
@@ -73,6 +82,11 @@
  *   EVT_RFID_LIST_END   payload (1 B): u8 count */
 #define EVT_RFID_LIST_ENTRY       0x90u
 #define EVT_RFID_LIST_END         0x91u
+
+/* Session-auth config + live state. Payload (2 B):
+ *   u8 require_rfid_auth   — persisted boot_config flag
+ *   u8 session_authorized  — runtime "this session has been authorized" */
+#define EVT_RFID_CONFIG           0x92u
 
 /* Result codes carried in EVT_RFID_AUTH_RESULT.result. */
 #define RFID_AUTH_RESULT_LEARNED       0u   /* UID added to list */

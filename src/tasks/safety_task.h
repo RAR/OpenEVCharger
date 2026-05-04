@@ -38,4 +38,9 @@ int safety_request_resume(void);
  * captured, or after the timeout below. */
 int safety_request_rfid_learn(void);
 
+/* Ask safety_task to publish a fresh EVT_RFID_CONFIG (require_auth +
+ * session_authorized). Used by comms after CMD_GET_RFID_CONFIG and
+ * after the persist task lands a CMD_SET_REQUIRE_RFID_AUTH write. */
+int safety_request_publish_rfid_config(void);
+
 #endif

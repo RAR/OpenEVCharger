@@ -6,6 +6,7 @@
 #include "../persist/boot_config.h"
 #include "../persist/calibration.h"
 #include "../persist/rfid_authlist.h"
+#include "safety_task.h"
 #include "../proto/commands.h"
 #include "../diag/stack_watch.h"
 #include <string.h>
@@ -23,6 +24,7 @@ typedef enum {
     PERSIST_REQ_RFID_AUTHLIST_REMOVE,
     PERSIST_REQ_RFID_AUTHLIST_CLEAR,
     PERSIST_REQ_RFID_AUTHLIST_GET_LIST,
+    PERSIST_REQ_REQUIRE_RFID_AUTH,
 } persist_req_type_t;
 
 struct __attribute__((packed)) cal_args {
@@ -103,6 +105,14 @@ int persist_post_boot_config_amps(uint8_t amps)
     struct persist_req req;
     req.type = PERSIST_REQ_BOOT_CONFIG_AMPS;
     req.payload.amps = amps;
+    return post(&req);
+}
+
+int persist_post_require_rfid_auth(uint8_t enable)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_REQUIRE_RFID_AUTH;
+    req.payload.amps = enable ? 1u : 0u;   /* re-use the u8 slot */
     return post(&req);
 }
 
@@ -314,6 +324,17 @@ static void persist_task_run(void *arg)
             case PERSIST_REQ_RFID_AUTHLIST_GET_LIST:
                 handle_rfid_get_list(req.payload.seq);
                 break;
+            case PERSIST_REQ_REQUIRE_RFID_AUTH: {
+                int rc = boot_config_set_require_rfid_auth(req.payload.amps);
+                if (rc < 0) {
+                    printk("persist: require_rfid_auth store FAIL rc=%d\n", rc);
+                } else {
+                    /* Notify HA via the live config event regardless of
+                     * whether the persist write was a no-op. */
+                    (void)safety_request_publish_rfid_config();
+                }
+                break;
+            }
             }
             s_overflow_warned = 0;
         }

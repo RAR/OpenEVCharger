@@ -242,6 +242,8 @@ binary_sensor:
       name: "RFID Card Present"
     rfid_last_accepted:
       name: "RFID Last Tag Accepted"
+    rfid_session_authorized:
+      name: "RFID Session Authorized"
 
 text_sensor:
   - platform: openbhzd_tlv
@@ -270,6 +272,15 @@ number:
   - platform: openbhzd_tlv
     advertised_amps:
       name: "Set Advertised Amps"
+      entity_category: config
+
+# Toggle: ON requires a swiped & matched RFID tag before charging starts
+# (J1772-A unplug clears the per-session grant). OFF reverts to start-on-
+# plug-in. Persisted in W25Q boot_config; default OFF on first boot.
+switch:
+  - platform: openbhzd_tlv
+    require_rfid_auth:
+      name: "Require RFID for Charging"
       entity_category: config
 
 button:

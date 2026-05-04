@@ -14,7 +14,10 @@ struct __attribute__((packed)) boot_config {
     uint8_t  pad0[3];
     uint32_t monotonic_counter;         /* helper-managed */
     uint8_t  fc41d_advertised_amps;     /* 0 = unset → fall back to DIP1 */
-    uint8_t  pad1[3];
+    uint8_t  require_rfid_auth;         /* 0 = charge on plug-in (default);
+                                         * 1 = gate charging behind a
+                                         * matched-tag swipe per session */
+    uint8_t  pad1[2];
     uint8_t  reserved[16];
     uint32_t crc32;                     /* helper-managed */
 };
@@ -31,5 +34,11 @@ uint8_t boot_config_advertised_amps(void);
 /* Update advertised amps and ping-pong-write to W25Q. Idempotent if the
  * value is unchanged. Returns 0 on success, <0 on error. */
 int boot_config_set_advertised_amps(uint8_t amps);
+
+/* Whether charging requires a matched RFID tag per session. */
+uint8_t boot_config_require_rfid_auth(void);
+
+/* Toggle the require-auth flag and persist. Idempotent if unchanged. */
+int boot_config_set_require_rfid_auth(uint8_t enable);
 
 #endif

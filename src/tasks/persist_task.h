@@ -38,6 +38,11 @@ int persist_post_crash_state_reset(void);
  * Routed through persist_task to keep SPI3 single-owner per spec § 6. */
 int persist_post_boot_config_amps(uint8_t amps);
 
+/* Toggle the require-RFID-auth flag and persist. Once stored,
+ * persist_task asks safety_task to publish an EVT_RFID_CONFIG so HA
+ * sees the live state. */
+int persist_post_require_rfid_auth(uint8_t enable);
+
 /* Persist new CP calibration values. Same single-owner rationale. */
 int persist_post_calibration(int16_t anchor_raw,
                              int16_t slope_num,

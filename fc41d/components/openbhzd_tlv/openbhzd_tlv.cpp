@@ -59,6 +59,7 @@ void OpenbhzdTlv::setup() {
   send_get_state();
   send_get_lifetime_kwh();
   send_rfid_get_list();
+  send_get_rfid_config();
 }
 
 void OpenbhzdTlv::loop() {
@@ -458,6 +459,24 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       break;
     }
 
+    case EVT_RFID_CONFIG: {
+      // Payload: u8 require_rfid_auth + u8 session_authorized.
+      if (plen < 2) break;
+      bool req = (p[0] != 0);
+      bool sa = (p[1] != 0);
+      require_rfid_auth_ = req;
+      session_authorized_ = sa;
+      ESP_LOGI(TAG, "rfid_config: require_auth=%u session_authorized=%u",
+               unsigned(req), unsigned(sa));
+#ifdef USE_SWITCH
+      if (require_rfid_auth_switch_) require_rfid_auth_switch_->publish_from_mcu(req);
+#endif
+#ifdef USE_BINARY_SENSOR
+      if (session_authorized_bsensor_) session_authorized_bsensor_->publish_state(sa);
+#endif
+      break;
+    }
+
     case EVT_RFID_LIST_END: {
       if (plen >= 1) {
         rfid_authlist_count_ = p[0];
@@ -801,6 +820,20 @@ uint8_t OpenbhzdTlv::send_rfid_remove_uid(uint32_t uid) {
                     uint8_t(uid >> 16), uint8_t(uid >> 24)};
   send_frame_(CMD_RFID_REMOVE_UID, s, buf, 4);
   send_rfid_get_list();
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_set_require_rfid_auth(bool enable) {
+  uint8_t s = next_seq_();
+  uint8_t v = enable ? 1u : 0u;
+  send_frame_(CMD_SET_REQUIRE_RFID_AUTH, s, &v, 1);
+  // MCU will publish a fresh EVT_RFID_CONFIG once persisted.
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_get_rfid_config() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_GET_RFID_CONFIG, s, nullptr, 0);
   return s;
 }
 

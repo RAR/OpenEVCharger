@@ -34,6 +34,7 @@ typedef enum {
     SAFETY_REQ_USER_PAUSE,
     SAFETY_REQ_USER_RESUME,
     SAFETY_REQ_RFID_LEARN_ARM,
+    SAFETY_REQ_PUBLISH_RFID_CONFIG,
 } safety_req_type_t;
 
 struct safety_req {
@@ -49,6 +50,15 @@ static QueueHandle_t s_safety_inbox;
  * by the swipe block each tick, cleared on capture. Single-writer
  * (safety_task body) so no atomicity concerns. */
 static uint16_t s_rfid_learn_ticks = 0;
+
+/* Per-session "user has authorized this session" flag. Set when a
+ * matched authorized-tag swipe lands; cleared on plug-removal
+ * (J1772=A). Read by update_evse_from_j1772 to gate READY → CHARGING
+ * when boot_config_require_rfid_auth() is set. Always reads as
+ * authorized when the require-auth flag is OFF. */
+static uint8_t s_session_authorized = 0;
+
+static void publish_rfid_config(void);
 
 /* Debounce: 3 consecutive same-band reads at safety_task's 50 Hz tick
  * = 60 ms. Matches spec § 3. */
@@ -612,6 +622,14 @@ static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js,
         *c_streak = 0;
         return;
     }
+    /* Plug-removal clears the per-session authorization regardless of
+     * which non-fault state we're in — a fresh plug-in starts a new
+     * session and (when require_rfid_auth is on) needs a fresh swipe. */
+    if (js == J1772_STATE_A && s_session_authorized) {
+        s_session_authorized = 0;
+        printk("RFID: session authorization cleared (J1772=A)\n");
+        publish_rfid_config();
+    }
     if (*es == EVSE_USER_PAUSED) {
         *c_streak = 0;
         /* Unplug ends the paused session — clears USER_PAUSED back to
@@ -628,7 +646,13 @@ static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js,
     } else {
         *c_streak = 0;
     }
-    if (*es == EVSE_READY && *c_streak >= (int)EVSE_C_DWELL_TICKS) {
+    /* Authorization gate: when require_rfid_auth is set, hold READY
+     * until a valid tag swipe sets s_session_authorized. The dwell
+     * keeps counting up so charging starts immediately on swipe
+     * (no extra 1-second wait after auth). */
+    int authorized = !boot_config_require_rfid_auth() || s_session_authorized;
+    if (*es == EVSE_READY && *c_streak >= (int)EVSE_C_DWELL_TICKS &&
+        authorized) {
         evse_transition(es, EVSE_CHARGING);
     } else if (*es == EVSE_CHARGING && js != J1772_STATE_C) {
         /* Open is immediate — no hysteresis on the safety side. */
@@ -687,6 +711,23 @@ int safety_request_resume(void)
 int safety_request_rfid_learn(void)
 {
     return post_safety_req(SAFETY_REQ_RFID_LEARN_ARM, 0, 0);
+}
+
+int safety_request_publish_rfid_config(void)
+{
+    return post_safety_req(SAFETY_REQ_PUBLISH_RFID_CONFIG, 0, 0);
+}
+
+static void publish_rfid_config(void)
+{
+    struct __attribute__((packed)) {
+        uint8_t require_rfid_auth;
+        uint8_t session_authorized;
+    } cfg = {
+        .require_rfid_auth  = boot_config_require_rfid_auth(),
+        .session_authorized = s_session_authorized,
+    };
+    (void)comms_publish_event(EVT_RFID_CONFIG, &cfg, sizeof cfg);
 }
 
 /* Apply one inbox entry. Returns the (possibly updated) EVSE state by
@@ -771,6 +812,9 @@ static void process_request(struct safety_req *r,
         s_rfid_learn_ticks = RFID_LEARN_TICKS;
         printk("safety: RFID learn-mode armed (%u ticks)\n",
                (unsigned)RFID_LEARN_TICKS);
+        break;
+    case SAFETY_REQ_PUBLISH_RFID_CONFIG:
+        publish_rfid_config();
         break;
     default:
         printk("safety: unknown inbox req type=%u\n", (unsigned)r->type);
@@ -1336,18 +1380,23 @@ static void safety_task_run(void *arg)
                                        (unsigned)a.uid);
                             }
                         } else if (rfid_authlist_contains(a.uid)) {
+                            /* Matched tag → grant the session. When
+                             * require_rfid_auth is OFF this flag still
+                             * gets set; it just doesn't gate anything.
+                             * Emit a config event if the bit flipped so
+                             * HA reflects "session authorized" live. */
+                            uint8_t prior_auth = s_session_authorized;
+                            s_session_authorized = 1;
                             if (es == EVSE_CHARGING || es == EVSE_READY) {
-                                /* Toggle: charging-eligible → pause;
-                                 * paused or pre-charge → resume. The
-                                 * resume path is harmless if EVSE was
-                                 * already READY (transition is a no-op
-                                 * on same-state). */
                                 if (es == EVSE_CHARGING) {
                                     (void)post_safety_req(
                                         SAFETY_REQ_USER_PAUSE, 0xFFu, 0);
                                     result = RFID_AUTH_RESULT_STOP;
                                 } else {
-                                    result = RFID_AUTH_RESULT_MATCHED_NOOP;
+                                    /* READY: starts charging once dwell
+                                     * elapses (immediate if dwell already
+                                     * met). */
+                                    result = RFID_AUTH_RESULT_START;
                                 }
                             } else if (es == EVSE_USER_PAUSED) {
                                 (void)post_safety_req(
@@ -1356,6 +1405,7 @@ static void safety_task_run(void *arg)
                             } else {
                                 result = RFID_AUTH_RESULT_MATCHED_NOOP;
                             }
+                            if (!prior_auth) publish_rfid_config();
                             printk("RFID: matched uid=0x%08x result=%u "
                                    "(EVSE=%s)\n",
                                    (unsigned)a.uid, (unsigned)result,
