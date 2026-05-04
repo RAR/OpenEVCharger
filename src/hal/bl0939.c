@@ -123,13 +123,16 @@ void bl0939_smoke_test(void)
         { BL0939_REG_A_WATT,           "A_WATT"           },
         { BL0939_REG_B_WATT,           "B_WATT"           },
     };
+    /* Note: our printk doesn't support width specifiers like %-20s,
+     * so keep the format simple — each spec consumes exactly one arg
+     * and we don't rely on alignment. */
     printk("BL0939 smoke (after soft reset):\n");
     for (size_t i = 0; i < sizeof(regs)/sizeof(regs[0]); ++i) {
         uint32_t v = 0;
         int rc = bl0939_read_register(regs[i].addr, &v);
-        printk("  reg 0x%02x %-20s rc=%d val=0x%06x %s\n",
+        printk("  reg 0x%02x %s: rc=%d val=0x%06x%s\n",
                regs[i].addr, regs[i].name, rc, (unsigned)v,
-               (rc == 0) ? "" : "(CHECKSUM FAIL)");
+               (rc == 0) ? "" : " (CHECKSUM FAIL)");
     }
     printk("BL0939 smoke: done\n");
 }
