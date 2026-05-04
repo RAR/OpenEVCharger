@@ -50,7 +50,7 @@ TODO at the bottom.
 | `FAULT_CRASH_LOOP_SAFE_FAIL` | ≥ N watchdog resets in window | EVSE_FAULT, latched | `persist/crash_state.c`, `safety_task::check_safe_fail` |
 | `FAULT_CP_NO_PILOT` | J1772 state E sustained 60 ms | EVSE_FAULT, latched | `safety_task::check_cp_e` |
 | `FAULT_BOOT_SELF_TEST` | ADC sanity / relay-open / CP-A floor at boot | EVSE_FAULT, latched | `safety_task::run_boot_self_test` |
-| `FAULT_OVER_TEMP` | Per-channel NTC raw ≤ trip threshold sustained 100 ms (5 ticks) | EVSE_FAULT, self-clearing with 10 °C hyst | `safety_task::check_over_temp`. NTC1 (PA3, wall-plug NTC) on by default; NTC2 (PB0, non-thermistor) masked off. **TODO**: also wire PA2 (gun NTC, currently named `ADC_RANK_AC`) into the detector — the gun is the more safety-critical of the two channels. |
+| `FAULT_OVER_TEMP` | Per-channel NTC raw ≤ trip threshold sustained 100 ms (5 ticks) | EVSE_FAULT, self-clearing with 10 °C hyst | `safety_task::check_over_temp`. NTC1 (PA3, wall-plug NTC) on by default; NTC2 (PB0, non-thermistor) masked off. FC41D-side °C conversion uses the stock fw's 150-entry LUT (`fc41d/.../ntc_lut.h`); MCU-side raw thresholds still β-derived (532/672) pending Phase-2 migration to LUT-derived (396/525). **TODO**: also wire PA2 (gun NTC, currently named `ADC_RANK_AC`) into the detector — the gun is the more safety-critical of the two channels. |
 | Hardware force-open latch | EVSE_FAULT entry | PB12 HIGH → contactor latched open | UL2231-style redundancy against PE12 driver failure. `relay_force_open_latch()`. |
 | User pause/resume | Top button or FC41D TLV `REQUEST_STOP/_RESUME` | EVSE_USER_PAUSED | Spec § 4.2; FC41D and physical button share the inbox path. |
 | CP idle-high in USER_PAUSED, state-F in FAULT | EVSE state machine | CP output | `safety_task::apply_cp_for_state` |
@@ -65,34 +65,51 @@ Each row lists the fault, the missing input that gates it, the
 build/runtime flag that enables it, and the bench investigation needed
 to lift the gate. **Order roughly tracks production-blocker priority.**
 
-### `FAULT_GFCI` — gated
+### `FAULT_GFCI` — gated (sense pin found, polarity unconfirmed)
 
-- **Why gated:** No GFCI sense pin identified in the pin map yet. PE3
-  drives the GFCI CAL pulse output; no return EXTI input has been
-  found. UL2231 mandates this — production blocker.
-- **Bench needed:** Probe the GFCI module's output pin while
-  injecting a CT differential current; identify which MCU input
-  toggles. Likely an EXTI line on a pin we currently classify as
-  unused.
-- **Enable:** Wire EXTI handler in `hal/gfci.c`; add detector to
-  `safety_task` tick. Latched, power-cycle-only clear (spec § 4.2).
+- **Static analysis (2026-05-03, `docs/re-stock-safety.md`):** stock
+  fw V1.0.066 polls **PE2** in an 8-state TBB-dispatched state
+  machine at flash `0x08012824`. NO EXTI is used — all EXTI vectors
+  point at the default trap stub. PE3 drives the CAL pulse, PE4 a
+  secondary line, PE2 is sampled mid-CAL-pulse expecting HIGH
+  (active-high fault output). 5 s self-test cycle. Pin declared as
+  `PIN_GFCI_SENSE_*` in `pin_map.h` but no detector wired yet.
+- **Why still gated:** `pinout.md` currently classifies PE2 as
+  "DIP/strap, IDR=1 idle". An idle-high reading on a fault-output
+  sense conflicts with the active-high interpretation — either the
+  fault output is active-low (and stock's bit-set semantics are
+  inverted from intuition), or PE2 is a strap and the GFCI
+  state-machine path is dormant.
+- **Bench needed:** Scope PE2 while running stock fw on AC and
+  watching for the CAL-pulse cycle (~5 s period). If PE2 toggles
+  HIGH inside the PE3 pulse window → confirmed; flip the gate. If
+  PE2 stays HIGH constantly → wrong pin or wrong polarity, hold.
+- **Enable (after bench):** Wire `hal/gfci.c` polled detector
+  matching the stock 8-state TBB. Latched, power-cycle-only clear
+  (spec § 4.2).
 
 ### `FAULT_RELAY_WELD` / `FAULT_RELAY_STUCK_OPEN` — gated
 
-- **Why gated:** No relay closed-feedback signal identified. PB12
-  was the original guess but it's a force-open OUTPUT (UL2231
-  latch). PB0/NTC2 was the second guess but reads 565–686 raw across
-  all relay states (more likely AC-mains-presence sense). Without a
-  real sense input, weld and stuck-open detection are blind.
-- **Bench needed:** Scope every otherwise-unassigned MCU input
-  while toggling PE12 with the AC contactor energised. The stock
-  firmware's safety supervisor probably reads it — disassembly trace
-  could short-circuit the search.
-- **Enable:** Identify pin → wire `relay_main_sense_closed()` in
-  `hal/relay.c` → flip `OPENBHZD_RELAY_FEEDBACK_KNOWN=1` to enable
-  `check_relay_weld` + `check_relay_stuck_open`. Per-boot
-  actuate-and-readback test in `safety_task::self_test_relay_actuate`
-  is gated separately by `OPENBHZD_RELAY_ACTUATE_SELF_TEST`.
+- **Static analysis (2026-05-03, `docs/re-stock-safety.md`):** Stock
+  fw was searched across all 29 `GPIO_ReadInputDataBit` callsites
+  for a GPIOE bit-12 / 0x1000-mask read. None matched. The fault
+  dispatcher at `0x0800edd4` confirms "Relay Adhesion" (id=0xb)
+  and "Relay Action" (id=0xd) strings exist and are reachable, but
+  the *raising* code path goes through a fault-sub-code halfword
+  at RAM `0x200026b0`, not a discrete sense pin.
+- **Why gated:** Strong inference — stock fw infers weld /
+  stuck-open from **PC0 (CT902 secondary load-current)** rather
+  than a discrete feedback pin. Welded contactor: PE12 commanded
+  LOW but PC0 reads non-zero current. Stuck-open: PE12 HIGH and
+  CP state expects current draw, but PC0 reads zero. Detection on
+  this hardware therefore *couples* to the V/I path
+  (HARD_OVER_CURRENT below) and cannot land independently.
+- **Bench needed:** (a) scope every otherwise-unassigned MCU input
+  during PE12 toggles under live AC to rule out a missed sense
+  pin; (b) if confirmed absent, calibrate PC0 first.
+- **Enable:** EITHER identify a real sense pin (then flip
+  `OPENBHZD_RELAY_FEEDBACK_KNOWN=1`), OR land V/I path then add a
+  current-inferred weld detector that watches PC0 vs PE12 + CP.
 
 ### `FAULT_DIODE_CHECK` — gated
 

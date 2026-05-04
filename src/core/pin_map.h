@@ -118,9 +118,27 @@
 #define PIN_RELAY_FORCE_OPEN_PORT  GPIOB
 #define PIN_RELAY_FORCE_OPEN_PIN   GPIO_PIN_12
 
-/* ----- GFCI ----- */
+/* ----- GFCI -----
+ *
+ * Stock fw V1.0.066 sense path (RE'd 2026-05-03 from
+ * docs/re-stock-safety.md): the GFCI module's fault output is read
+ * from PE2 in a polled 8-state TBB-dispatched state machine at
+ * stock fw 0x08012824. NO EXTI is used — all EXTI vectors point
+ * at the default trap stub. Polling cadence: ~5 s / cycle, with
+ * mid-CAL-pulse PE2 sample expected HIGH (active-high fault).
+ *
+ * PIN_GFCI_SENSE is declared but NOT yet enabled — pinout.md
+ * currently classifies PE2 as "DIP/strap, IDR=1 idle", which
+ * conflicts with the stock fw's active-high interpretation. Bench
+ * scope of PE2 during the PE3 CAL pulse is required before flipping
+ * any GFCI gate. See docs/safety.md.
+ *
+ * PE4 also driven in the stock state machine (probably "test latch"
+ * or pre-charge bleed); role not yet decoded. */
 #define PIN_GFCI_CAL_PORT       GPIOE
 #define PIN_GFCI_CAL_PIN        GPIO_PIN_3     /* active-low at MCU; idle low (CAL inactive) */
+#define PIN_GFCI_SENSE_PORT     GPIOE
+#define PIN_GFCI_SENSE_PIN      GPIO_PIN_2     /* polled, active-high (per stock fw RE) */
 
 /* ----- Buzzer ----- */
 #define PIN_BUZZER_PORT         GPIOB

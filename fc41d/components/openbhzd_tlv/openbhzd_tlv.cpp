@@ -1,4 +1,5 @@
 #include "openbhzd_tlv.h"
+#include "ntc_lut.h"
 
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
@@ -390,40 +391,25 @@ void OpenbhzdTlv::publish_state_() {
   if (advertised_amps_sensor_) advertised_amps_sensor_->publish_state(s.advertised_amps);
   if (active_amps_sensor_) active_amps_sensor_->publish_state(s.active_amps_x10 / 10.0f);
   if (session_kwh_sensor_) session_kwh_sensor_->publish_state(s.session_mwh / 1000000.0f);
-  // ntc1/ntc2_dC = deci-Celsius. Bench has no NTCs populated → comes through as 0.
-  // °C from raw via β-model. R_pull=10 kΩ pulldown topology, R0=10 kΩ
-  // at 25 °C, β=3380. Bench-validated 2026-05-03: NTC1 raw≈2050 →
-  // ~24.9 °C, user reported actual ≈23.9 °C (75 °F). β is a placeholder
-  // until a second-temperature calibration point is taken; expect
-  // ±2 °C drift across the operating range.
-  auto raw_to_c = [](uint16_t raw) -> float {
-    if (raw <= 100 || raw >= 3990) return NAN;
-    constexpr float r_pull = 10000.0f;
-    constexpr float r0 = 10000.0f;
-    constexpr float t0 = 298.15f;
-    constexpr float beta = 3380.0f;
-    float r_ntc = r_pull * raw / (4095.0f - raw);
-    float tk = 1.0f / (1.0f / t0 + (1.0f / beta) * std::log(r_ntc / r0));
-    return tk - 273.15f;
-  };
-  // NTC1 (PA3) is the wall-plug end thermistor; gun_ntc (PA2) is
-  // the J1772 cable / gun-handle thermistor. Both share the same
-  // β-model conversion until a second cal point per channel lands.
+  // °C from raw via the 150-entry LUT extracted from stock fw V1.0.066
+  // (see ntc_lut.h). Replaces the earlier β=3380 model — that model
+  // was off by ~10 °C at 85 °C because the OEM thermistor's β is
+  // closer to 3980. The LUT covers −30..+119 °C; out-of-range maps
+  // to 120 °C (stock semantics: open or shorted thermistor = max-temp
+  // fault). NTC1 (PA3) is the wall-plug NTC; gun_ntc (PA2) is the
+  // J1772 cable / gun-handle NTC.
   if (ntc1_temp_sensor_) {
-    float c = raw_to_c(s.ntc1_adc_raw);
-    if (!std::isnan(c)) ntc1_temp_sensor_->publish_state(c);
+    ntc1_temp_sensor_->publish_state(ntc_raw_to_celsius(s.ntc1_adc_raw));
   }
   if (gun_ntc_temp_sensor_) {
-    float c = raw_to_c(s.gun_ntc_adc_raw);
-    if (!std::isnan(c)) gun_ntc_temp_sensor_->publish_state(c);
+    gun_ntc_temp_sensor_->publish_state(ntc_raw_to_celsius(s.gun_ntc_adc_raw));
   }
-  // ntc2 (PB0) is NOT a thermistor on this board — see MCU pin_map.h.
-  // The °C entity is retained as a diagnostic so we can spot if a
-  // future hardware revision re-purposes PB0; the displayed value
-  // from a non-NTC source is not meaningful.
+  // ntc2 (PB0) is NOT a thermistor — likely AC-presence sense (see
+  // MCU pin_map.h). The °C entity is retained as a diagnostic so
+  // we'd notice if a future hardware revision re-purposes PB0; the
+  // displayed value from a non-NTC source is not meaningful.
   if (ntc2_temp_sensor_) {
-    float c = raw_to_c(s.ntc2_adc_raw);
-    if (!std::isnan(c)) ntc2_temp_sensor_->publish_state(c);
+    ntc2_temp_sensor_->publish_state(ntc_raw_to_celsius(s.ntc2_adc_raw));
   }
   if (evse_state_code_sensor_) evse_state_code_sensor_->publish_state(s.evse_state);
   if (j1772_state_code_sensor_) j1772_state_code_sensor_->publish_state(s.j1772_state);
