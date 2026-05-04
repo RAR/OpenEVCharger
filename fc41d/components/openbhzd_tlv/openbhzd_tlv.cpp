@@ -236,12 +236,15 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
                          (uint32_t(p[24]) << 16) | (uint32_t(p[25]) << 24);
       s.session_mwh = uint32_t(p[26]) | (uint32_t(p[27]) << 8) |
                       (uint32_t(p[28]) << 16) | (uint32_t(p[29]) << 24);
-      // Phase-1 voltage proxy: PA2 ADC raw at offset 30. Older MCU
+      // PA2 ADC raw at offset 30 — actually GUN-cable NTC, not mains
+      // voltage (early bring-up labelled it "AC", corrected 2026-05-03
+      // when grounding the front-block NTC pin zeroed PA2). Older MCU
       // firmwares emit 30-byte payloads — leave the field 0 in that case.
-      s.ac_adc_raw = (plen >= 32)
+      s.gun_ntc_adc_raw = (plen >= 32)
           ? uint16_t(p[30] | (uint16_t(p[31]) << 8))
           : 0;
-      // NTC1 (PA3) at off 32, NTC2 (PB0) at off 34. Same back-compat:
+      // NTC1 (PA3) at off 32 — wall-plug NTC; NTC2 (PB0) at off 34 —
+      // not a thermistor (likely AC presence). Same back-compat:
       // old MCU firmwares with 32 B payload won't carry these.
       s.ntc1_adc_raw = (plen >= 34)
           ? uint16_t(p[32] | (uint16_t(p[33]) << 8))
@@ -403,10 +406,21 @@ void OpenbhzdTlv::publish_state_() {
     float tk = 1.0f / (1.0f / t0 + (1.0f / beta) * std::log(r_ntc / r0));
     return tk - 273.15f;
   };
+  // NTC1 (PA3) is the wall-plug end thermistor; gun_ntc (PA2) is
+  // the J1772 cable / gun-handle thermistor. Both share the same
+  // β-model conversion until a second cal point per channel lands.
   if (ntc1_temp_sensor_) {
     float c = raw_to_c(s.ntc1_adc_raw);
     if (!std::isnan(c)) ntc1_temp_sensor_->publish_state(c);
   }
+  if (gun_ntc_temp_sensor_) {
+    float c = raw_to_c(s.gun_ntc_adc_raw);
+    if (!std::isnan(c)) gun_ntc_temp_sensor_->publish_state(c);
+  }
+  // ntc2 (PB0) is NOT a thermistor on this board — see MCU pin_map.h.
+  // The °C entity is retained as a diagnostic so we can spot if a
+  // future hardware revision re-purposes PB0; the displayed value
+  // from a non-NTC source is not meaningful.
   if (ntc2_temp_sensor_) {
     float c = raw_to_c(s.ntc2_adc_raw);
     if (!std::isnan(c)) ntc2_temp_sensor_->publish_state(c);
@@ -414,19 +428,9 @@ void OpenbhzdTlv::publish_state_() {
   if (evse_state_code_sensor_) evse_state_code_sensor_->publish_state(s.evse_state);
   if (j1772_state_code_sensor_) j1772_state_code_sensor_->publish_state(s.j1772_state);
   if (fault_count_sensor_) fault_count_sensor_->publish_state(fault_count_);
-  if (ac_adc_raw_sensor_) ac_adc_raw_sensor_->publish_state(s.ac_adc_raw);
+  if (gun_ntc_adc_raw_sensor_) gun_ntc_adc_raw_sensor_->publish_state(s.gun_ntc_adc_raw);
   if (ntc1_adc_raw_sensor_) ntc1_adc_raw_sensor_->publish_state(s.ntc1_adc_raw);
   if (ntc2_adc_raw_sensor_) ntc2_adc_raw_sensor_->publish_state(s.ntc2_adc_raw);
-  if (mains_voltage_sensor_) {
-    // Phase-1 stopgap: linear ADC → volts. Default scale is a rough
-    // guess (raw 2043 ≈ 120 V from the bench → 0.0587 V/count). YAML
-    // can override via mains_voltage_scale to match the deployed sense
-    // circuit. Real RMS metering is queued for later — at that point
-    // the firmware will supply mains_v_x10 directly and the scale
-    // becomes 0.1 V/count.
-    float scale = mains_voltage_scale_ > 0.0f ? mains_voltage_scale_ : 0.0587f;
-    mains_voltage_sensor_->publish_state(s.ac_adc_raw * scale);
-  }
 #endif
 
 #ifdef USE_BINARY_SENSOR

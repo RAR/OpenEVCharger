@@ -27,14 +27,13 @@ CONF_ADVERTISED_AMPS = "advertised_amps"
 CONF_ACTIVE_AMPS = "active_amps"
 CONF_LIFETIME_KWH = "lifetime_kwh"
 CONF_SESSION_KWH = "session_kwh"
+CONF_GUN_NTC_TEMP = "gun_ntc_temp"
 CONF_NTC1_TEMP = "ntc1_temp"
 CONF_NTC2_TEMP = "ntc2_temp"
 CONF_EVSE_STATE_CODE = "evse_state_code"
 CONF_J1772_STATE_CODE = "j1772_state_code"
 CONF_FAULT_COUNT = "fault_count"
-CONF_AC_ADC_RAW = "ac_adc_raw"
-CONF_MAINS_VOLTAGE = "mains_voltage"
-CONF_MAINS_VOLTAGE_SCALE = "mains_voltage_scale"
+CONF_GUN_NTC_ADC_RAW = "gun_ntc_adc_raw"
 CONF_NTC1_ADC_RAW = "ntc1_adc_raw"
 CONF_NTC2_ADC_RAW = "ntc2_adc_raw"
 
@@ -76,6 +75,12 @@ CONFIG_SCHEMA = cv.Schema(
             device_class=DEVICE_CLASS_ENERGY,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        cv.Optional(CONF_GUN_NTC_TEMP): sensor.sensor_schema(
+            unit_of_measurement=UNIT_CELSIUS,
+            accuracy_decimals=1,
+            device_class=DEVICE_CLASS_TEMPERATURE,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
         cv.Optional(CONF_NTC1_TEMP): sensor.sensor_schema(
             unit_of_measurement=UNIT_CELSIUS,
             accuracy_decimals=1,
@@ -100,17 +105,10 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
-        cv.Optional(CONF_AC_ADC_RAW): sensor.sensor_schema(
+        cv.Optional(CONF_GUN_NTC_ADC_RAW): sensor.sensor_schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
-        cv.Optional(CONF_MAINS_VOLTAGE): sensor.sensor_schema(
-            unit_of_measurement=UNIT_VOLT,
-            accuracy_decimals=1,
-            device_class=DEVICE_CLASS_VOLTAGE,
-            state_class=STATE_CLASS_MEASUREMENT,
-        ),
-        cv.Optional(CONF_MAINS_VOLTAGE_SCALE, default=0.0587): cv.float_,
         cv.Optional(CONF_NTC1_ADC_RAW): sensor.sensor_schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
@@ -129,13 +127,13 @@ _SETTERS = {
     CONF_ACTIVE_AMPS: "set_active_amps_sensor",
     CONF_LIFETIME_KWH: "set_lifetime_kwh_sensor",
     CONF_SESSION_KWH: "set_session_kwh_sensor",
+    CONF_GUN_NTC_TEMP: "set_gun_ntc_temp_sensor",
     CONF_NTC1_TEMP: "set_ntc1_temp_sensor",
     CONF_NTC2_TEMP: "set_ntc2_temp_sensor",
     CONF_EVSE_STATE_CODE: "set_evse_state_code_sensor",
     CONF_J1772_STATE_CODE: "set_j1772_state_code_sensor",
     CONF_FAULT_COUNT: "set_fault_count_sensor",
-    CONF_AC_ADC_RAW: "set_ac_adc_raw_sensor",
-    CONF_MAINS_VOLTAGE: "set_mains_voltage_sensor",
+    CONF_GUN_NTC_ADC_RAW: "set_gun_ntc_adc_raw_sensor",
     CONF_NTC1_ADC_RAW: "set_ntc1_adc_raw_sensor",
     CONF_NTC2_ADC_RAW: "set_ntc2_adc_raw_sensor",
 }
@@ -147,4 +145,3 @@ async def to_code(config):
         if conf := config.get(key):
             s = await sensor.new_sensor(conf)
             cg.add(getattr(parent, setter)(s))
-    cg.add(parent.set_mains_voltage_scale(config[CONF_MAINS_VOLTAGE_SCALE]))

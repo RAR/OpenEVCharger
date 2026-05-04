@@ -27,18 +27,25 @@ struct __attribute__((packed)) openbhzd_state {
     uint32_t fault_active_bits; /* fault_state.active_bits */
     uint32_t first_fault_id;    /* fault_state.first_raised */
     uint32_t session_mwh;       /* 0 until M7 CT integration */
-    uint16_t ac_adc_raw;        /* PA2 ADC rank 0 (12-bit). Scale to V
-                                 * on the consumer side — calibration
-                                 * is YAML-side via filter multiply.
-                                 * Phase-1 voltage proxy until proper
-                                 * RMS metering lands. */
-    uint16_t ntc1_adc_raw;      /* PA3 ADC rank 1 (12-bit). Phase-1
-                                 * raw exposure — °C conversion is
-                                 * YAML-side / TBD until thermistor
-                                 * part number is identified on a
-                                 * production unit. Bench has no NTC
-                                 * populated, reads ~1.7 V floating. */
-    uint16_t ntc2_adc_raw;      /* PB0 ADC rank 7. Same caveat. */
+    uint16_t ac_adc_raw;        /* PA2 ADC rank 0 (12-bit). Despite
+                                 * the legacy "AC" name, this channel
+                                 * is actually the GUN-cable NTC
+                                 * thermistor — bench-confirmed by
+                                 * grounding the front-block "NTC"
+                                 * pin and watching this raw drop to
+                                 * 0. β-model conversion FC41D-side. */
+    uint16_t ntc1_adc_raw;      /* PA3 ADC rank 1 (12-bit). WALL-PLUG
+                                 * end NTC thermistor (also bench-
+                                 * confirmed via the matching front-
+                                 * block pin). β-model conversion
+                                 * FC41D-side. Both gun and wall NTCs
+                                 * route through the front connector
+                                 * for assembly convenience. */
+    uint16_t ntc2_adc_raw;      /* PB0 ADC rank 7. NOT a thermistor —
+                                 * see pin_map.h; likely AC-mains-
+                                 * presence sense. OVER_TEMP detector
+                                 * masks this channel via
+                                 * OPENBHZD_NTC2_PRESENT (default 0). */
 };
 
 void                  system_state_publish(const struct openbhzd_state *s);

@@ -5,7 +5,40 @@ is gated, and what each gated detector needs before it can be safely
 enabled. Source of truth — `projectstate.txt` summarises this; code
 comments cross-reference it.
 
-Last updated: 2026-05-03.
+Last updated: 2026-05-03 (evening — channel-role correction).
+
+## Channel-role correction (2026-05-03 evening)
+
+A bench experiment grounding the front-block "NTC" pins zeroed the
+ADC channels we'd been calling "AC" (PA2) and "NTC1" (PA3),
+confirming both as populated thermistors. The previous "Mains
+Voltage @ 0.06151 V/count" calibration was a coincidence — a
+disconnected NTC pin happened to float-rail near a value that scaled
+to a plausible mains number. Real V/I sensing on this PCB likely
+runs through the U11 PGA (gain bits PB9 / PD15, output → some ADC
+channel still TBD); enabling it is a separate bench investigation.
+
+Updated channel roles:
+
+| ADC pin | Rank name (legacy) | Actual role | Populated? | Notes |
+| -- | -- | -- | -- | -- |
+| PA2 | `ADC_RANK_AC` | Gun-cable / J1772-handle NTC | Yes | "Second NTC" by OEM intent |
+| PA3 | `ADC_RANK_NTC1` | Wall-plug end NTC | Yes | "First NTC" by OEM intent |
+| PB0 | `ADC_RANK_NTC2` | Probably AC-mains-presence sense | No (not a thermistor) | Reads 565..686 raw with mains; ungated detector still TBD |
+| PC0 | `ADC_RANK_CT` | CT secondary (after U11?) | TBD | V/I sensing via U11 not yet wired |
+| PC1 | `ADC_RANK_LCT` | CT secondary (load CT?) | TBD | Same — needs U11 init + cal |
+| PA7 | `ADC_RANK_CC` | J1772 CC sense | Yes | Mapping to A unvalidated |
+
+Renames pending future commit (wide blast radius — `ADC_RANK_AC`
+referenced across boot self-test + comms parse offsets):
+- `ADC_RANK_AC` → `ADC_RANK_NTC_GUN`
+- `ac_adc_raw` → `gun_ntc_adc_raw` (FC41D side already done)
+
+The OVER_TEMP detector currently checks PA3 (NTC1) only. PA2 (gun
+NTC) is the more safety-critical of the two — it's the cable + plug
+that physically gets hot under load — and should be added to the
+detector once the in-flight `core/over_temp.c` refactor lands. See
+TODO at the bottom.
 
 ---
 
@@ -17,7 +50,7 @@ Last updated: 2026-05-03.
 | `FAULT_CRASH_LOOP_SAFE_FAIL` | ≥ N watchdog resets in window | EVSE_FAULT, latched | `persist/crash_state.c`, `safety_task::check_safe_fail` |
 | `FAULT_CP_NO_PILOT` | J1772 state E sustained 60 ms | EVSE_FAULT, latched | `safety_task::check_cp_e` |
 | `FAULT_BOOT_SELF_TEST` | ADC sanity / relay-open / CP-A floor at boot | EVSE_FAULT, latched | `safety_task::run_boot_self_test` |
-| `FAULT_OVER_TEMP` | Per-channel NTC raw ≤ trip threshold sustained 100 ms (5 ticks) | EVSE_FAULT, self-clearing with 10 °C hyst | `safety_task::check_over_temp`. NTC1 on by default; NTC2 off (gun thermistor). Build-time toggle: `OPENBHZD_NTC{1,2}_PRESENT`. |
+| `FAULT_OVER_TEMP` | Per-channel NTC raw ≤ trip threshold sustained 100 ms (5 ticks) | EVSE_FAULT, self-clearing with 10 °C hyst | `safety_task::check_over_temp`. NTC1 (PA3, wall-plug NTC) on by default; NTC2 (PB0, non-thermistor) masked off. **TODO**: also wire PA2 (gun NTC, currently named `ADC_RANK_AC`) into the detector — the gun is the more safety-critical of the two channels. |
 | Hardware force-open latch | EVSE_FAULT entry | PB12 HIGH → contactor latched open | UL2231-style redundancy against PE12 driver failure. `relay_force_open_latch()`. |
 | User pause/resume | Top button or FC41D TLV `REQUEST_STOP/_RESUME` | EVSE_USER_PAUSED | Spec § 4.2; FC41D and physical button share the inbox path. |
 | CP idle-high in USER_PAUSED, state-F in FAULT | EVSE state machine | CP output | `safety_task::apply_cp_for_state` |
@@ -78,24 +111,31 @@ to lift the gate. **Order roughly tracks production-blocker priority.**
 
 ### `FAULT_HARD_OVER_CURRENT` / `FAULT_SOFT_OVER_CURRENT` — gated
 
-- **Why gated:** CT secondary on PC0/PC1 is unconverted to amps. No
-  base offset, no scale, no linearity check. Enabling at any
-  threshold without calibration false-trips immediately or, worse,
-  silently misses real overcurrent.
-- **Bench needed:** Inject known currents (e.g. 0 A, 16 A, 32 A,
-  48 A) through the primary at the bench, capture PC0/PC1 raw. Fit
-  scale + offset; verify linearity. Decide soft-trip threshold
-  (= advertised amps × 1.10, say) and hard-trip (≥ 60 A).
-- **Enable:** Land calibration (similar to mains-voltage path).
-  Update `system_state.active_amps_x10`; add detector that compares
-  active vs `effective_advertised_amps()` × tolerance.
+- **Why gated:** CT secondary on PC0/PC1 routes through the U11 PGA
+  (gain-select bits PB9 / PD15) before reaching an ADC. U11 is not
+  yet initialised, the gain register is unknown, and the
+  raw → amps mapping is uncalibrated. Enabling at any threshold
+  without all three false-trips immediately or, worse, silently
+  misses real overcurrent.
+- **Bench needed:** (1) probe / scope U11 to identify part number +
+  gain-config protocol, (2) inject known currents (e.g. 0 A, 16 A,
+  32 A, 48 A) through the primary, capture PC0/PC1 raw at each
+  configured gain, (3) fit scale + offset; verify linearity. Decide
+  soft-trip threshold (= advertised amps × 1.10, say) and hard-trip
+  (≥ 60 A).
+- **Enable:** Add `hal/u11.{c,h}` for the PGA, land calibration
+  in `boot_config`. Update `system_state.active_amps_x10`; add
+  detector that compares active vs `effective_advertised_amps()` ×
+  tolerance.
 
 ### `FAULT_AC_ABSENT` — gated
 
 - **Why gated:** PB0 (NTC2 channel) is the strongest candidate for
   AC-mains-presence sense — reads 565..686 raw with mains live, ?
   without. Threshold + hysteresis are unknown until the bench is
-  re-probed with mains explicitly cycled.
+  re-probed with mains explicitly cycled. NB: V/I sensing on this
+  PCB does NOT route through PB0 — that's via the U11 PGA on
+  PC0/PC1 (see HARD_OVER_CURRENT above).
 - **Bench needed:** Toggle bench AC supply on/off; capture PB0 raw
   in both states. Fit a hysteresis band. Verify the signal is
   rectified L1 upstream of the contactor (so it survives contactor

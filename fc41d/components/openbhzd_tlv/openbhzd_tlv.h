@@ -84,9 +84,13 @@ struct StateReport {
   uint32_t fault_active_bits{0};
   uint32_t first_fault_id{0};
   uint32_t session_mwh{0};
-  uint16_t ac_adc_raw{0};       // PA2 ADC rank 0; calibrate to V via YAML filter
-  uint16_t ntc1_adc_raw{0};     // PA3; °C conversion deferred until NTC part is known
-  uint16_t ntc2_adc_raw{0};     // PB0; same caveat
+  // Channel-role correction 2026-05-03: PA2 is the gun-cable NTC,
+  // not mains voltage; PA3 is the wall-plug NTC; PB0 is NOT a
+  // thermistor (AC-presence sense — see MCU pin_map.h). Field name
+  // ac_adc_raw was the early misnomer; semantic role is gun NTC.
+  uint16_t gun_ntc_adc_raw{0};  // PA2 ADC rank 0 — gun-cable NTC raw
+  uint16_t ntc1_adc_raw{0};     // PA3 — wall-plug NTC raw
+  uint16_t ntc2_adc_raw{0};     // PB0 — non-thermistor; raw exposed for diag
   bool valid{false};
 };
 
@@ -143,9 +147,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_evse_state_code_sensor(sensor::Sensor *s) { evse_state_code_sensor_ = s; }
   void set_j1772_state_code_sensor(sensor::Sensor *s) { j1772_state_code_sensor_ = s; }
   void set_fault_count_sensor(sensor::Sensor *s) { fault_count_sensor_ = s; }
-  void set_ac_adc_raw_sensor(sensor::Sensor *s) { ac_adc_raw_sensor_ = s; }
-  void set_mains_voltage_sensor(sensor::Sensor *s) { mains_voltage_sensor_ = s; }
-  void set_mains_voltage_scale(float scale) { mains_voltage_scale_ = scale; }
+  void set_gun_ntc_adc_raw_sensor(sensor::Sensor *s) { gun_ntc_adc_raw_sensor_ = s; }
+  void set_gun_ntc_temp_sensor(sensor::Sensor *s) { gun_ntc_temp_sensor_ = s; }
   void set_ntc1_adc_raw_sensor(sensor::Sensor *s) { ntc1_adc_raw_sensor_ = s; }
   void set_ntc2_adc_raw_sensor(sensor::Sensor *s) { ntc2_adc_raw_sensor_ = s; }
 #endif
@@ -225,9 +228,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *evse_state_code_sensor_{nullptr};
   sensor::Sensor *j1772_state_code_sensor_{nullptr};
   sensor::Sensor *fault_count_sensor_{nullptr};
-  sensor::Sensor *ac_adc_raw_sensor_{nullptr};
-  sensor::Sensor *mains_voltage_sensor_{nullptr};
-  float mains_voltage_scale_{0.0f};   // V per raw ADC count; 0 = use rough default
+  sensor::Sensor *gun_ntc_adc_raw_sensor_{nullptr};
+  sensor::Sensor *gun_ntc_temp_sensor_{nullptr};
   sensor::Sensor *ntc1_adc_raw_sensor_{nullptr};
   sensor::Sensor *ntc2_adc_raw_sensor_{nullptr};
 #endif

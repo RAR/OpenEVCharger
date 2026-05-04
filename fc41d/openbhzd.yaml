@@ -103,40 +103,43 @@ sensor:
     fault_count:
       name: "Active Faults"
       entity_category: diagnostic
-    # Phase-1 mains voltage proxy: PA2 ADC raw scaled to V. Default
-    # scale 0.0587 V/count was estimated from raw≈2043 at 120 V on
-    # this bench unit; tune `mains_voltage_scale:` after observing
-    # `ac_adc_raw` against a known mains reading. NOT RMS — this is
-    # a single-sample readout. Real RMS will replace this once the
-    # injected-channel sampler lands on the MCU.
-    ac_adc_raw:
-      name: "AC ADC Raw"
+    # PA2 — gun-cable / J1772-handle NTC. Channel was originally
+    # mislabelled "AC mains voltage" until a 2026-05-03 bench
+    # experiment (grounding the front-block NTC pin) zeroed PA2,
+    # confirming it as the gun thermistor. The earlier
+    # "Fluke @ 123.9 V → 0.06151 V/count" calibration was a
+    # coincidence — disconnected NTC pin floated at a value that
+    # multiplied to a plausible mains number. Real V/I sensing on
+    # this PCB likely runs through the U11 PGA (PB9/PD15 gain
+    # bits) and is not yet wired up.
+    gun_ntc_adc_raw:
+      name: "Gun NTC ADC Raw"
       entity_category: diagnostic
-    mains_voltage:
-      name: "Mains Voltage"
-    # Calibrated 2026-05-03 against Fluke @ 123.9 V; raw≈2014 → 0.06151 V/count.
-    mains_voltage_scale: 0.06151
-    # NTC raw counts only (no °C conversion yet — bench has no NTCs
-    # populated, and we haven't pinned the thermistor part on a
-    # production unit). Bench expectations: ntc1 ~ 2050 (PA3 floating
-    # ~1.7 V), ntc2 ~ 0 (PB0 grounded). Real units with NTCs fitted
-    # should show 4095 / (1 + R_pull/R_ntc) at the divider.
+    gun_ntc_temp:
+      name: "Gun NTC Temperature"
+    # PA3 — wall-plug end NTC (incoming-AC-side cable thermistor).
+    # Both gun + wall-plug NTC wires terminate at the front-block
+    # connector for assembly convenience.
     ntc1_adc_raw:
-      name: "NTC1 ADC Raw"
+      name: "Wall-Plug NTC ADC Raw"
       entity_category: diagnostic
+    # PB0 — NOT a thermistor. Likely AC-mains-presence sense; raw
+    # exposed for diagnostics only. The °C entity reading is
+    # meaningless for a non-NTC source but kept so a future
+    # hardware revision repurposing the pin would surface it.
     ntc2_adc_raw:
-      name: "NTC2 ADC Raw"
+      name: "NTC2 ADC Raw (diag)"
       entity_category: diagnostic
-    # °C computed FC41D-side from raw via β-model. Defaults
-    # (β=3380, R0=10k @ 25 °C, R_pull=10k pulldown) match the bench
-    # NTC1 anchor (raw≈2050 ↔ 23.9 °C / 75 °F, 2026-05-03). Re-fit
-    # β on a populated production unit by anchoring two points.
-    # NaN (= unpopulated) is not published, so HA will show the
-    # last-known value rather than a misleading 0.
+    # °C computed FC41D-side via β-model (R_pull=10 kΩ pulldown,
+    # R0=10 kΩ at 25 °C, β=3380). Bench-anchored 2026-05-03 against
+    # ntc1 raw≈2050 ↔ 23.9 °C / 75 °F. Re-fit β on a populated
+    # production unit at two anchor points. NaN (unpopulated guard
+    # band) is not published — HA shows last-known instead of 0.
     ntc1_temp:
-      name: "NTC1 Temperature"
+      name: "Wall-Plug Temperature"
     ntc2_temp:
-      name: "NTC2 Temperature"
+      name: "NTC2 Temperature (diag, non-NTC)"
+      entity_category: diagnostic
     evse_state_code:
       name: "EVSE State Code"
       entity_category: diagnostic

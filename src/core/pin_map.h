@@ -32,11 +32,31 @@
 #define PIN_USART1_RX_PIN       GPIO_PIN_6
 #define PIN_USART1_RCU          RCU_GPIOD
 
-/* ----- ADC analog inputs (rank order matches DMA buffer layout) ----- */
+/* ----- ADC analog inputs (rank order matches DMA buffer layout) -----
+ *
+ * Channel-role correction 2026-05-03 evening: bench experiment
+ * (grounding the gun-side connector NTC pin) confirmed PA2 is the
+ * GUN-cable thermistor, not mains AC voltage. Names PIN_ADC_AC_*
+ * are kept for now (wide blast radius — ADC_RANK_AC is referenced
+ * across safety_task / boot self-test / FC41D parse offsets) but
+ * the SEMANTIC role per the OEM's intent is:
+ *   PA2  (rank 0, "AC")    = gun-cable NTC thermistor (populated,
+ *                             10 kΩ, β≈3380 working assumption)
+ *   PA3  (rank 1, "NTC1")  = wall-plug NTC thermistor (populated)
+ *   PB0  (rank 7, "NTC2")  = unknown / probably AC-mains-presence
+ *                             sense (reads 565..686 raw with mains;
+ *                             stays in that band regardless of relay
+ *                             state — see relay.h note). NOT a
+ *                             thermistor; OPENBHZD_NTC2_PRESENT=0.
+ * Earlier "mains voltage from PA2" calibration (V/count=0.06151
+ * against a Fluke @ 123.9 V) was coincidence — the unpopulated NTC
+ * pin happened to float-rail near 1.7 V which scaled to a plausible
+ * mains number. With the cable plugged in, PA2 follows the gun NTC
+ * divider (R_pull=10 kΩ ↔ R_ntc on front-block "NTC" pin). */
 #define PIN_ADC_AC_PORT         GPIOA
-#define PIN_ADC_AC_PIN          GPIO_PIN_2     /* rank 0, ch 2  */
+#define PIN_ADC_AC_PIN          GPIO_PIN_2     /* rank 0, ch 2 — GUN NTC */
 #define PIN_ADC_NTC1_PORT       GPIOA
-#define PIN_ADC_NTC1_PIN        GPIO_PIN_3     /* rank 1, ch 3  */
+#define PIN_ADC_NTC1_PIN        GPIO_PIN_3     /* rank 1, ch 3 — WALL-PLUG NTC */
 #define PIN_ADC_CT_PORT         GPIOC
 #define PIN_ADC_CT_PIN          GPIO_PIN_0     /* rank 2, ch 10 */
 #define PIN_ADC_LCT_PORT        GPIOC
@@ -47,17 +67,20 @@
 #define PIN_ADC_CC_PIN          GPIO_PIN_7     /* rank 5, ch 7  */
 #define PIN_ADC_PE_PORT         GPIOC
 #define PIN_ADC_PE_PIN          GPIO_PIN_5     /* rank 6, ch 15 */
-/* PB0: still labelled NTC2 in pin map. A 2026-05-03 morning probe
- * briefly suggested PB0 was the contactor closed-feedback (jumped
- * 0 → 524 raw on PE12 toggle), but a more thorough afternoon
- * sequence showed PB0 stays in the 565-686 raw range across ALL
- * combinations of PE12 + PB12 / open + closed contactor. Likely an
- * AC-mains-presence sense (rectified L1 upstream of the contactor),
- * NOT relay-state. There is no known closed-feedback sense on this
- * board — weld / stuck-open detection is currently blind, gated off
- * via OPENBHZD_RELAY_FEEDBACK_KNOWN until a real sense is found. */
+/* PB0: name "NTC2" is a misnomer carried over from early bring-up.
+ * Bench experiments rule out both interpretations originally tried:
+ *   - NOT a thermistor: bench-grounding the gun-block NTC pins zeros
+ *     PA2 / PA3, NOT PB0 (those are the real two thermistor channels).
+ *   - NOT contactor closed-feedback: a 2026-05-03 morning probe
+ *     showed a jump 0 → 524 on PE12 toggle, but a more thorough
+ *     afternoon sequence showed PB0 stays 565..686 raw across ALL
+ *     combinations of PE12 + PB12 / open + closed contactor.
+ * Most likely an AC-mains-presence sense (rectified L1 upstream of
+ * the contactor). Closed-feedback is therefore still UNKNOWN; weld /
+ * stuck-open detection is gated off via OPENBHZD_RELAY_FEEDBACK_KNOWN
+ * until the real sense pin is found. */
 #define PIN_ADC_NTC2_PORT       GPIOB
-#define PIN_ADC_NTC2_PIN        GPIO_PIN_0     /* rank 7, ch 8; AC-presence */
+#define PIN_ADC_NTC2_PIN        GPIO_PIN_0     /* rank 7, ch 8 — AC-presence (likely) */
 #define PIN_ADC_UNUSED_PORT     GPIOB
 #define PIN_ADC_UNUSED_PIN      GPIO_PIN_1     /* rank 8, ch 9  */
 #define PIN_ADC_BTN_PORT        GPIOC
