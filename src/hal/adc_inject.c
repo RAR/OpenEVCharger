@@ -11,7 +11,19 @@ void adc_inject_init(void)
      * separate registers so we configure it on top of the running scan. */
 
     adc_channel_length_config(ADC0, ADC_INSERTED_CHANNEL, 1U);
-    adc_inserted_channel_config(ADC0, 0U, ADC_CHANNEL_4, ADC_SAMPLETIME_28POINT5);
+    /* Sample time: 239.5 ADC clocks @ 10 MHz ≈ 24 µs S&H window. The
+     * 28.5-cycle (~3 µs) default was sampling at the PWM rising edge
+     * before CP had settled in the no-load case (bench: bare wires,
+     * no plug). State C with an 882 Ω clamp settles in ~1 µs because
+     * the clamp limits the rise excursion (-12V → +6V); state A or B
+     * with no clamp must swing the full -12V → +12V into nothing
+     * but the read divider's capacitance, which is much slower. The
+     * symptom: cp_high reads ~9.9 V (= 82 % of true peak) once the
+     * advertise PWM starts, and never recovers to 12 V even when
+     * the wire is fully disconnected — trapping the classifier in
+     * state B. 24 µs is well within the PWM period (1 ms) and lets
+     * the S&H cap track the rising edge of CP all the way to peak. */
+    adc_inserted_channel_config(ADC0, 0U, ADC_CHANNEL_4, ADC_SAMPLETIME_239POINT5);
 
     adc_external_trigger_source_config(ADC0, ADC_INSERTED_CHANNEL,
                                        ADC0_1_EXTTRIG_INSERTED_T0_TRGO);

@@ -75,9 +75,21 @@ void cp_pwm_set_advertise_amps(uint8_t amps)
         cp_pwm_set_idle_high();
         return;
     }
+    /* J1772 / IEC 61851-1 PWM-duty ↔ advertised current map:
+     *   duty_pct =  10..85 %   →  amps = duty × 0.6   (so duty = amps / 0.6)
+     *   duty_pct =  85..96 %   →  amps = (duty − 64) × 2.5
+     *
+     * Earlier formula `amps * 6 / 10` was the INVERSE of the spec —
+     * it produced amps × 0.6 instead of amps / 0.6, advertising 48 A
+     * as 28 % duty instead of 80 %. Bench-confirmed via multimeter
+     * (no-load CP averaging −5.9 V instead of the expected +7 V at
+     * 80 % high; an EV would have charged at ~17 A, not 48 A).
+     *
+     * Use *10/6 (= /0.6) for the lower branch. The upper branch
+     * (`amps * 10 / 25 + 64` = amps/2.5 + 64) was already correct. */
     uint32_t duty_pct;
     if (amps <= 51) {
-        duty_pct = ((uint32_t)amps * 6U) / 10U;
+        duty_pct = ((uint32_t)amps * 10U) / 6U;
     } else {
         duty_pct = ((uint32_t)amps * 10U) / 25U + 64U;
     }
