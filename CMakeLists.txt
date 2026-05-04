@@ -81,6 +81,7 @@ set(APP_SRCS
     src/persist/event_log.c
     src/persist/session_log.c
     src/persist/crash_state.c
+    src/persist/rfid_authlist.c
     src/proto/tlv.c
     src/ui/buttons.c
     src/ui/buzzer.c

@@ -19,6 +19,7 @@ CONF_AC_PRESENT = "ac_present"
 CONF_FAULT_ACTIVE = "fault_active"
 CONF_CONTACTOR_CMD = "contactor_cmd"
 CONF_RFID_PRESENT = "rfid_present"
+CONF_RFID_LAST_ACCEPTED = "rfid_last_accepted"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -40,6 +41,7 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_CONTACTOR_CMD): binary_sensor.binary_sensor_schema(),
         cv.Optional(CONF_RFID_PRESENT): binary_sensor.binary_sensor_schema(),
+        cv.Optional(CONF_RFID_LAST_ACCEPTED): binary_sensor.binary_sensor_schema(),
     }
 )
 
@@ -51,6 +53,7 @@ _SETTERS = {
     CONF_FAULT_ACTIVE: "set_fault_active_bsensor",
     CONF_CONTACTOR_CMD: "set_contactor_cmd_bsensor",
     CONF_RFID_PRESENT: "set_rfid_present_bsensor",
+    CONF_RFID_LAST_ACCEPTED: "set_rfid_last_accepted_bsensor",
 }
 
 

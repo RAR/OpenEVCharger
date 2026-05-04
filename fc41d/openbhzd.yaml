@@ -186,6 +186,9 @@ sensor:
     # the same value in colon-formatted form.
     last_rfid_uid:
       name: "Last RFID UID Number"
+    rfid_authlist_count:
+      name: "RFID Authorized Tags"
+      entity_category: diagnostic
     # Per-chassis raw → engineering scales.
     #
     # Voltage: bench-anchored 2026-05-04 — Fluke reads 123.9 V when
@@ -237,6 +240,8 @@ binary_sensor:
       entity_category: diagnostic
     rfid_present:
       name: "RFID Card Present"
+    rfid_last_accepted:
+      name: "RFID Last Tag Accepted"
 
 text_sensor:
   - platform: openbhzd_tlv
@@ -251,6 +256,10 @@ text_sensor:
       entity_category: diagnostic
     last_rfid_uid:
       name: "Last RFID UID"
+    last_auth_result:
+      name: "RFID Last Auth Result"
+    last_rejected_uid:
+      name: "RFID Last Rejected UID"
 
   - platform: debug
     reset_reason:
@@ -298,6 +307,18 @@ button:
     push_bl0939_cal:
       name: "Push BL0939 Calibration"
       entity_category: config
+    # Arm one-shot RFID learn mode. Within 30 s, the next swiped UID
+    # gets added to the W25Q-persisted authorized list. Subsequent
+    # swipes of authorized tags toggle pause/resume on the EVSE.
+    rfid_learn_next:
+      name: "Learn Next RFID UID"
+      entity_category: config
+    rfid_clear_list:
+      name: "Clear RFID Authorized List"
+      entity_category: config
+    rfid_get_list:
+      name: "Refresh RFID List"
+      entity_category: diagnostic
 
 # P24 drives a status LED on the FC41D module (identified 2026-05-04 by
 # wiggle-test on P10/P22/P23/P24). ESPHome's status_led semantic: blinks

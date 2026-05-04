@@ -58,6 +58,7 @@ void OpenbhzdTlv::setup() {
   send_get_build_info();
   send_get_state();
   send_get_lifetime_kwh();
+  send_rfid_get_list();
 }
 
 void OpenbhzdTlv::loop() {
@@ -400,6 +401,76 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       }
       break;
 
+    case EVT_RFID_AUTH_RESULT: {
+      // Payload: u32 uid (LE) + u8 result.
+      if (plen < 5) break;
+      uint32_t uid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                     (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      uint8_t result = p[4];
+      last_rfid_auth_uid_ = uid;
+      last_rfid_auth_result_ = result;
+      const char *label = "?";
+      bool accepted = false;
+      bool rejected = false;
+      switch (result) {
+        case RFID_AUTH_RESULT_LEARNED:        label = "learned";        accepted = true; break;
+        case RFID_AUTH_RESULT_START:          label = "start";          accepted = true; break;
+        case RFID_AUTH_RESULT_STOP:           label = "stop";           accepted = true; break;
+        case RFID_AUTH_RESULT_MATCHED_NOOP:   label = "matched-noop";   accepted = true; break;
+        case RFID_AUTH_RESULT_REJECTED:       label = "rejected";       rejected = true; break;
+        case RFID_AUTH_RESULT_LIST_FULL:      label = "list-full";      rejected = true; break;
+      }
+      char hex[12];
+      snprintf(hex, sizeof(hex), "%02X:%02X:%02X:%02X",
+               uint8_t(uid >> 24), uint8_t(uid >> 16),
+               uint8_t(uid >> 8),  uint8_t(uid));
+      ESP_LOGI(TAG, "RFID auth uid=%s -> %s", hex, label);
+#ifdef USE_BINARY_SENSOR
+      if (rfid_last_accepted_bsensor_) rfid_last_accepted_bsensor_->publish_state(accepted);
+#endif
+#ifdef USE_TEXT_SENSOR
+      if (last_auth_result_tsensor_) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%s %s", hex, label);
+        last_auth_result_tsensor_->publish_state(buf);
+      }
+      if (rejected && last_rejected_uid_tsensor_) {
+        last_rejected_uid_str_ = std::string(hex);
+        last_rejected_uid_tsensor_->publish_state(last_rejected_uid_str_);
+      }
+#endif
+      // Refresh authlist count after a learn — the count just bumped by 1.
+      if (result == RFID_AUTH_RESULT_LEARNED) {
+        send_rfid_get_list();
+      }
+      break;
+    }
+
+    case EVT_RFID_LIST_ENTRY: {
+      // Payload: u8 idx + u8 count + u32 uid LE.
+      if (plen < 6) break;
+      uint8_t idx = p[0];
+      uint8_t count = p[1];
+      uint32_t uid = uint32_t(p[2]) | (uint32_t(p[3]) << 8) |
+                     (uint32_t(p[4]) << 16) | (uint32_t(p[5]) << 24);
+      ESP_LOGD(TAG, "rfid_list[%u/%u] uid=%08X", idx, count, (unsigned) uid);
+      rfid_authlist_count_ = count;
+      break;
+    }
+
+    case EVT_RFID_LIST_END: {
+      if (plen >= 1) {
+        rfid_authlist_count_ = p[0];
+        ESP_LOGD(TAG, "rfid_list_end count=%u", p[0]);
+#ifdef USE_SENSOR
+        if (rfid_authlist_count_sensor_) {
+          rfid_authlist_count_sensor_->publish_state(float(rfid_authlist_count_));
+        }
+#endif
+      }
+      break;
+    }
+
     case EVT_RFID_SWIPE: {
       // Payload: u32 uid (LE) + u8 present.
       if (plen < 5) break;
@@ -704,6 +775,35 @@ uint8_t OpenbhzdTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib, in
   return s;
 }
 
+uint8_t OpenbhzdTlv::send_rfid_learn_next() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_RFID_LEARN_NEXT, s, nullptr, 0);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_rfid_clear_list() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_RFID_CLEAR_LIST, s, nullptr, 0);
+  // Refresh count after the MCU processes the clear.
+  send_rfid_get_list();
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_rfid_get_list() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_RFID_GET_LIST, s, nullptr, 0);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_rfid_remove_uid(uint32_t uid) {
+  uint8_t s = next_seq_();
+  uint8_t buf[4] = {uint8_t(uid), uint8_t(uid >> 8),
+                    uint8_t(uid >> 16), uint8_t(uid >> 24)};
+  send_frame_(CMD_RFID_REMOVE_UID, s, buf, 4);
+  send_rfid_get_list();
+  return s;
+}
+
 uint8_t OpenbhzdTlv::send_write_bl0939_cal_from_yaml() {
 #ifdef USE_SENSOR
   auto clamp_i16 = [](int32_t v) -> int16_t {
@@ -833,6 +933,9 @@ void OpenbhzdTlvButton::press_action() {
     case ButtonAction::GET_LIFETIME_KWH: parent_->send_get_lifetime_kwh(); break;
     case ButtonAction::BUZZER_BEEP: parent_->send_buzzer_beep(buzzer_ms_); break;
     case ButtonAction::PUSH_BL0939_CAL: parent_->send_write_bl0939_cal_from_yaml(); break;
+    case ButtonAction::RFID_LEARN_NEXT: parent_->send_rfid_learn_next(); break;
+    case ButtonAction::RFID_CLEAR_LIST: parent_->send_rfid_clear_list(); break;
+    case ButtonAction::RFID_GET_LIST: parent_->send_rfid_get_list(); break;
   }
 }
 #endif

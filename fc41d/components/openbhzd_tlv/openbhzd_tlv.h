@@ -52,6 +52,10 @@ static constexpr uint8_t CMD_BUZZER_BEEP = 0x0B;
 static constexpr uint8_t CMD_GET_BUILD_INFO = 0x0C;
 static constexpr uint8_t CMD_GET_DEVICE_ID = 0x0D;
 static constexpr uint8_t CMD_WRITE_BL0939_CAL = 0x0E;
+static constexpr uint8_t CMD_RFID_LEARN_NEXT = 0x0F;
+static constexpr uint8_t CMD_RFID_REMOVE_UID = 0x10;
+static constexpr uint8_t CMD_RFID_CLEAR_LIST = 0x11;
+static constexpr uint8_t CMD_RFID_GET_LIST = 0x12;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -68,6 +72,17 @@ static constexpr uint8_t EVT_LIFETIME_KWH = 0x8A;
 static constexpr uint8_t EVT_BUILD_INFO = 0x8C;
 static constexpr uint8_t EVT_DEVICE_ID = 0x8D;
 static constexpr uint8_t EVT_RFID_SWIPE = 0x8E;
+static constexpr uint8_t EVT_RFID_AUTH_RESULT = 0x8F;
+static constexpr uint8_t EVT_RFID_LIST_ENTRY = 0x90;
+static constexpr uint8_t EVT_RFID_LIST_END = 0x91;
+
+// RFID auth-result codes (mirror src/proto/commands.h).
+static constexpr uint8_t RFID_AUTH_RESULT_LEARNED = 0;
+static constexpr uint8_t RFID_AUTH_RESULT_START = 1;
+static constexpr uint8_t RFID_AUTH_RESULT_STOP = 2;
+static constexpr uint8_t RFID_AUTH_RESULT_MATCHED_NOOP = 3;
+static constexpr uint8_t RFID_AUTH_RESULT_REJECTED = 4;
+static constexpr uint8_t RFID_AUTH_RESULT_LIST_FULL = 5;
 
 // Mirrors src/core/system_state.h. Keep in sync if the MCU schema changes.
 struct StateReport {
@@ -148,6 +163,10 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   // Calibration" button persist the YAML-configured values without
   // re-flashing the MCU.
   uint8_t send_write_bl0939_cal_from_yaml();
+  uint8_t send_rfid_learn_next();
+  uint8_t send_rfid_clear_list();
+  uint8_t send_rfid_get_list();
+  uint8_t send_rfid_remove_uid(uint32_t uid);
 
   // Cached state.
   const StateReport &state() const { return state_; }
@@ -158,6 +177,9 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   const std::string &last_rfid_uid_str() const { return last_rfid_uid_str_; }
   uint32_t last_rfid_uid_u32() const { return last_rfid_uid_u32_; }
   bool last_rfid_present() const { return last_rfid_present_; }
+  uint8_t rfid_authlist_count() const { return rfid_authlist_count_; }
+  uint8_t last_rfid_auth_result() const { return last_rfid_auth_result_; }
+  uint32_t last_rfid_auth_uid() const { return last_rfid_auth_uid_; }
   uint32_t state_age_ms() const;
 
 #ifdef USE_SENSOR
@@ -186,6 +208,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_active_power_sensor(sensor::Sensor *s) { active_power_sensor_ = s; }
   void set_mains_frequency_sensor(sensor::Sensor *s) { mains_frequency_sensor_ = s; }
   void set_last_rfid_uid_sensor(sensor::Sensor *s) { last_rfid_uid_sensor_ = s; }
+  void set_rfid_authlist_count_sensor(sensor::Sensor *s) { rfid_authlist_count_sensor_ = s; }
   // Per-chassis BL0939 raw → engineering-unit scales. Pulled from YAML
   // substitutions; default 0 = no conversion (raw-only mode).
   void set_bl0939_v_uv_per_raw(int32_t s) { bl0939_v_uv_per_raw_ = s; }
@@ -214,6 +237,11 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_rfid_present_bsensor(binary_sensor::BinarySensor *s) { rfid_present_bsensor_ = s; }
+  void set_rfid_last_accepted_bsensor(binary_sensor::BinarySensor *s) { rfid_last_accepted_bsensor_ = s; }
+#endif
+#ifdef USE_TEXT_SENSOR
+  void set_last_auth_result_text_sensor(text_sensor::TextSensor *s) { last_auth_result_tsensor_ = s; }
+  void set_last_rejected_uid_text_sensor(text_sensor::TextSensor *s) { last_rejected_uid_tsensor_ = s; }
 #endif
 
   // Sub-entity registry — number/button platforms call these in to_code().
@@ -287,6 +315,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *active_power_sensor_{nullptr};
   sensor::Sensor *mains_frequency_sensor_{nullptr};
   sensor::Sensor *last_rfid_uid_sensor_{nullptr};
+  sensor::Sensor *rfid_authlist_count_sensor_{nullptr};
   int32_t bl0939_v_uv_per_raw_{0};
   int32_t bl0939_ia_ua_per_raw_{0};
   int32_t bl0939_ib_ua_per_raw_{0};
@@ -300,6 +329,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   binary_sensor::BinarySensor *fault_active_bsensor_{nullptr};
   binary_sensor::BinarySensor *contactor_cmd_bsensor_{nullptr};
   binary_sensor::BinarySensor *rfid_present_bsensor_{nullptr};
+  binary_sensor::BinarySensor *rfid_last_accepted_bsensor_{nullptr};
 #endif
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *evse_state_tsensor_{nullptr};
@@ -307,10 +337,16 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   text_sensor::TextSensor *first_fault_tsensor_{nullptr};
   text_sensor::TextSensor *build_info_tsensor_{nullptr};
   text_sensor::TextSensor *last_rfid_uid_tsensor_{nullptr};
+  text_sensor::TextSensor *last_auth_result_tsensor_{nullptr};
+  text_sensor::TextSensor *last_rejected_uid_tsensor_{nullptr};
 #endif
   std::string last_rfid_uid_str_;
   uint32_t    last_rfid_uid_u32_{0};
   bool        last_rfid_present_{false};
+  uint8_t     rfid_authlist_count_{0};
+  uint8_t     last_rfid_auth_result_{0xFF};
+  uint32_t    last_rfid_auth_uid_{0};
+  std::string last_rejected_uid_str_;
 #ifdef USE_NUMBER
   std::vector<OpenbhzdTlvNumber *> numbers_;
 #endif
@@ -337,6 +373,9 @@ enum class ButtonAction : uint8_t {
   GET_LIFETIME_KWH,
   BUZZER_BEEP,
   PUSH_BL0939_CAL,
+  RFID_LEARN_NEXT,
+  RFID_CLEAR_LIST,
+  RFID_GET_LIST,
 };
 
 #ifdef USE_NUMBER

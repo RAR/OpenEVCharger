@@ -234,6 +234,43 @@ static void handle_write_bl0939_cal(const uint8_t *p, size_t plen)
     }
 }
 
+static void handle_rfid_learn_next(void)
+{
+    int rc = safety_request_rfid_learn();
+    if (rc != 0) {
+        printk("comms: RFID_LEARN_NEXT inbox post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_rfid_remove_uid(const uint8_t *p, size_t plen)
+{
+    if (plen < 4) return;
+    uint32_t uid = (uint32_t)p[0]        |
+                  ((uint32_t)p[1] <<  8) |
+                  ((uint32_t)p[2] << 16) |
+                  ((uint32_t)p[3] << 24);
+    int rc = persist_post_rfid_authlist_remove(uid);
+    if (rc != 0) {
+        printk("comms: RFID_REMOVE_UID persist post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_rfid_clear_list(void)
+{
+    int rc = persist_post_rfid_authlist_clear();
+    if (rc != 0) {
+        printk("comms: RFID_CLEAR_LIST persist post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_rfid_get_list(uint8_t seq)
+{
+    int rc = persist_post_rfid_authlist_get_list(seq);
+    if (rc != 0) {
+        printk("comms: RFID_GET_LIST persist post FAIL rc=%d\n", rc);
+    }
+}
+
 static void handle_request_stop(const uint8_t *p, size_t plen)
 {
     uint8_t reason = (plen >= 1) ? p[0] : 0u;
@@ -263,6 +300,10 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_WRITE_BL0939_CAL:      handle_write_bl0939_cal(payload, plen); break;
     case CMD_REQUEST_STOP:          handle_request_stop(payload, plen); break;
     case CMD_REQUEST_START_RESUME:  handle_request_start_resume(); break;
+    case CMD_RFID_LEARN_NEXT:       handle_rfid_learn_next(); break;
+    case CMD_RFID_REMOVE_UID:       handle_rfid_remove_uid(payload, plen); break;
+    case CMD_RFID_CLEAR_LIST:       handle_rfid_clear_list(); break;
+    case CMD_RFID_GET_LIST:         handle_rfid_get_list(seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

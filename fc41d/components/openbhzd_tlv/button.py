@@ -17,6 +17,9 @@ CONF_REFRESH_LIFETIME_KWH = "refresh_lifetime_kwh"
 CONF_BUZZER_BEEP = "buzzer_beep"
 CONF_BUZZER_MS = "buzzer_ms"
 CONF_PUSH_BL0939_CAL = "push_bl0939_cal"
+CONF_RFID_LEARN_NEXT = "rfid_learn_next"
+CONF_RFID_CLEAR_LIST = "rfid_clear_list"
+CONF_RFID_GET_LIST = "rfid_get_list"
 
 OpenbhzdTlvButton = openbhzd_tlv_ns.class_("OpenbhzdTlvButton", button.Button)
 ButtonAction = openbhzd_tlv_ns.enum("ButtonAction", is_class=True)
@@ -33,6 +36,9 @@ _FIELDS = {
     CONF_REFRESH_LIFETIME_KWH: "GET_LIFETIME_KWH",
     CONF_BUZZER_BEEP: "BUZZER_BEEP",
     CONF_PUSH_BL0939_CAL: "PUSH_BL0939_CAL",
+    CONF_RFID_LEARN_NEXT: "RFID_LEARN_NEXT",
+    CONF_RFID_CLEAR_LIST: "RFID_CLEAR_LIST",
+    CONF_RFID_GET_LIST: "RFID_GET_LIST",
 }
 
 # buzzer_beep takes an optional `buzzer_ms`.

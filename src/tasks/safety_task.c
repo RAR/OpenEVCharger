@@ -19,6 +19,7 @@
 #include "../persist/session_log.h"
 #include "../persist/boot_config.h"
 #include "../persist/calibration.h"
+#include "../persist/rfid_authlist.h"
 #include "../proto/commands.h"
 #include "../core/system_state.h"
 #include "persist_task.h"
@@ -32,6 +33,7 @@ typedef enum {
     SAFETY_REQ_CLEAR_FAULT = 0,
     SAFETY_REQ_USER_PAUSE,
     SAFETY_REQ_USER_RESUME,
+    SAFETY_REQ_RFID_LEARN_ARM,
 } safety_req_type_t;
 
 struct safety_req {
@@ -42,6 +44,11 @@ struct safety_req {
 };
 
 static QueueHandle_t s_safety_inbox;
+
+/* RFID learn-mode countdown. Set by SAFETY_REQ_RFID_LEARN_ARM, decremented
+ * by the swipe block each tick, cleared on capture. Single-writer
+ * (safety_task body) so no atomicity concerns. */
+static uint16_t s_rfid_learn_ticks = 0;
 
 /* Debounce: 3 consecutive same-band reads at safety_task's 50 Hz tick
  * = 60 ms. Matches spec § 3. */
@@ -82,6 +89,13 @@ static QueueHandle_t s_safety_inbox;
  * = 340 ms, close enough. The module is silent without our keepalive
  * (request/response, not auto-stream — see docs/mcu-re/rfid-protocol.md). */
 #define RFID_KEEPALIVE_TICKS  17U
+
+/* Learn-mode auto-disarm: after this many ticks the next swipe falls
+ * back to the lookup path. 1500 ticks @ 20 ms = 30 s — long enough for
+ * the user to walk over to the reader, short enough that a forgotten
+ * arm-and-walk-away can't quietly add a stranger's tag the next time
+ * someone swipes. */
+#define RFID_LEARN_TICKS  1500U
 
 /* BL0939-derived detector debounce. Each "tick" here is a successful
  * poll cycle, not a safety tick — so 3 means ~1.2 s sustained
@@ -670,6 +684,11 @@ int safety_request_resume(void)
     return post_safety_req(SAFETY_REQ_USER_RESUME, 0, 0);
 }
 
+int safety_request_rfid_learn(void)
+{
+    return post_safety_req(SAFETY_REQ_RFID_LEARN_ARM, 0, 0);
+}
+
 /* Apply one inbox entry. Returns the (possibly updated) EVSE state by
  * mutating *es. Emits TLV events on success. The streak ptr lets
  * the CLEAR_FAULT path reset cp_e_streak so the CP-settling window
@@ -747,6 +766,11 @@ static void process_request(struct safety_req *r,
             printk("safety: USER_RESUME ignored (state=%s)\n",
                    evse_state_name(*es));
         }
+        break;
+    case SAFETY_REQ_RFID_LEARN_ARM:
+        s_rfid_learn_ticks = RFID_LEARN_TICKS;
+        printk("safety: RFID learn-mode armed (%u ticks)\n",
+               (unsigned)RFID_LEARN_TICKS);
         break;
     default:
         printk("safety: unknown inbox req type=%u\n", (unsigned)r->type);
@@ -1276,7 +1300,9 @@ static void safety_task_run(void *arg)
          * Module is silent without the keepalive — confirmed at the
          * bench tap. Edge-detect new UID / removed-card transitions
          * and publish EVT_RFID_SWIPE so HA gets a one-shot event per
-         * swipe, not a stream. */
+         * swipe, not a stream. On a card-present edge, run the
+         * authorized-list lookup and either learn the new UID (if
+         * armed) or drive a start/stop based on EVSE state. */
         {
             uint8_t rx[RFID_FRAME_MAX_LEN * 2];
             size_t  got = rfid_rx_pop(rx, sizeof(rx));
@@ -1293,8 +1319,62 @@ static void safety_task_run(void *arg)
                     printk("RFID: %s uid=0x%08x\n",
                            a.present ? "swipe" : "removed",
                            (unsigned)a.uid);
+
+                    /* Authorize / learn / start / stop only on the
+                     * card-present edge. Lift-off is informational. */
+                    if (a.present && a.uid != 0u) {
+                        uint8_t result;
+                        if (s_rfid_learn_ticks > 0) {
+                            s_rfid_learn_ticks = 0;
+                            if (rfid_authlist_count() >= RFID_AUTHLIST_MAX) {
+                                result = RFID_AUTH_RESULT_LIST_FULL;
+                                printk("RFID: learn rejected — list full\n");
+                            } else {
+                                (void)persist_post_rfid_authlist_add(a.uid);
+                                result = RFID_AUTH_RESULT_LEARNED;
+                                printk("RFID: learned uid=0x%08x\n",
+                                       (unsigned)a.uid);
+                            }
+                        } else if (rfid_authlist_contains(a.uid)) {
+                            if (es == EVSE_CHARGING || es == EVSE_READY) {
+                                /* Toggle: charging-eligible → pause;
+                                 * paused or pre-charge → resume. The
+                                 * resume path is harmless if EVSE was
+                                 * already READY (transition is a no-op
+                                 * on same-state). */
+                                if (es == EVSE_CHARGING) {
+                                    (void)post_safety_req(
+                                        SAFETY_REQ_USER_PAUSE, 0xFFu, 0);
+                                    result = RFID_AUTH_RESULT_STOP;
+                                } else {
+                                    result = RFID_AUTH_RESULT_MATCHED_NOOP;
+                                }
+                            } else if (es == EVSE_USER_PAUSED) {
+                                (void)post_safety_req(
+                                    SAFETY_REQ_USER_RESUME, 0, 0);
+                                result = RFID_AUTH_RESULT_START;
+                            } else {
+                                result = RFID_AUTH_RESULT_MATCHED_NOOP;
+                            }
+                            printk("RFID: matched uid=0x%08x result=%u "
+                                   "(EVSE=%s)\n",
+                                   (unsigned)a.uid, (unsigned)result,
+                                   evse_state_name(es));
+                        } else {
+                            result = RFID_AUTH_RESULT_REJECTED;
+                            printk("RFID: rejected uid=0x%08x\n",
+                                   (unsigned)a.uid);
+                        }
+                        struct __attribute__((packed)) {
+                            uint32_t uid;
+                            uint8_t  result;
+                        } auth = { .uid = a.uid, .result = result };
+                        (void)comms_publish_event(EVT_RFID_AUTH_RESULT,
+                                                  &auth, sizeof auth);
+                    }
                 }
             }
+            if (s_rfid_learn_ticks > 0) --s_rfid_learn_ticks;
             if (++rfid_keepalive_div >= RFID_KEEPALIVE_TICKS) {
                 rfid_keepalive_div = 0;
                 rfid_send_keepalive();

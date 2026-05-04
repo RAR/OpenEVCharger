@@ -32,4 +32,10 @@ int safety_request_pause(uint8_t reason);
  * the next transition. */
 int safety_request_resume(void);
 
+/* Arm one-shot learn-mode: the next card-present RFID swipe gets added
+ * to the persisted authorized list (instead of going through the
+ * lookup → start/stop dispatch). Disarms automatically once a UID is
+ * captured, or after the timeout below. */
+int safety_request_rfid_learn(void);
+
 #endif

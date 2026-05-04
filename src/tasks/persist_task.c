@@ -5,6 +5,7 @@
 #include "../persist/crash_state.h"
 #include "../persist/boot_config.h"
 #include "../persist/calibration.h"
+#include "../persist/rfid_authlist.h"
 #include "../proto/commands.h"
 #include "../diag/stack_watch.h"
 #include <string.h>
@@ -18,6 +19,10 @@ typedef enum {
     PERSIST_REQ_BL0939_CAL,
     PERSIST_REQ_GET_FAULT_LOG,
     PERSIST_REQ_GET_LIFETIME_KWH,
+    PERSIST_REQ_RFID_AUTHLIST_ADD,
+    PERSIST_REQ_RFID_AUTHLIST_REMOVE,
+    PERSIST_REQ_RFID_AUTHLIST_CLEAR,
+    PERSIST_REQ_RFID_AUTHLIST_GET_LIST,
 } persist_req_type_t;
 
 struct __attribute__((packed)) cal_args {
@@ -47,7 +52,8 @@ struct persist_req {
         struct cal_args       cal;
         struct bl0939_cal_args bl0939_cal;
         struct get_fault_log_args fault_log;
-        uint8_t               seq;        /* for GET_LIFETIME_KWH */
+        uint8_t               seq;        /* for GET_LIFETIME_KWH / GET_LIST */
+        uint32_t              rfid_uid;   /* for AUTHLIST_ADD / REMOVE */
     } payload;
 };
 
@@ -143,6 +149,60 @@ int persist_post_get_lifetime_kwh(uint8_t seq)
     return post(&req);
 }
 
+int persist_post_rfid_authlist_add(uint32_t uid)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_RFID_AUTHLIST_ADD;
+    req.payload.rfid_uid = uid;
+    return post(&req);
+}
+
+int persist_post_rfid_authlist_remove(uint32_t uid)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_RFID_AUTHLIST_REMOVE;
+    req.payload.rfid_uid = uid;
+    return post(&req);
+}
+
+int persist_post_rfid_authlist_clear(void)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_RFID_AUTHLIST_CLEAR;
+    return post(&req);
+}
+
+int persist_post_rfid_authlist_get_list(uint8_t seq)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_RFID_AUTHLIST_GET_LIST;
+    req.payload.seq = seq;
+    return post(&req);
+}
+
+/* Walk the cached UID list and emit one EVT_RFID_LIST_ENTRY frame per
+ * UID, then a single EVT_RFID_LIST_END terminator. SPI3 isn't actually
+ * touched here (the list lives in RAM after rfid_authlist_load), but
+ * routing through persist_task keeps the publish logic next to its
+ * peers and avoids splitting the helper API. */
+static void handle_rfid_get_list(uint8_t seq)
+{
+    uint8_t count = rfid_authlist_count();
+    for (uint8_t i = 0; i < count; ++i) {
+        uint32_t uid = 0;
+        if (rfid_authlist_get_nth(i, &uid) != 0) continue;
+        struct __attribute__((packed)) {
+            uint8_t  idx;
+            uint8_t  count;
+            uint32_t uid;
+        } entry = { .idx = i, .count = count, .uid = uid };
+        (void)comms_publish_event_seq(EVT_RFID_LIST_ENTRY, seq,
+                                      &entry, sizeof entry);
+    }
+    (void)comms_publish_event_seq(EVT_RFID_LIST_END, seq,
+                                  &count, sizeof count);
+}
+
 /* Walk the event_log ring backwards from head, emit up to max_count
  * valid records as EVT_FAULT_LOG_ENTRY (one record per frame) with the
  * supplied response seq, then a single EVT_FAULT_LOG_END terminator.
@@ -231,6 +291,28 @@ static void persist_task_run(void *arg)
                 break;
             case PERSIST_REQ_GET_LIFETIME_KWH:
                 handle_get_lifetime_kwh(req.payload.seq);
+                break;
+            case PERSIST_REQ_RFID_AUTHLIST_ADD: {
+                int rc = rfid_authlist_add(req.payload.rfid_uid);
+                printk("rfid_authlist: add 0x%08x -> rc=%d (count=%u)\n",
+                       (unsigned)req.payload.rfid_uid, rc,
+                       (unsigned)rfid_authlist_count());
+                break;
+            }
+            case PERSIST_REQ_RFID_AUTHLIST_REMOVE: {
+                int rc = rfid_authlist_remove(req.payload.rfid_uid);
+                printk("rfid_authlist: remove 0x%08x -> rc=%d (count=%u)\n",
+                       (unsigned)req.payload.rfid_uid, rc,
+                       (unsigned)rfid_authlist_count());
+                break;
+            }
+            case PERSIST_REQ_RFID_AUTHLIST_CLEAR: {
+                int rc = rfid_authlist_clear();
+                printk("rfid_authlist: clear -> rc=%d\n", rc);
+                break;
+            }
+            case PERSIST_REQ_RFID_AUTHLIST_GET_LIST:
+                handle_rfid_get_list(req.payload.seq);
                 break;
             }
             s_overflow_warned = 0;

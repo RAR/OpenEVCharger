@@ -61,4 +61,13 @@ int persist_post_get_fault_log(uint8_t max_count, uint8_t seq);
  * as a single EVT_LIFETIME_KWH frame (u32 mWh, response `seq`). */
 int persist_post_get_lifetime_kwh(uint8_t seq);
 
+/* RFID authorized-list management. add/remove are routed through
+ * persist_task to keep SPI3 single-owner. clear empties the list.
+ * get_list walks the in-RAM cache and emits the EVT_RFID_LIST_ENTRY /
+ * EVT_RFID_LIST_END frames carrying response `seq`. */
+int persist_post_rfid_authlist_add(uint32_t uid);
+int persist_post_rfid_authlist_remove(uint32_t uid);
+int persist_post_rfid_authlist_clear(void);
+int persist_post_rfid_authlist_get_list(uint8_t seq);
+
 #endif

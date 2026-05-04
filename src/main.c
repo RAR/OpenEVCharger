@@ -20,6 +20,7 @@
 #include "persist/boot_count.h"
 #include "persist/boot_config.h"
 #include "persist/calibration.h"
+#include "persist/rfid_authlist.h"
 #include "persist/event_log.h"
 #include "persist/session_log.h"
 #include "persist/crash_state.h"
@@ -120,6 +121,9 @@ int main(void)
         }
         if (calibration_load() < 0) {
             printk("calibration: load failed; defaults active\n");
+        }
+        if (rfid_authlist_load() < 0) {
+            printk("rfid_authlist: load failed; auto-start disabled\n");
         }
 
         event_log_init();
