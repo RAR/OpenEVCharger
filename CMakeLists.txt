@@ -65,6 +65,7 @@ set(APP_SRCS
     src/hal/cp_pwm.c
     src/hal/relay.c
     src/hal/gfci.c
+    src/hal/bl0939.c
     src/hal/spi3.c
     src/hal/uart5.c
     src/hal/ws2812.c
@@ -162,6 +163,13 @@ endif()
 if(DEFINED OPENBHZD_REAL_120M_PLL)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_REAL_120M_PLL=${OPENBHZD_REAL_120M_PLL})
+endif()
+# One-shot bench probe: at boot, bit-bang the BL0939 SPI link and
+# log raw responses. Use to confirm SCLK/SDI/SDO wiring + that the
+# chip is alive before adding register-level protocol code.
+if(DEFINED OPENBHZD_BL0939_SMOKE)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_BL0939_SMOKE=${OPENBHZD_BL0939_SMOKE})
 endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.

@@ -84,6 +84,17 @@ int main(void)
     adc_inject_init();
     printk("CP injected ADC armed: PA4 sampled on each PWM rising edge\n");
 
+#if defined(OPENBHZD_BL0939_SMOKE) && OPENBHZD_BL0939_SMOKE
+    /* One-shot bench probe: bit-bang SPI to U11 (BL0939) and log
+     * what we get back. Pure observation; no protocol decoding yet.
+     * Enable with `cmake -DOPENBHZD_BL0939_SMOKE=1`. Default off so
+     * production builds don't waste boot time on the test. */
+    {
+        extern void bl0939_smoke_test(void);
+        bl0939_smoke_test();
+    }
+#endif
+
     spi3_init();
     if (w25q_init() != 0) {
         printk("W25Q: JEDEC init FAIL — boot_count not persisted\n");
