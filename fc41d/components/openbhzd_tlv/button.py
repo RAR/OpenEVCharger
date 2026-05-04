@@ -16,6 +16,7 @@ CONF_REFRESH_FAULT_LOG = "refresh_fault_log"
 CONF_REFRESH_LIFETIME_KWH = "refresh_lifetime_kwh"
 CONF_BUZZER_BEEP = "buzzer_beep"
 CONF_BUZZER_MS = "buzzer_ms"
+CONF_PUSH_BL0939_CAL = "push_bl0939_cal"
 
 OpenbhzdTlvButton = openbhzd_tlv_ns.class_("OpenbhzdTlvButton", button.Button)
 ButtonAction = openbhzd_tlv_ns.enum("ButtonAction", is_class=True)
@@ -31,6 +32,7 @@ _FIELDS = {
     CONF_REFRESH_FAULT_LOG: "GET_FAULT_LOG",
     CONF_REFRESH_LIFETIME_KWH: "GET_LIFETIME_KWH",
     CONF_BUZZER_BEEP: "BUZZER_BEEP",
+    CONF_PUSH_BL0939_CAL: "PUSH_BL0939_CAL",
 }
 
 # buzzer_beep takes an optional `buzzer_ms`.

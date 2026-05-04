@@ -20,6 +20,7 @@
 #define CMD_BUZZER_BEEP           0x0Bu
 #define CMD_GET_BUILD_INFO        0x0Cu
 #define CMD_GET_DEVICE_ID         0x0Du
+#define CMD_WRITE_BL0939_CAL      0x0Eu
 
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */

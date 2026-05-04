@@ -51,6 +51,7 @@ static constexpr uint8_t CMD_SET_LED_OVERRIDE = 0x0A;
 static constexpr uint8_t CMD_BUZZER_BEEP = 0x0B;
 static constexpr uint8_t CMD_GET_BUILD_INFO = 0x0C;
 static constexpr uint8_t CMD_GET_DEVICE_ID = 0x0D;
+static constexpr uint8_t CMD_WRITE_BL0939_CAL = 0x0E;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -137,6 +138,15 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t send_get_lifetime_kwh();
   uint8_t send_buzzer_beep(uint16_t ms);
   uint8_t send_set_led_override(uint8_t mode, uint8_t r, uint8_t g, uint8_t b);
+  uint8_t send_write_bl0939_cal(int16_t v_uv_per_raw,
+                                int16_t ia_ua_per_raw,
+                                int16_t ib_ua_per_raw,
+                                int16_t pa_mw_per_raw);
+  // Convenience: ship the four per-chassis scales already loaded from
+  // YAML over to the MCU. Clamps to int16 range. Lets HA "Push BL0939
+  // Calibration" button persist the YAML-configured values without
+  // re-flashing the MCU.
+  uint8_t send_write_bl0939_cal_from_yaml();
 
   // Cached state.
   const StateReport &state() const { return state_; }
@@ -311,6 +321,7 @@ enum class ButtonAction : uint8_t {
   GET_FAULT_LOG,
   GET_LIFETIME_KWH,
   BUZZER_BEEP,
+  PUSH_BL0939_CAL,
 };
 
 #ifdef USE_NUMBER

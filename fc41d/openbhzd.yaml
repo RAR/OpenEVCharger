@@ -281,6 +281,13 @@ button:
       name: "Buzzer Beep"
       buzzer_ms: 50
       entity_category: diagnostic
+    # Push the four bl0939_*_per_raw scales above to the MCU's W25Q
+    # calibration record. One-shot: change the YAML scale, OTA, then
+    # press this button — the next boot uses the new values without a
+    # re-flash. Idempotent on the MCU side (matching values are a no-op).
+    push_bl0939_cal:
+      name: "Push BL0939 Calibration"
+      entity_category: config
 
 wifi:
   ssid: !secret wifi_ssid

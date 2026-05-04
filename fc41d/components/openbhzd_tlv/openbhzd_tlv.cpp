@@ -649,6 +649,34 @@ uint8_t OpenbhzdTlv::send_set_led_override(uint8_t mode, uint8_t r, uint8_t g, u
   return s;
 }
 
+uint8_t OpenbhzdTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib, int16_t pa) {
+  uint8_t s = next_seq_();
+  uint8_t buf[8] = {
+      uint8_t(uint16_t(v)),       uint8_t(uint16_t(v) >> 8),
+      uint8_t(uint16_t(ia)),      uint8_t(uint16_t(ia) >> 8),
+      uint8_t(uint16_t(ib)),      uint8_t(uint16_t(ib) >> 8),
+      uint8_t(uint16_t(pa)),      uint8_t(uint16_t(pa) >> 8),
+  };
+  send_frame_(CMD_WRITE_BL0939_CAL, s, buf, 8);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_write_bl0939_cal_from_yaml() {
+#ifdef USE_SENSOR
+  auto clamp_i16 = [](int32_t v) -> int16_t {
+    if (v >  INT16_MAX) return INT16_MAX;
+    if (v <  INT16_MIN) return INT16_MIN;
+    return int16_t(v);
+  };
+  return send_write_bl0939_cal(clamp_i16(bl0939_v_uv_per_raw_),
+                               clamp_i16(bl0939_ia_ua_per_raw_),
+                               clamp_i16(bl0939_ib_ua_per_raw_),
+                               clamp_i16(bl0939_pa_mw_per_raw_));
+#else
+  return 0;
+#endif
+}
+
 // --- Helpers ------------------------------------------------------------
 
 uint16_t OpenbhzdTlv::crc16_ccitt_(const uint8_t *p, size_t n) {
@@ -761,6 +789,7 @@ void OpenbhzdTlvButton::press_action() {
     case ButtonAction::GET_FAULT_LOG: parent_->send_get_fault_log(16); break;
     case ButtonAction::GET_LIFETIME_KWH: parent_->send_get_lifetime_kwh(); break;
     case ButtonAction::BUZZER_BEEP: parent_->send_buzzer_beep(buzzer_ms_); break;
+    case ButtonAction::PUSH_BL0939_CAL: parent_->send_write_bl0939_cal_from_yaml(); break;
   }
 }
 #endif

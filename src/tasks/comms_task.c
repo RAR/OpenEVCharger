@@ -206,6 +206,34 @@ static void handle_write_calibration(const uint8_t *p, size_t plen)
     }
 }
 
+static void handle_write_bl0939_cal(const uint8_t *p, size_t plen)
+{
+    /* Payload (packed LE): 4× i16 = 8 B
+     *   i16 bl0939_v_uv_per_raw
+     *   i16 bl0939_ia_ua_per_raw
+     *   i16 bl0939_ib_ua_per_raw
+     *   i16 bl0939_pa_mw_per_raw
+     * 0 in any slot means "uncalibrated" — the detectors gated on
+     * IA scale stay silent and the FC41D-side engineering-unit
+     * sensors stay unpublished. */
+    if (plen < 8) {
+        printk("comms: WRITE_BL0939_CAL rejected (plen=%u <8)\n",
+               (unsigned)plen);
+        return;
+    }
+    int16_t v  = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+    int16_t ia = (int16_t)((uint16_t)p[2] | ((uint16_t)p[3] << 8));
+    int16_t ib = (int16_t)((uint16_t)p[4] | ((uint16_t)p[5] << 8));
+    int16_t pa = (int16_t)((uint16_t)p[6] | ((uint16_t)p[7] << 8));
+    int rc = persist_post_bl0939_cal(v, ia, ib, pa);
+    if (rc != 0) {
+        printk("comms: WRITE_BL0939_CAL persist post FAIL rc=%d\n", rc);
+    } else {
+        printk("comms: WRITE_BL0939_CAL (V=%d IA=%d IB=%d PA=%d) queued\n",
+               (int)v, (int)ia, (int)ib, (int)pa);
+    }
+}
+
 static void handle_request_stop(const uint8_t *p, size_t plen)
 {
     uint8_t reason = (plen >= 1) ? p[0] : 0u;
@@ -232,6 +260,7 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_GET_FAULT_LOG:         handle_get_fault_log(payload, plen, seq); break;
     case CMD_GET_LIFETIME_KWH:      handle_get_lifetime_kwh(seq); break;
     case CMD_WRITE_CALIBRATION:     handle_write_calibration(payload, plen); break;
+    case CMD_WRITE_BL0939_CAL:      handle_write_bl0939_cal(payload, plen); break;
     case CMD_REQUEST_STOP:          handle_request_stop(payload, plen); break;
     case CMD_REQUEST_START_RESUME:  handle_request_start_resume(); break;
     default:

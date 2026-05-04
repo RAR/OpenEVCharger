@@ -15,6 +15,7 @@ typedef enum {
     PERSIST_REQ_CRASH_STATE_RESET,
     PERSIST_REQ_BOOT_CONFIG_AMPS,
     PERSIST_REQ_CALIBRATION,
+    PERSIST_REQ_BL0939_CAL,
     PERSIST_REQ_GET_FAULT_LOG,
     PERSIST_REQ_GET_LIFETIME_KWH,
 } persist_req_type_t;
@@ -23,6 +24,13 @@ struct __attribute__((packed)) cal_args {
     int16_t anchor_raw;
     int16_t slope_num;
     int16_t slope_den;
+};
+
+struct __attribute__((packed)) bl0939_cal_args {
+    int16_t v_uv_per_raw;
+    int16_t ia_ua_per_raw;
+    int16_t ib_ua_per_raw;
+    int16_t pa_mw_per_raw;
 };
 
 struct __attribute__((packed)) get_fault_log_args {
@@ -37,6 +45,7 @@ struct persist_req {
         struct session_record session;
         uint8_t               amps;
         struct cal_args       cal;
+        struct bl0939_cal_args bl0939_cal;
         struct get_fault_log_args fault_log;
         uint8_t               seq;        /* for GET_LIFETIME_KWH */
     } payload;
@@ -100,6 +109,20 @@ int persist_post_calibration(int16_t anchor_raw,
     req.payload.cal.anchor_raw = anchor_raw;
     req.payload.cal.slope_num  = slope_num;
     req.payload.cal.slope_den  = slope_den;
+    return post(&req);
+}
+
+int persist_post_bl0939_cal(int16_t v_uv_per_raw,
+                            int16_t ia_ua_per_raw,
+                            int16_t ib_ua_per_raw,
+                            int16_t pa_mw_per_raw)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_BL0939_CAL;
+    req.payload.bl0939_cal.v_uv_per_raw  = v_uv_per_raw;
+    req.payload.bl0939_cal.ia_ua_per_raw = ia_ua_per_raw;
+    req.payload.bl0939_cal.ib_ua_per_raw = ib_ua_per_raw;
+    req.payload.bl0939_cal.pa_mw_per_raw = pa_mw_per_raw;
     return post(&req);
 }
 
@@ -195,6 +218,12 @@ static void persist_task_run(void *arg)
                 (void)calibration_set_cp(req.payload.cal.anchor_raw,
                                          req.payload.cal.slope_num,
                                          req.payload.cal.slope_den);
+                break;
+            case PERSIST_REQ_BL0939_CAL:
+                (void)calibration_set_bl0939(req.payload.bl0939_cal.v_uv_per_raw,
+                                             req.payload.bl0939_cal.ia_ua_per_raw,
+                                             req.payload.bl0939_cal.ib_ua_per_raw,
+                                             req.payload.bl0939_cal.pa_mw_per_raw);
                 break;
             case PERSIST_REQ_GET_FAULT_LOG:
                 handle_get_fault_log(req.payload.fault_log.max_count,

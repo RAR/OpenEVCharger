@@ -39,6 +39,13 @@ int persist_post_calibration(int16_t anchor_raw,
                              int16_t slope_num,
                              int16_t slope_den);
 
+/* Persist BL0939 chassis scales (V/IA/IB/PA per raw). Single-owner via
+ * persist_task; calibration_set_bl0939 talks to W25Q ping-pong. */
+int persist_post_bl0939_cal(int16_t v_uv_per_raw,
+                            int16_t ia_ua_per_raw,
+                            int16_t ib_ua_per_raw,
+                            int16_t pa_mw_per_raw);
+
 /* Read up to `max_count` most-recent fault records from event_log and
  * publish them as EVT_FAULT_LOG_ENTRY frames (one per record), tagged
  * with the supplied response `seq`. Followed by a single EVT_FAULT_LOG_END
