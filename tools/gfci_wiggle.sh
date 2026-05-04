@@ -36,8 +36,23 @@
 # OpenBHZD this script is harmless (PE2 is not currently configured)
 # but the fault byte at 0x200026a0 has no meaning under our fw.
 #
+# Two complementary tests:
+#
+#   cal-test:  Drive PE3 in both directions and read PE2 around each
+#              step. Mirrors the prior PE3-destination wiggle that
+#              confirmed PE3 → GFCI CAL line. Works under EITHER
+#              stock fw or OpenBHZD (we drive GPIOs via OpenOCD
+#              directly). AC must be live so the module is powered.
+#              This is the SHORTER, MORE DECISIVE test — start here.
+#
+#   pull-test: Bias PE2 with the MCU's internal pull-up / pull-down,
+#              then watch the stock fw's fault byte at 0x200026a0.
+#              Indirect — works only under stock fw and only confirms
+#              that stock fw's GFCI state machine is actually running.
+#
 # Usage:
-#   tools/gfci_wiggle.sh test           # automated 3-phase wiggle
+#   tools/gfci_wiggle.sh cal-test       # PE3 wiggle + PE2 sample (any fw)
+#   tools/gfci_wiggle.sh pull-test      # PE2 pull bias + fault byte (stock fw)
 #   tools/gfci_wiggle.sh read           # one-shot status read
 #   tools/gfci_wiggle.sh pull-up        # apply pull-up + resume
 #   tools/gfci_wiggle.sh pull-down      # apply pull-down + resume
@@ -140,9 +155,78 @@ restore_float() {
         -c resume -c shutdown >/dev/null
 }
 
+# CAL drive: wiggle PE3 in both directions and read PE2 around each
+# step. Mirrors the prior PE3 destination wiggle that confirmed PE3 →
+# GFCI CAL line (pinout.md note: MCU low → CAL = 5 V at GFCI side,
+# i.e. CAL asserted; MCU high → CAL = 0 V, idle). If PE2 is truly
+# the GFCI fault-output sense, asserting CAL should make the module
+# self-test trip → fault output asserts → PE2 changes state.
+#
+# Works under EITHER stock fw or OpenBHZD: we manipulate the GPIOs
+# directly via OpenOCD halt+poke, so the running fw doesn't need to
+# participate. AC must be live so the GFCI module is powered.
+#
+# Caveat: under stock fw, PE3 is being driven by the firmware's GFCI
+# state machine on a ~5 s cycle. Our halt+poke wins the race for the
+# instant we set it, but on resume the firmware will overwrite our
+# value within milliseconds. We sample PE2 BEFORE resume so the
+# read is contemporaneous with our driven PE3.
+PE3_HIGH_BIT=0x00000008
+# PE3 occupies bits 12..15 of CTL0
+PE3_SLOT_CLR=0x0000F000
+PE3_OUTPUT_PP_2MHZ_SET=0x00002000   # CNF=00 (out PP), MODE=10 (2 MHz)
+
+# Drive PE3 to a level (0 or 1) under halt, sample PE2 IDR while
+# still halted, then resume. Returns the read value.
+drive_pe3_and_sample() {
+    local level=$1   # "high" or "low"
+    local set_cmd
+    if [ "$level" = "high" ]; then
+        set_cmd="mww $GPIOE_BOP $PE3_HIGH_BIT"
+    else
+        set_cmd="mww $GPIOE_BC $PE3_HIGH_BIT"
+    fi
+    run_ocd \
+        -c init -c halt \
+        -c "mmw $GPIOE_CTL0 $PE3_OUTPUT_PP_2MHZ_SET $PE3_SLOT_CLR" \
+        -c "$set_cmd" \
+        -c "sleep 100" \
+        -c "mdw $GPIOE_ISTAT 1" \
+        -c resume -c shutdown 2>&1 | grep "0x40011808" | head -1
+}
+
 case "${1:-help}" in
-    test)
-        echo "GFCI PE2 wiggle test — stock fw V1.0.066 expected"
+    cal-test)
+        echo "GFCI cal wiggle: drive PE3, observe PE2 (works under any fw)"
+        echo "REQUIREMENT: AC must be live so the GFCI module is powered."
+        echo
+
+        echo "Phase 1: baseline (no driver)"
+        restore_float
+        read_phase baseline
+
+        echo "Phase 2: PE3 driven LOW (= CAL asserted at GFCI side)"
+        out=$(drive_pe3_and_sample low)
+        idr=$(echo "$out" | awk '{print $NF}')
+        pe2=$(hex_bit2 "$idr")
+        printf '%-12s PE2=%s   (GPIOE.IDR=%s)\n' "cal-on" "$pe2" "$idr"
+
+        echo "Phase 3: PE3 driven HIGH (= CAL idle at GFCI side)"
+        out=$(drive_pe3_and_sample high)
+        idr=$(echo "$out" | awk '{print $NF}')
+        pe2=$(hex_bit2 "$idr")
+        printf '%-12s PE2=%s   (GPIOE.IDR=%s)\n' "cal-off" "$pe2" "$idr"
+
+        echo
+        echo "Interpretation:"
+        echo "  PE2 changes between cal-on / cal-off → CONFIRMED PE2 = GFCI fault sense"
+        echo "  PE2 unchanged → either wrong pin, GFCI not powered, or module already faulted"
+        echo "  PE2 = 1 in cal-on, 0 in cal-off → active-high at MCU (matches agent's decode)"
+        echo "  PE2 = 0 in cal-on, 1 in cal-off → active-low (polarity inverted from agent)"
+        ;;
+
+    pull-test)
+        echo "GFCI PE2 pull-bias test — REQUIRES stock fw V1.0.066 (uses fault byte)"
         echo "Phase 1: baseline (PE2 input floating, no bias)"
         restore_float
         sleep 6
