@@ -1435,7 +1435,16 @@ static void safety_task_run(void *arg)
         struct openbhzd_state snap = {
             .j1772_state       = (uint8_t)s,
             .evse_state        = (uint8_t)es,
-            .advertised_amps   = effective_advertised_amps(),
+            /* Carry the *user-configured* value so the FC41D Number
+             * entity round-trips correctly across reboot. When unset
+             * (0 = "fall back to DIP1") fall back here too so the
+             * sensor still shows a sensible amps figure. The CP-PWM
+             * duty cycle continues to use effective_advertised_amps
+             * (DIP / HW caps applied) — those caps clamp the wire
+             * value, not the persisted intent. */
+            .advertised_amps   = (boot_config_advertised_amps() != 0u)
+                                    ? boot_config_advertised_amps()
+                                    : effective_advertised_amps(),
             .contactor_cmd     = (uint8_t)relay_main_commanded(),
             .cp_high_mv        = (int16_t)cp_mv,
             .cp_low_mv         = (int16_t)cp_low_mv(),
