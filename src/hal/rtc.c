@@ -57,16 +57,23 @@ void rtc_init(void)
     /* Allow writes to backup domain (BKP_DATAx + RTC + RCU_BDCTL). */
     pmu_backup_write_enable();
 
-    /* Diagnostic: surface raw BKP/RTC/BDCTL state at boot so a stuck
-     * "always cold" path is visible without an SWD probe. Sample
-     * BKP_DATA into locals so the print and the magic check can't
-     * disagree about what we just read. */
+    /* Diagnostic: surface raw BKP/RTC/BDCTL state at boot. Sample BKP_DATA
+     * into locals so the print and the magic check can't disagree about
+     * what we just read. Also peek at the RTC divider twice with a small
+     * busy-wait between, which tells us whether RTCCLK is actually
+     * ticking — a healthy RTC will have DIV decrement between the two
+     * reads, a frozen RTC will hold the same value. */
     uint16_t b0 = BKP_DATA0;
     uint16_t b1 = BKP_DATA1;
     int      mv = (b0 == RTC_MAGIC_LO) && (b1 == RTC_MAGIC_HI);
-    printk("rtc: bkp0=0x%04x bkp1=0x%04x cnt=0x%08x bdctl=0x%08x mv=%d\n",
+    uint32_t div_a = (RTC_DIVH << 16) | (RTC_DIVL & 0xFFFFu);
+    for (volatile int i = 0; i < 200000; ++i) { __asm__ volatile (""); }
+    uint32_t div_b = (RTC_DIVH << 16) | (RTC_DIVL & 0xFFFFu);
+    printk("rtc: bkp0=0x%04x bkp1=0x%04x cnt=0x%08x bdctl=0x%08x "
+           "div_a=0x%08x div_b=0x%08x mv=%d\n",
            (unsigned)b0, (unsigned)b1,
-           (unsigned)rtc_counter_get(), (unsigned)RCU_BDCTL, mv);
+           (unsigned)rtc_counter_get(), (unsigned)RCU_BDCTL,
+           (unsigned)div_a, (unsigned)div_b, mv);
 
     if (mv) {
         /* Backup domain already configured by a previous boot in this
