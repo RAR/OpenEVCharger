@@ -1,4 +1,4 @@
-# FC41D-side ESPHome firmware for OpenBHZD.
+# FC41D-side ESPHome firmware for OpenEVCharger.
 #
 # Pairs with the safety-core firmware running on the GD32F205VG MCU
 # (this repo's src/). The MCU drives all safety-critical work — J1772
@@ -24,8 +24,8 @@
 # specific BK7231N board variant).
 
 substitutions:
-  device_name: openbhzd
-  friendly_name: OpenBHZD EV Charger
+  device_name: openevcharger
+  friendly_name: OpenEVCharger EV Charger
 
 esphome:
   name: ${device_name}
@@ -71,15 +71,15 @@ uart:
   rx_pin: P10
   baud_rate: 115200
 
-# In-tree component — this YAML lives in the OpenBHZD repo so the
+# In-tree component — this YAML lives in the OpenEVCharger repo so the
 # component is right next door, no git fetch needed. To pin a
-# released ref later, switch to `type: git` with the OpenBHZD repo
+# released ref later, switch to `type: git` with the OpenEVCharger repo
 # URL and a tag.
 external_components:
   - source:
       type: local
       path: components
-    components: [openbhzd_tlv]
+    components: [openevcharger_tlv]
   # OCPP 1.6J Charge Point — registers against a Central System (SteVe
   # for dev, evcc / SteVe / CitrineOS / Monta in prod). MicroOcpp under
   # the hood; GPLv3. Pin to main here; users can pin a SHA in their
@@ -91,8 +91,8 @@ external_components:
     refresh: always
     components: [ocpp]
 
-openbhzd_tlv:
-  id: openbhzd_mcu
+openevcharger_tlv:
+  id: openevcharger_mcu
   uart_id: mcu_uart
   poll_interval: 5s
   link_timeout: 15s
@@ -113,7 +113,7 @@ openbhzd_tlv:
         }
 
 sensor:
-  - platform: openbhzd_tlv
+  - platform: openevcharger_tlv
     cp_high_mv:
       name: "CP High"
     # Sampled mid-LOW phase via TIMER0 CH3 trigger swap (see
@@ -131,7 +131,7 @@ sensor:
       name: "Active Amps"
     lifetime_kwh:
       name: "Lifetime Energy"
-      # OpenBHZD persists this in W25Q session_log, monotonic across reboots.
+      # OpenEVCharger persists this in W25Q session_log, monotonic across reboots.
     session_kwh:
       id: session_kwh_sensor
       name: "Session Energy"
@@ -268,7 +268,7 @@ sensor:
       entity_category: diagnostic
 
 binary_sensor:
-  - platform: openbhzd_tlv
+  - platform: openevcharger_tlv
     link_up:
       name: "MCU Link"
       entity_category: diagnostic
@@ -280,7 +280,7 @@ binary_sensor:
         - lambda: |-
             auto now = id(ha_time).now();
             if (now.is_valid()) {
-              id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+              id(openevcharger_mcu).send_set_time((uint32_t) now.timestamp);
             }
     vehicle_connected:
       id: plugged_bsensor
@@ -303,7 +303,7 @@ binary_sensor:
       name: "RFID Session Authorized"
 
 text_sensor:
-  - platform: openbhzd_tlv
+  - platform: openevcharger_tlv
     evse_state:
       id: evse_state_tsensor
       name: "EVSE State"
@@ -333,7 +333,7 @@ text_sensor:
       entity_category: diagnostic
 
 number:
-  - platform: openbhzd_tlv
+  - platform: openevcharger_tlv
     advertised_amps:
       id: advertised_amps_n
       name: "Set Advertised Amps"
@@ -343,13 +343,13 @@ number:
 # (J1772-A unplug clears the per-session grant). OFF reverts to start-on-
 # plug-in. Persisted in W25Q boot_config; default OFF on first boot.
 switch:
-  - platform: openbhzd_tlv
+  - platform: openevcharger_tlv
     require_rfid_auth:
       name: "Require RFID for Charging"
       entity_category: config
 
 button:
-  - platform: openbhzd_tlv
+  - platform: openevcharger_tlv
     request_stop:
       name: "Stop"
     request_start_resume:
@@ -422,7 +422,7 @@ button:
       - lambda: |-
           static uint8_t blob[256];
           for (int i = 0; i < 256; ++i) blob[i] = (uint8_t) i;
-          if (!id(openbhzd_mcu).start_ota_push(blob, sizeof blob)) {
+          if (!id(openevcharger_mcu).start_ota_push(blob, sizeof blob)) {
             ESP_LOGW("ota", "self-test: start_ota_push refused");
           }
 
@@ -455,26 +455,26 @@ api:
     - lambda: |-
         auto now = id(ha_time).now();
         if (now.is_valid()) {
-          id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+          id(openevcharger_mcu).send_set_time((uint32_t) now.timestamp);
         }
 
   # MCU-side OTA driven from HA → Developer Tools → Actions.
   #
   # Preferred path (no base64; works for the full 64 KB image cap):
-  #   ESPHome: openbhzd_fetch_and_push_ota
-  #     url: http://homeassistant.local:8123/local/openbhzd.bin
+  #   ESPHome: openevcharger_fetch_and_push_ota
+  #     url: http://homeassistant.local:8123/local/openevcharger.bin
   # Drop the .bin into HA's /config/www/ folder first; HA serves it at
   # /local/<file>. http_request streams it down on the FC41D, then we
   # hand the body off to start_ota_push.
   #
   # Legacy path (base64 in the service payload — easy for small test
   # blobs but RAM-heavy on real images):
-  #   ESPHome: openbhzd_start_ota_push
-  #     image_b64: <base64 of the new openbhzd.bin>
-  # Generate with `base64 -w0 build/openbhzd.bin`.
+  #   ESPHome: openevcharger_start_ota_push
+  #     image_b64: <base64 of the new openevcharger.bin>
+  # Generate with `base64 -w0 build/openevcharger.bin`.
   #
   # Watch "MCU OTA Progress" climb 0..100. Abort with
-  # openbhzd_abort_ota_push.
+  # openevcharger_abort_ota_push.
   services:
     - service: fetch_and_push_ota
       variables:
@@ -485,7 +485,7 @@ api:
             // (ESPHome's http_request doesn't support BK72XX+arduino).
             // Streams headers, then reads body straight into the OTA
             // state machine's buffer — peak FC41D heap = 1× image size.
-            id(openbhzd_mcu).fetch_and_push_ota(url);
+            id(openevcharger_mcu).fetch_and_push_ota(url);
     - service: start_ota_push
       variables:
         image_b64: string
@@ -495,13 +495,13 @@ api:
             std::vector<uint8_t> bin = esphome::base64_decode(s);
             ESP_LOGI("ota", "start_ota_push: %u bytes (b64 %u chars)",
                      (unsigned) bin.size(), (unsigned) s.size());
-            if (!id(openbhzd_mcu).start_ota_push(bin.data(), bin.size())) {
+            if (!id(openevcharger_mcu).start_ota_push(bin.data(), bin.size())) {
               ESP_LOGW("ota", "start_ota_push refused (in-flight or size out of range)");
             }
     - service: abort_ota_push
       then:
         - lambda: |-
-            id(openbhzd_mcu).abort_ota_push();
+            id(openevcharger_mcu).abort_ota_push();
 
 ota:
   - platform: esphome
@@ -516,7 +516,7 @@ time:
         - lambda: |-
             auto now = id(ha_time).now();
             if (now.is_valid()) {
-              id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+              id(openevcharger_mcu).send_set_time((uint32_t) now.timestamp);
             }
     # Drift / DST correction every 30 minutes. The MCU clock is purely
     # software (ticks-based), so re-anchoring it periodically keeps it
@@ -528,22 +528,22 @@ time:
           - lambda: |-
               auto now = id(ha_time).now();
               if (now.is_valid()) {
-                id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+                id(openevcharger_mcu).send_set_time((uint32_t) now.timestamp);
               }
 
 # OCPP 1.6J Charge Point. Set csms_url + charge_point_id via secrets
-# (e.g. ws://steve.local:8180/steve/websocket/CentralSystemService/openbhzd-01).
+# (e.g. ws://steve.local:8180/steve/websocket/CentralSystemService/openevcharger-01).
 # SmartCharging hooks the existing MCU TLV surface: on a CSMS-accepted
 # StartTransaction we send Start to the MCU; on accepted StopTransaction
 # we send Stop. RFID swipes that match the local authlist drive the
 # OCPP transaction lifecycle from the MCU side via the EVT_RFID_AUTH_RESULT
-# automation block in the openbhzd_tlv component (see lambda below).
+# automation block in the openevcharger_tlv component (see lambda below).
 ocpp:
   id: ocpp_cp
   csms_url: !secret ocpp_csms_url
   charge_point_id: !secret ocpp_charge_point_id
-  vendor: OpenBHZD
-  model: ROC001-OpenBHZD
+  vendor: OpenEVCharger
+  model: ROC001-OpenEVCharger
   firmware_version: "1.0.0"
   phase: L1
   nominal_voltage: 240.0
@@ -565,7 +565,7 @@ ocpp:
     # is benign and stays.
     current_offered: advertised_amps_n
   status_from: evse_state_tsensor
-  # Map OpenBHZD evse_state strings (see core/evse_state.h evse_state_name)
+  # Map OpenEVCharger evse_state strings (see core/evse_state.h evse_state_name)
   # to OCPP 1.6J ChargePointStatus enum.
   status_mapping:
     "BOOT": Unavailable
@@ -580,6 +580,6 @@ ocpp:
   # this on its own conditions (J1772 state, local fault state, RFID
   # auth gate if enabled) — CSMS Accept doesn't bypass safety.
   on_remote_start:
-    - lambda: id(openbhzd_mcu)->send_request_start_resume();
+    - lambda: id(openevcharger_mcu)->send_request_start_resume();
   on_remote_stop:
-    - lambda: id(openbhzd_mcu)->send_request_stop();
+    - lambda: id(openevcharger_mcu)->send_request_stop();
