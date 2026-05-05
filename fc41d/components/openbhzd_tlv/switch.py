@@ -2,19 +2,19 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import switch
 
-from . import openbhzd_tlv_ns, OpenbhzdTlv
+from . import openevcharger_tlv_ns, OpenevchargerTlv
 
 CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 CONF_REQUIRE_RFID_AUTH = "require_rfid_auth"
 
-OpenbhzdTlvSwitch = openbhzd_tlv_ns.class_(
-    "OpenbhzdTlvSwitch", switch.Switch, cg.Component
+OpenevchargerTlvSwitch = openevcharger_tlv_ns.class_(
+    "OpenevchargerTlvSwitch", switch.Switch, cg.Component
 )
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
-        cv.Optional(CONF_REQUIRE_RFID_AUTH): switch.switch_schema(OpenbhzdTlvSwitch),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenevchargerTlv),
+        cv.Optional(CONF_REQUIRE_RFID_AUTH): switch.switch_schema(OpenevchargerTlvSwitch),
     }
 )
 

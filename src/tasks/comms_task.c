@@ -70,7 +70,7 @@ static void handle_ping(uint8_t seq)
 
 static void handle_get_state(uint8_t seq)
 {
-    struct openbhzd_state s = system_state_snapshot();
+    struct openevcharger_state s = system_state_snapshot();
     (void)send_frame(EVT_STATE_REPORT, seq, &s, sizeof(s));
 }
 

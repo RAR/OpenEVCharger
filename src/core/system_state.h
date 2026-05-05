@@ -11,7 +11,7 @@
  *
  * Layout matches spec § 5 system_state_t with fields trimmed to what
  * we currently track. Unfilled fields stay 0. */
-struct __attribute__((packed)) openbhzd_state {
+struct __attribute__((packed)) openevcharger_state {
     uint8_t  j1772_state;       /* 'A'/'B'/'C'/'E'/'F' as enum value */
     uint8_t  evse_state;        /* see core/evse_state.h */
     uint8_t  advertised_amps;
@@ -62,10 +62,10 @@ struct __attribute__((packed)) openbhzd_state {
 };
 /* Hits TLV_PAYLOAD_MAX (56 B) exactly — any future field addition needs
  * a payload-size bump on both sides, or a separate event/cmd. */
-_Static_assert(sizeof(struct openbhzd_state) == 56,
-               "openbhzd_state must equal TLV_PAYLOAD_MAX (56 B)");
+_Static_assert(sizeof(struct openevcharger_state) == 56,
+               "openevcharger_state must equal TLV_PAYLOAD_MAX (56 B)");
 
-void                  system_state_publish(const struct openbhzd_state *s);
-struct openbhzd_state system_state_snapshot(void);
+void                  system_state_publish(const struct openevcharger_state *s);
+struct openevcharger_state system_state_snapshot(void);
 
 #endif /* OPENEVCHARGER_CORE_SYSTEM_STATE_H */

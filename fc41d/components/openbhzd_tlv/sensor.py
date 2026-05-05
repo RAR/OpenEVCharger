@@ -19,7 +19,7 @@ from esphome.const import (
     UNIT_WATT,
 )
 
-from . import openbhzd_tlv_ns, OpenbhzdTlv
+from . import openevcharger_tlv_ns, OpenevchargerTlv
 
 CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
@@ -68,7 +68,7 @@ _AMP_SCHEMA = sensor.sensor_schema(
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenevchargerTlv),
         cv.Optional(CONF_CP_HIGH_MV): sensor.sensor_schema(
             unit_of_measurement=UNIT_MILLIVOLT,
             accuracy_decimals=0,

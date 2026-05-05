@@ -14,9 +14,9 @@ from esphome.const import CONF_ID, CONF_TRIGGER_ID
 CODEOWNERS = ["@andrewrankin"]
 DEPENDENCIES = ["uart"]
 
-openbhzd_tlv_ns = cg.esphome_ns.namespace("openbhzd_tlv")
-OpenbhzdTlv = openbhzd_tlv_ns.class_("OpenbhzdTlv", cg.Component, uart.UARTDevice)
-RFIDAuthResultTrigger = openbhzd_tlv_ns.class_(
+openevcharger_tlv_ns = cg.esphome_ns.namespace("openbhzd_tlv")
+OpenevchargerTlv = openevcharger_tlv_ns.class_("OpenevchargerTlv", cg.Component, uart.UARTDevice)
+RFIDAuthResultTrigger = openevcharger_tlv_ns.class_(
     "RFIDAuthResultTrigger", automation.Trigger.template(cg.std_string, cg.uint8)
 )
 
@@ -27,7 +27,7 @@ CONF_ON_RFID_AUTH_RESULT = "on_rfid_auth_result"
 CONFIG_SCHEMA = (
     cv.Schema(
         {
-            cv.GenerateID(): cv.declare_id(OpenbhzdTlv),
+            cv.GenerateID(): cv.declare_id(OpenevchargerTlv),
             cv.Optional(
                 CONF_POLL_INTERVAL, default="5s"
             ): cv.positive_time_period_milliseconds,

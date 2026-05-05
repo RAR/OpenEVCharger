@@ -8,7 +8,7 @@ from esphome.const import (
     DEVICE_CLASS_PROBLEM,
 )
 
-from . import openbhzd_tlv_ns, OpenbhzdTlv
+from . import openevcharger_tlv_ns, OpenevchargerTlv
 
 CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
@@ -24,7 +24,7 @@ CONF_RFID_SESSION_AUTHORIZED = "rfid_session_authorized"
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenevchargerTlv),
         cv.Optional(CONF_LINK_UP): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_CONNECTIVITY,
         ),

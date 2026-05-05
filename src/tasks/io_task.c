@@ -79,7 +79,7 @@ static void io_task_run(void *arg)
 
         buttons_poll();
 
-        struct openbhzd_state s = system_state_snapshot();
+        struct openevcharger_state s = system_state_snapshot();
 
         /* Top button = pause/start toggle. Mid/bot remain unmapped
          * (future: brightness, fault clear, etc.). PC9 internal button

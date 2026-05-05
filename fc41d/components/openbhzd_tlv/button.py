@@ -2,7 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import button
 
-from . import openbhzd_tlv_ns, OpenbhzdTlv
+from . import openevcharger_tlv_ns, OpenevchargerTlv
 
 CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
@@ -23,8 +23,8 @@ CONF_RFID_GET_LIST = "rfid_get_list"
 CONF_OTA_ABORT = "ota_abort"
 CONF_RESTART = "restart"
 
-OpenbhzdTlvButton = openbhzd_tlv_ns.class_("OpenbhzdTlvButton", button.Button)
-ButtonAction = openbhzd_tlv_ns.enum("ButtonAction", is_class=True)
+OpenevchargerTlvButton = openevcharger_tlv_ns.class_("OpenevchargerTlvButton", button.Button)
+ButtonAction = openevcharger_tlv_ns.enum("ButtonAction", is_class=True)
 
 # Map YAML key → ButtonAction enum member.
 _FIELDS = {
@@ -46,17 +46,17 @@ _FIELDS = {
 }
 
 # buzzer_beep takes an optional `buzzer_ms`.
-_BUZZER_SCHEMA = button.button_schema(OpenbhzdTlvButton).extend(
+_BUZZER_SCHEMA = button.button_schema(OpenevchargerTlvButton).extend(
     {cv.Optional(CONF_BUZZER_MS, default=50): cv.int_range(min=1, max=500)}
 )
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenevchargerTlv),
         **{
             cv.Optional(key): _BUZZER_SCHEMA
             if key == CONF_BUZZER_BEEP
-            else button.button_schema(OpenbhzdTlvButton)
+            else button.button_schema(OpenevchargerTlvButton)
             for key in _FIELDS
         },
     }

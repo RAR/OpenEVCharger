@@ -1935,7 +1935,7 @@ static void safety_task_run(void *arg)
         }
 
         /* Publish snapshot for comms / future UI consumers. */
-        struct openbhzd_state snap = {
+        struct openevcharger_state snap = {
             .j1772_state       = (uint8_t)s,
             .evse_state        = (uint8_t)es,
             /* Carry the *user-configured* value so the FC41D Number

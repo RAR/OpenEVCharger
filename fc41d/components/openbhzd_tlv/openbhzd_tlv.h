@@ -8,7 +8,7 @@
 //
 // Frame format and command IDs match ../../../src/proto/tlv.h and
 // ../../../src/proto/commands.h. STATE_REPORT payload layout matches
-// ../../../src/core/system_state.h openbhzd_state (packed, 30 bytes).
+// ../../../src/core/system_state.h openevcharger_state (packed, 30 bytes).
 // Keep these in sync if either side changes.
 
 #include "esphome/core/automation.h"
@@ -159,10 +159,10 @@ struct StateReport {
   bool valid{false};
 };
 
-class OpenbhzdTlvButton;
-class OpenbhzdTlvNumber;
+class OpenevchargerTlvButton;
+class OpenevchargerTlvNumber;
 
-class OpenbhzdTlv : public Component, public uart::UARTDevice {
+class OpenevchargerTlv : public Component, public uart::UARTDevice {
  public:
   void setup() override;
   void loop() override;
@@ -346,13 +346,13 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
 
   // Sub-entity registry — number/button platforms call these in to_code().
 #ifdef USE_NUMBER
-  void register_number(OpenbhzdTlvNumber *n) { numbers_.push_back(n); }
+  void register_number(OpenevchargerTlvNumber *n) { numbers_.push_back(n); }
 #endif
 #ifdef USE_BUTTON
-  void register_button(OpenbhzdTlvButton *b) { buttons_.push_back(b); }
+  void register_button(OpenevchargerTlvButton *b) { buttons_.push_back(b); }
 #endif
 #ifdef USE_SWITCH
-  void set_require_rfid_auth_switch(class OpenbhzdTlvSwitch *s) { require_rfid_auth_switch_ = s; }
+  void set_require_rfid_auth_switch(class OpenevchargerTlvSwitch *s) { require_rfid_auth_switch_ = s; }
 #endif
 
   static const char *evse_state_name(uint8_t s);
@@ -457,7 +457,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   std::vector<std::function<void(std::string, uint8_t)>>
       rfid_auth_result_callbacks_;
 #ifdef USE_SWITCH
-  class OpenbhzdTlvSwitch *require_rfid_auth_switch_{nullptr};
+  class OpenevchargerTlvSwitch *require_rfid_auth_switch_{nullptr};
 #endif
 
   // --- OTA push state machine ----------------------------------------
@@ -504,10 +504,10 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t  ota_seq_commit_{0};
   uint8_t  ota_progress_pct_cache_{0xFF};
 #ifdef USE_NUMBER
-  std::vector<OpenbhzdTlvNumber *> numbers_;
+  std::vector<OpenevchargerTlvNumber *> numbers_;
 #endif
 #ifdef USE_BUTTON
-  std::vector<OpenbhzdTlvButton *> buttons_;
+  std::vector<OpenevchargerTlvButton *> buttons_;
 #endif
 };
 
@@ -537,9 +537,9 @@ enum class ButtonAction : uint8_t {
 };
 
 #ifdef USE_NUMBER
-class OpenbhzdTlvNumber : public number::Number, public Component {
+class OpenevchargerTlvNumber : public number::Number, public Component {
  public:
-  void set_parent(OpenbhzdTlv *p) { parent_ = p; }
+  void set_parent(OpenevchargerTlv *p) { parent_ = p; }
   void set_kind(NumberKind k) { kind_ = k; }
   void setup() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
@@ -547,15 +547,15 @@ class OpenbhzdTlvNumber : public number::Number, public Component {
 
  protected:
   void control(float value) override;
-  OpenbhzdTlv *parent_{nullptr};
+  OpenevchargerTlv *parent_{nullptr};
   NumberKind kind_{NumberKind::ADVERTISED_AMPS};
 };
 #endif
 
 #ifdef USE_SWITCH
-class OpenbhzdTlvSwitch : public switch_::Switch, public Component {
+class OpenevchargerTlvSwitch : public switch_::Switch, public Component {
  public:
-  void set_parent(OpenbhzdTlv *p) { parent_ = p; }
+  void set_parent(OpenevchargerTlv *p) { parent_ = p; }
   void setup() override {}
   float get_setup_priority() const override { return setup_priority::DATA; }
   // Pushed by EVT_RFID_CONFIG dispatch — bypasses control() so the
@@ -570,20 +570,20 @@ class OpenbhzdTlvSwitch : public switch_::Switch, public Component {
     // Optimistic — confirmed by next EVT_RFID_CONFIG.
     this->publish_state(state);
   }
-  OpenbhzdTlv *parent_{nullptr};
+  OpenevchargerTlv *parent_{nullptr};
 };
 #endif
 
 #ifdef USE_BUTTON
-class OpenbhzdTlvButton : public button::Button {
+class OpenevchargerTlvButton : public button::Button {
  public:
-  void set_parent(OpenbhzdTlv *p) { parent_ = p; }
+  void set_parent(OpenevchargerTlv *p) { parent_ = p; }
   void set_action(ButtonAction a) { action_ = a; }
   void set_buzzer_ms(uint16_t ms) { buzzer_ms_ = ms; }
 
  protected:
   void press_action() override;
-  OpenbhzdTlv *parent_{nullptr};
+  OpenevchargerTlv *parent_{nullptr};
   ButtonAction action_{ButtonAction::PING};
   uint16_t buzzer_ms_{50};
 };
@@ -595,7 +595,7 @@ class OpenbhzdTlvButton : public button::Button {
 //            3=MATCHED_NOOP, 4=REJECTED, 5=LIST_FULL)
 class RFIDAuthResultTrigger : public Trigger<std::string, uint8_t> {
  public:
-  explicit RFIDAuthResultTrigger(OpenbhzdTlv *parent) {
+  explicit RFIDAuthResultTrigger(OpenevchargerTlv *parent) {
     parent->add_on_rfid_auth_result_callback(
         [this](std::string uid, uint8_t result) {
           this->trigger(uid, result);

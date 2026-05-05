@@ -29,7 +29,7 @@ static constexpr size_t CRC_LEN = 2;
 static constexpr size_t PAYLOAD_MAX = 56;
 static constexpr size_t FRAME_MAX = HDR_LEN + PAYLOAD_MAX + CRC_LEN;
 
-void OpenbhzdTlv::setup() {
+void OpenevchargerTlv::setup() {
   rx_buf_.reserve(128);
 
   // OEM ships every FC41D with the same MAC address. Fix it before
@@ -63,7 +63,7 @@ void OpenbhzdTlv::setup() {
   send_get_rfid_config();
 }
 
-void OpenbhzdTlv::loop() {
+void OpenevchargerTlv::loop() {
   maybe_log_mac_status_();
 
   // Re-fire GET_DEVICE_ID every 2 s until the MCU answers. The
@@ -110,30 +110,30 @@ void OpenbhzdTlv::loop() {
   }
 }
 
-void OpenbhzdTlv::dump_config() {
+void OpenevchargerTlv::dump_config() {
   ESP_LOGCONFIG(TAG, "OpenBHZD TLV link:");
   ESP_LOGCONFIG(TAG, "  Poll interval: %u ms", (unsigned) poll_interval_ms_);
   ESP_LOGCONFIG(TAG, "  Link timeout:  %u ms", (unsigned) link_timeout_ms_);
   this->check_uart_settings(115200);
 }
 
-bool OpenbhzdTlv::link_up() const {
+bool OpenevchargerTlv::link_up() const {
   if (last_state_ms_ == 0) return false;
   return (millis() - last_state_ms_) < link_timeout_ms_;
 }
 
-uint32_t OpenbhzdTlv::state_age_ms() const {
+uint32_t OpenevchargerTlv::state_age_ms() const {
   if (last_state_ms_ == 0) return 0;
   return millis() - last_state_ms_;
 }
 
-uint8_t OpenbhzdTlv::next_seq_() {
+uint8_t OpenevchargerTlv::next_seq_() {
   uint8_t s = seq_++;
   if (seq_ == 0) seq_ = 1;  // 0 is reserved for unsolicited events
   return s;
 }
 
-void OpenbhzdTlv::process_byte_(uint8_t b) {
+void OpenevchargerTlv::process_byte_(uint8_t b) {
   // Resync if we're not yet aligned on SOF0/SOF1.
   if (rx_buf_.empty()) {
     if (b != SOF0) return;
@@ -171,7 +171,7 @@ void OpenbhzdTlv::process_byte_(uint8_t b) {
   try_parse_();
 }
 
-void OpenbhzdTlv::try_parse_() {
+void OpenevchargerTlv::try_parse_() {
   if (rx_buf_.size() < HDR_LEN + CRC_LEN) return;
   uint16_t len = rx_buf_[2] | (uint16_t(rx_buf_[3]) << 8);
   size_t total = 4 + len + CRC_LEN;
@@ -197,7 +197,7 @@ void OpenbhzdTlv::try_parse_() {
   dispatch_frame_(cmd, seq, payload.data(), plen);
 }
 
-void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
+void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
                                   const uint8_t *p, size_t plen) {
   ESP_LOGV(TAG, "<- cmd=0x%02x seq=%u plen=%u", cmd, seq, (unsigned) plen);
 
@@ -219,7 +219,7 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
     }
 
     case EVT_STATE_REPORT: {
-      // Layout matches src/core/system_state.h openbhzd_state
+      // Layout matches src/core/system_state.h openevcharger_state
       // (packed, 30 bytes). Response to GET_STATE.
       if (plen < 30) {
         ESP_LOGW(TAG, "STATE_REPORT short (plen=%u)", (unsigned) plen);
@@ -655,7 +655,7 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
   }
 }
 
-void OpenbhzdTlv::publish_state_() {
+void OpenevchargerTlv::publish_state_() {
   const StateReport &s = state_;
 
 #ifdef USE_SENSOR
@@ -749,7 +749,7 @@ void OpenbhzdTlv::publish_state_() {
 
 // --- TX -----------------------------------------------------------------
 
-void OpenbhzdTlv::send_frame_(uint8_t cmd, uint8_t seq,
+void OpenevchargerTlv::send_frame_(uint8_t cmd, uint8_t seq,
                               const void *payload, size_t plen) {
   if (plen > PAYLOAD_MAX) {
     ESP_LOGE(TAG, "payload too long (%u > %u)", (unsigned) plen, (unsigned) PAYLOAD_MAX);
@@ -771,31 +771,31 @@ void OpenbhzdTlv::send_frame_(uint8_t cmd, uint8_t seq,
   this->write_array(buf, total);
 }
 
-uint8_t OpenbhzdTlv::send_ping() {
+uint8_t OpenevchargerTlv::send_ping() {
   uint8_t s = next_seq_();
   send_frame_(CMD_PING, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_state() {
+uint8_t OpenevchargerTlv::send_get_state() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_STATE, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_build_info() {
+uint8_t OpenevchargerTlv::send_get_build_info() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_BUILD_INFO, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_device_id() {
+uint8_t OpenevchargerTlv::send_get_device_id() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_DEVICE_ID, s, nullptr, 0);
   return s;
 }
 
-void OpenbhzdTlv::apply_mac_override_(const uint8_t mac[6]) {
+void OpenevchargerTlv::apply_mac_override_(const uint8_t mac[6]) {
 #ifdef USE_LIBRETINY
   WiFi.macAddress(mac_before_);
   // LibreTiny's WiFi.setMacAddress validates the unicast bit, copies
@@ -813,7 +813,7 @@ void OpenbhzdTlv::apply_mac_override_(const uint8_t mac[6]) {
 #endif
 }
 
-void OpenbhzdTlv::maybe_log_mac_status_() {
+void OpenevchargerTlv::maybe_log_mac_status_() {
   if (mac_status_logged_) return;
   // Wait ~10 s after boot so the API client / OTA log stream is live.
   if (millis() < 10000) return;
@@ -842,7 +842,7 @@ void OpenbhzdTlv::maybe_log_mac_status_() {
   mac_status_logged_ = true;
 }
 
-uint8_t OpenbhzdTlv::send_set_advertised_amps(uint8_t amps) {
+uint8_t OpenevchargerTlv::send_set_advertised_amps(uint8_t amps) {
   uint8_t s = next_seq_();
   send_frame_(CMD_SET_ADVERTISED_AMPS, s, &amps, 1);
   // Refresh state so HA reflects the new value once persisted.
@@ -850,7 +850,7 @@ uint8_t OpenbhzdTlv::send_set_advertised_amps(uint8_t amps) {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_request_stop() {
+uint8_t OpenevchargerTlv::send_request_stop() {
   uint8_t s = next_seq_();
   uint8_t z = 0;
   send_frame_(CMD_REQUEST_STOP, s, &z, 1);
@@ -858,47 +858,47 @@ uint8_t OpenbhzdTlv::send_request_stop() {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_request_start_resume() {
+uint8_t OpenevchargerTlv::send_request_start_resume() {
   uint8_t s = next_seq_();
   send_frame_(CMD_REQUEST_START_RESUME, s, nullptr, 0);
   send_get_state();
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_clear_fault(uint32_t fid) {
+uint8_t OpenevchargerTlv::send_clear_fault(uint32_t fid) {
   uint8_t s = next_seq_();
   uint8_t buf[4] = {uint8_t(fid), uint8_t(fid >> 8), uint8_t(fid >> 16), uint8_t(fid >> 24)};
   send_frame_(CMD_CLEAR_FAULT, s, buf, 4);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_fault_log(uint8_t max_count) {
+uint8_t OpenevchargerTlv::send_get_fault_log(uint8_t max_count) {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_FAULT_LOG, s, &max_count, 1);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_lifetime_kwh() {
+uint8_t OpenevchargerTlv::send_get_lifetime_kwh() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_LIFETIME_KWH, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_buzzer_beep(uint16_t ms) {
+uint8_t OpenevchargerTlv::send_buzzer_beep(uint16_t ms) {
   uint8_t s = next_seq_();
   uint8_t buf[2] = {uint8_t(ms), uint8_t(ms >> 8)};
   send_frame_(CMD_BUZZER_BEEP, s, buf, 2);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_set_led_override(uint8_t mode, uint8_t r, uint8_t g, uint8_t b) {
+uint8_t OpenevchargerTlv::send_set_led_override(uint8_t mode, uint8_t r, uint8_t g, uint8_t b) {
   uint8_t s = next_seq_();
   uint8_t buf[4] = {mode, r, g, b};
   send_frame_(CMD_SET_LED_OVERRIDE, s, buf, 4);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib, int16_t pa) {
+uint8_t OpenevchargerTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib, int16_t pa) {
   uint8_t s = next_seq_();
   uint8_t buf[8] = {
       uint8_t(uint16_t(v)),       uint8_t(uint16_t(v) >> 8),
@@ -910,13 +910,13 @@ uint8_t OpenbhzdTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib, in
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_rfid_learn_next() {
+uint8_t OpenevchargerTlv::send_rfid_learn_next() {
   uint8_t s = next_seq_();
   send_frame_(CMD_RFID_LEARN_NEXT, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_rfid_clear_list() {
+uint8_t OpenevchargerTlv::send_rfid_clear_list() {
   uint8_t s = next_seq_();
   send_frame_(CMD_RFID_CLEAR_LIST, s, nullptr, 0);
   // Refresh count after the MCU processes the clear.
@@ -924,13 +924,13 @@ uint8_t OpenbhzdTlv::send_rfid_clear_list() {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_rfid_get_list() {
+uint8_t OpenevchargerTlv::send_rfid_get_list() {
   uint8_t s = next_seq_();
   send_frame_(CMD_RFID_GET_LIST, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_rfid_remove_uid(uint32_t uid) {
+uint8_t OpenevchargerTlv::send_rfid_remove_uid(uint32_t uid) {
   uint8_t s = next_seq_();
   uint8_t buf[4] = {uint8_t(uid), uint8_t(uid >> 8),
                     uint8_t(uid >> 16), uint8_t(uid >> 24)};
@@ -939,7 +939,7 @@ uint8_t OpenbhzdTlv::send_rfid_remove_uid(uint32_t uid) {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_set_require_rfid_auth(bool enable) {
+uint8_t OpenevchargerTlv::send_set_require_rfid_auth(bool enable) {
   uint8_t s = next_seq_();
   uint8_t v = enable ? 1u : 0u;
   send_frame_(CMD_SET_REQUIRE_RFID_AUTH, s, &v, 1);
@@ -947,13 +947,13 @@ uint8_t OpenbhzdTlv::send_set_require_rfid_auth(bool enable) {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_rfid_config() {
+uint8_t OpenevchargerTlv::send_get_rfid_config() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_RFID_CONFIG, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_set_time(uint32_t unix_seconds) {
+uint8_t OpenevchargerTlv::send_set_time(uint32_t unix_seconds) {
   uint8_t s = next_seq_();
   uint8_t buf[4] = {
       uint8_t(unix_seconds),         uint8_t(unix_seconds >> 8),
@@ -963,20 +963,20 @@ uint8_t OpenbhzdTlv::send_set_time(uint32_t unix_seconds) {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_get_time() {
+uint8_t OpenevchargerTlv::send_get_time() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_TIME, s, nullptr, 0);
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_restart() {
+uint8_t OpenevchargerTlv::send_restart() {
   uint8_t s = next_seq_();
   send_frame_(CMD_RESTART, s, nullptr, 0);
   ESP_LOGI(TAG, "MCU restart requested (seq=%u)", unsigned(s));
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_write_bl0939_cal_from_yaml() {
+uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
 #ifdef USE_SENSOR
   auto clamp_i16 = [](int32_t v) -> int16_t {
     if (v >  INT16_MAX) return INT16_MAX;
@@ -1009,7 +1009,7 @@ uint32_t crc32_ieee(const uint8_t *data, size_t len) {
 }
 }  // namespace
 
-uint8_t OpenbhzdTlv::send_ota_begin(uint32_t image_size, uint32_t image_crc32,
+uint8_t OpenevchargerTlv::send_ota_begin(uint32_t image_size, uint32_t image_crc32,
                                     uint32_t session_id) {
   uint8_t s = next_seq_();
   uint8_t buf[12] = {
@@ -1024,7 +1024,7 @@ uint8_t OpenbhzdTlv::send_ota_begin(uint32_t image_size, uint32_t image_crc32,
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_ota_chunk(uint32_t session_id, uint32_t offset,
+uint8_t OpenevchargerTlv::send_ota_chunk(uint32_t session_id, uint32_t offset,
                                     const uint8_t *data, uint8_t data_len) {
   if (data_len == 0 || data_len > OTA_CHUNK_MAX_DATA) return 0;
   uint8_t s = next_seq_();
@@ -1042,7 +1042,7 @@ uint8_t OpenbhzdTlv::send_ota_chunk(uint32_t session_id, uint32_t offset,
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_ota_commit(uint32_t session_id) {
+uint8_t OpenevchargerTlv::send_ota_commit(uint32_t session_id) {
   uint8_t s = next_seq_();
   uint8_t buf[4] = {uint8_t(session_id),         uint8_t(session_id >> 8),
                     uint8_t(session_id >> 16),  uint8_t(session_id >> 24)};
@@ -1050,7 +1050,7 @@ uint8_t OpenbhzdTlv::send_ota_commit(uint32_t session_id) {
   return s;
 }
 
-uint8_t OpenbhzdTlv::send_ota_abort(uint32_t session_id) {
+uint8_t OpenevchargerTlv::send_ota_abort(uint32_t session_id) {
   uint8_t s = next_seq_();
   uint8_t buf[4] = {uint8_t(session_id),         uint8_t(session_id >> 8),
                     uint8_t(session_id >> 16),  uint8_t(session_id >> 24)};
@@ -1058,7 +1058,7 @@ uint8_t OpenbhzdTlv::send_ota_abort(uint32_t session_id) {
   return s;
 }
 
-bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
+bool OpenevchargerTlv::fetch_and_push_ota(const std::string &url) {
   // Plain HTTP only. LibreTiny's BK7231N mbedtls port is missing
   // mbedtls_net_set_nonblock (link error in MbedTLSClient::connect),
   // so WiFiClientSecure won't link. If your HA is HTTPS-only, hit it
@@ -1214,7 +1214,7 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   return start_ota_push_from_buf_();
 }
 
-bool OpenbhzdTlv::start_ota_push(const uint8_t *data, size_t len) {
+bool OpenevchargerTlv::start_ota_push(const uint8_t *data, size_t len) {
   if (ota_push_active()) {
     ESP_LOGW(TAG, "OTA push already active (state=%s) — refusing",
              ota_state_name());
@@ -1236,7 +1236,7 @@ bool OpenbhzdTlv::start_ota_push(const uint8_t *data, size_t len) {
   return start_ota_push_from_buf_();
 }
 
-bool OpenbhzdTlv::start_ota_push_from_buf_() {
+bool OpenevchargerTlv::start_ota_push_from_buf_() {
   ota_total_bytes_ = uint32_t(ota_buf_.size());
   ota_image_crc32_ = crc32_ieee(ota_buf_.data(), ota_buf_.size());
   // Pick a non-zero session_id from millis(). Collision-resistant enough
@@ -1257,7 +1257,7 @@ bool OpenbhzdTlv::start_ota_push_from_buf_() {
   return true;
 }
 
-void OpenbhzdTlv::abort_ota_push() {
+void OpenevchargerTlv::abort_ota_push() {
   if (!ota_push_active()) return;
   ESP_LOGI(TAG, "OTA push aborted by host (sid=0x%08x at %u/%u)",
            unsigned(ota_session_id_),
@@ -1266,7 +1266,7 @@ void OpenbhzdTlv::abort_ota_push() {
   ota_finish_(OtaState::FAILED, "aborted by host");
 }
 
-void OpenbhzdTlv::ota_send_next_chunk_() {
+void OpenevchargerTlv::ota_send_next_chunk_() {
   if (ota_state_ != OtaState::AWAIT_CHUNK) return;
   uint32_t remaining = ota_total_bytes_ - ota_next_offset_;
   uint8_t  this_len  = remaining > OTA_CHUNK_MAX_DATA
@@ -1281,7 +1281,7 @@ void OpenbhzdTlv::ota_send_next_chunk_() {
            unsigned(ota_seq_chunk_));
 }
 
-void OpenbhzdTlv::ota_loop_tick_() {
+void OpenevchargerTlv::ota_loop_tick_() {
   if (!ota_push_active()) return;
   uint32_t now = millis();
   if (now - ota_last_io_ms_ > ota_op_timeout_ms_) {
@@ -1291,7 +1291,7 @@ void OpenbhzdTlv::ota_loop_tick_() {
   }
 }
 
-void OpenbhzdTlv::ota_finish_(OtaState end_state, const char *why) {
+void OpenevchargerTlv::ota_finish_(OtaState end_state, const char *why) {
   ESP_LOGI(TAG, "OTA push finished: %s (state=%s last_status=%u)",
            why, ota_state_name(), unsigned(ota_last_status_));
   ota_state_ = end_state;
@@ -1302,7 +1302,7 @@ void OpenbhzdTlv::ota_finish_(OtaState end_state, const char *why) {
   ota_publish_progress_();
 }
 
-uint8_t OpenbhzdTlv::ota_progress_pct() const {
+uint8_t OpenevchargerTlv::ota_progress_pct() const {
   if (ota_state_ == OtaState::DONE) return 100u;
   if (ota_total_bytes_ == 0u) return 0u;
   uint64_t pct = (uint64_t(ota_next_offset_) * 100u) / ota_total_bytes_;
@@ -1310,7 +1310,7 @@ uint8_t OpenbhzdTlv::ota_progress_pct() const {
   return uint8_t(pct);
 }
 
-void OpenbhzdTlv::ota_publish_progress_() {
+void OpenevchargerTlv::ota_publish_progress_() {
 #ifdef USE_SENSOR
   uint8_t pct = ota_progress_pct();
   if (pct != ota_progress_pct_cache_) {
@@ -1320,7 +1320,7 @@ void OpenbhzdTlv::ota_publish_progress_() {
 #endif
 }
 
-const char *OpenbhzdTlv::ota_state_name() const {
+const char *OpenevchargerTlv::ota_state_name() const {
   switch (ota_state_) {
     case OtaState::IDLE:         return "IDLE";
     case OtaState::AWAIT_BEGIN:  return "AWAIT_BEGIN";
@@ -1334,7 +1334,7 @@ const char *OpenbhzdTlv::ota_state_name() const {
 
 // --- Helpers ------------------------------------------------------------
 
-uint16_t OpenbhzdTlv::crc16_ccitt_(const uint8_t *p, size_t n) {
+uint16_t OpenevchargerTlv::crc16_ccitt_(const uint8_t *p, size_t n) {
   // CRC16-CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection, no xor-out.
   uint16_t crc = 0xFFFF;
   for (size_t i = 0; i < n; ++i) {
@@ -1346,7 +1346,7 @@ uint16_t OpenbhzdTlv::crc16_ccitt_(const uint8_t *p, size_t n) {
   return crc;
 }
 
-const char *OpenbhzdTlv::evse_state_name(uint8_t s) {
+const char *OpenevchargerTlv::evse_state_name(uint8_t s) {
   switch (s) {
     case 0: return "BOOT";
     case 1: return "SELF_TEST";
@@ -1359,7 +1359,7 @@ const char *OpenbhzdTlv::evse_state_name(uint8_t s) {
   }
 }
 
-const char *OpenbhzdTlv::j1772_state_name(uint8_t s) {
+const char *OpenevchargerTlv::j1772_state_name(uint8_t s) {
   // j1772_ctx_t numeric values (src/core/j1772.h): INVALID=0, A=1..F=6.
   switch (s) {
     case 0: return "INVALID";
@@ -1373,7 +1373,7 @@ const char *OpenbhzdTlv::j1772_state_name(uint8_t s) {
   }
 }
 
-const char *OpenbhzdTlv::fault_name(uint32_t id) {
+const char *OpenevchargerTlv::fault_name(uint32_t id) {
   // Mirrors src/core/fault.h enum order.
   switch (id) {
     case 0: return "NONE";
@@ -1402,11 +1402,11 @@ const char *OpenbhzdTlv::fault_name(uint32_t id) {
 // --- Number / Button ----------------------------------------------------
 
 #ifdef USE_NUMBER
-void OpenbhzdTlvNumber::setup() {
+void OpenevchargerTlvNumber::setup() {
   if (parent_) publish_from_state();
 }
 
-void OpenbhzdTlvNumber::publish_from_state() {
+void OpenevchargerTlvNumber::publish_from_state() {
   if (!parent_) return;
   switch (kind_) {
     case NumberKind::ADVERTISED_AMPS: {
@@ -1417,7 +1417,7 @@ void OpenbhzdTlvNumber::publish_from_state() {
   }
 }
 
-void OpenbhzdTlvNumber::control(float value) {
+void OpenevchargerTlvNumber::control(float value) {
   if (!parent_) return;
   switch (kind_) {
     case NumberKind::ADVERTISED_AMPS: {
@@ -1432,7 +1432,7 @@ void OpenbhzdTlvNumber::control(float value) {
 #endif
 
 #ifdef USE_BUTTON
-void OpenbhzdTlvButton::press_action() {
+void OpenevchargerTlvButton::press_action() {
   if (!parent_) return;
   switch (action_) {
     case ButtonAction::PING: parent_->send_ping(); break;

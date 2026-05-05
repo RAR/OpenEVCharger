@@ -6,21 +6,21 @@ from esphome.const import (
     UNIT_AMPERE,
 )
 
-from . import openbhzd_tlv_ns, OpenbhzdTlv
+from . import openevcharger_tlv_ns, OpenevchargerTlv
 
 CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 CONF_ADVERTISED_AMPS = "advertised_amps"
 
-OpenbhzdTlvNumber = openbhzd_tlv_ns.class_(
-    "OpenbhzdTlvNumber", number.Number, cg.Component
+OpenevchargerTlvNumber = openevcharger_tlv_ns.class_(
+    "OpenevchargerTlvNumber", number.Number, cg.Component
 )
-NumberKind = openbhzd_tlv_ns.enum("NumberKind", is_class=True)
+NumberKind = openevcharger_tlv_ns.enum("NumberKind", is_class=True)
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenevchargerTlv),
         cv.Optional(CONF_ADVERTISED_AMPS): number.number_schema(
-            OpenbhzdTlvNumber,
+            OpenevchargerTlvNumber,
             unit_of_measurement=UNIT_AMPERE,
             device_class=DEVICE_CLASS_CURRENT,
         ),

@@ -2,7 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import text_sensor
 
-from . import openbhzd_tlv_ns, OpenbhzdTlv
+from . import openevcharger_tlv_ns, OpenevchargerTlv
 
 CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
@@ -16,7 +16,7 @@ CONF_LAST_REJECTED_UID = "last_rejected_uid"
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenevchargerTlv),
         cv.Optional(CONF_EVSE_STATE): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_J1772_STATE): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_FIRST_FAULT): text_sensor.text_sensor_schema(),
