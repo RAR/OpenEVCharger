@@ -194,15 +194,18 @@ if(DEFINED OPENBHZD_GFCI_CAL_SELF_TEST)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_GFCI_CAL_SELF_TEST=${OPENBHZD_GFCI_CAL_SELF_TEST})
 endif()
-# E9: pre-scheduler stage→flash OTA apply path. Default OFF — bench-
-# validate the .ramfunc copy + RAM-resident FMC erase/program against
-# a unit with SWD recovery available before enabling on a sealed
-# unit. With the flag off, a stale boot_config.pending_ota_flag is
-# logged and cleared without touching internal flash.
-if(DEFINED OPENBHZD_OTA_APPLY_ENABLED)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENBHZD_OTA_APPLY_ENABLED=${OPENBHZD_OTA_APPLY_ENABLED})
+# E9: pre-scheduler stage→flash OTA apply path. Default ON as of
+# 2026-05-05 — bench-validated end-to-end: layout-divergent payload
+# round-tripped (commit 5b97f93), RAM-side reset confirmed, FAIL
+# banner verified. Pass -DOPENBHZD_OTA_APPLY_ENABLED=0 to suppress
+# the apply (e.g. for a recovery image that shouldn't auto-overwrite
+# itself) — boot_config.pending_ota_flag is then logged and cleared
+# without touching internal flash.
+if(NOT DEFINED OPENBHZD_OTA_APPLY_ENABLED)
+    set(OPENBHZD_OTA_APPLY_ENABLED 1)
 endif()
+target_compile_definitions(${TARGET} PRIVATE
+    OPENBHZD_OTA_APPLY_ENABLED=${OPENBHZD_OTA_APPLY_ENABLED})
 # Phase-B bench marker: when set, main() prints a distinct banner at
 # boot. Use it to tell pre- and post-OTA images apart on the bench
 # console with an otherwise-identical source tree.
