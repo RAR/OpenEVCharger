@@ -236,6 +236,20 @@ static void publish_rfid_config(void);
 #define OPENBHZD_CC_DETECTOR  0
 #endif
 
+/* GFCI CAL self-test (spec § 4.1.2). Pulses PE3 to inject a synthetic
+ * fault into the GFCI module's CAL input, expects PE2 to assert the
+ * fault sense within ~50 ms, then de-asserts and verifies the sense
+ * recovers. Gated default OFF until bench-validated on this PCB —
+ * the wire-trace on PE3 polarity is contradicted by the inline
+ * pin_map.h comment, and the CAL-→-sense path hasn't been
+ * empirically demonstrated. The hal/gfci.c implementation is
+ * polarity-agnostic, but a wrong PCB topology (e.g. CAL not actually
+ * wired to the module) would always fail. Set =1 once bench
+ * confirms the path on a real unit. */
+#ifndef OPENBHZD_GFCI_CAL_SELF_TEST
+#define OPENBHZD_GFCI_CAL_SELF_TEST  0
+#endif
+
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
  * J1772 state C confirmed for an additional 50 ticks (1 s at the
  * 50 Hz safety tick) before closing the relay. Prevents rapid
@@ -646,6 +660,36 @@ static int run_boot_self_test(int32_t cp_mv)
         printk("self-test: PASS\n");
     }
     return fails;
+}
+
+/* GFCI CAL self-test wrapper (spec § 4.1.2). Runs as a separate boot
+ * step (not folded into run_boot_self_test) because the test pulse
+ * actively drives PE3 + flips PE2 LOW for ~50 ms, which would race
+ * the live check_gfci detector once the safety loop starts ticking.
+ * Has to fire AFTER gfci_init() and BEFORE the for(;;) loop. Returns
+ * 0 on PASS or no-op-skip (build-flag gated), 1 on FAIL. Gated
+ * behind OPENBHZD_GFCI_CAL_SELF_TEST default 0 — the PE3 polarity is
+ * contradicted in pin_map.h and the CAL-→-sense path hasn't been
+ * bench-validated. */
+static int self_test_gfci_cal(void)
+{
+#if OPENBHZD_GFCI_CAL_SELF_TEST
+    int rc = gfci_self_test();
+    if (rc == 0) {
+        printk("self-test: GFCI CAL PASS\n");
+        return 0;
+    }
+    const char *why = (rc == -1) ? "no sense edge during CAL pulse"
+                    : (rc == -2) ? "sense stuck-low after CAL release"
+                    : (rc == -3) ? "sense already asserted at start"
+                    :              "unknown rc";
+    printk("self-test: GFCI CAL FAIL (rc=%d, %s)\n", rc, why);
+    return 1;
+#else
+    printk("self-test: GFCI CAL DISABLED at build time "
+           "(OPENBHZD_GFCI_CAL_SELF_TEST=0; bench carve-out)\n");
+    return 0;
+#endif
 }
 
 /* Returns ST_RELAY_OK, _OPEN_AT_BOOT, or _WELD_AT_BOOT. Caller must
@@ -1607,6 +1651,20 @@ static void safety_task_run(void *arg)
             printk("FAULT raised: %s (%d sub-check fails)\n",
                    fault_name(FAULT_BOOT_SELF_TEST), st_fails);
             post_fault_event(FAULT_BOOT_SELF_TEST, js0, es, cp_mv0);
+        }
+        evse_transition(&es, EVSE_FAULT);
+    }
+
+    /* GFCI CAL self-test runs separately from run_boot_self_test
+     * because its 50 ms CAL pulse actively flips PE2 LOW — the live
+     * check_gfci detector would race it once the safety loop starts.
+     * Has to fire BEFORE the for(;;) tick loop. Build-flag gated. */
+    if (self_test_gfci_cal() != 0 &&
+        !fault_is_active(&fs, FAULT_GFCI_SELF_TEST)) {
+        if (fault_raise(&fs, FAULT_GFCI_SELF_TEST) == 1) {
+            printk("FAULT raised: %s (CAL pulse did not provoke sense)\n",
+                   fault_name(FAULT_GFCI_SELF_TEST));
+            post_fault_event(FAULT_GFCI_SELF_TEST, js0, es, cp_mv0);
         }
         evse_transition(&es, EVSE_FAULT);
     }

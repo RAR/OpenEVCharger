@@ -182,6 +182,15 @@ if(DEFINED OPENBHZD_CC_DETECTOR)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_CC_DETECTOR=${OPENBHZD_CC_DETECTOR})
 endif()
+# Boot CAL-pulse-and-EXTI self-test for the GFCI module
+# (FAULT_GFCI_SELF_TEST). Default OFF — the PE3 polarity is
+# contradicted in pin_map.h and the CAL-→-sense path hasn't been
+# bench-validated on this PCB. Set =1 once a bench run with PE3 +
+# PE2 scope confirms the path.
+if(DEFINED OPENBHZD_GFCI_CAL_SELF_TEST)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_GFCI_CAL_SELF_TEST=${OPENBHZD_GFCI_CAL_SELF_TEST})
+endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
 # Default ON for bench builds; pass -DOPENBHZD_STACK_WATCH=0 for production.
