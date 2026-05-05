@@ -1118,7 +1118,7 @@ static void check_cp_regression(fault_state_t *fs,
     (void)fs;
     if (prev_js == J1772_STATE_C && js == J1772_STATE_B &&
         prev_es == EVSE_CHARGING) {
-        printk("info: %s observed (J1772 C->B during charging) — logged, no fault raised\n",
+        printk("%s observed (J1772 C->B during charging)\n",
                fault_name(FAULT_CP_REGRESSION));
         post_fault_event(FAULT_CP_REGRESSION, js, es, cp_mv);
     }
