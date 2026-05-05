@@ -1022,10 +1022,19 @@ uint8_t OpenbhzdTlv::send_ota_abort(uint32_t session_id) {
 }
 
 bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
-  // Parse "http://host[:port]/path". Reject anything else.
+  // Plain HTTP only. LibreTiny's BK7231N mbedtls port is missing
+  // mbedtls_net_set_nonblock (link error in MbedTLSClient::connect),
+  // so WiFiClientSecure won't link. If your HA is HTTPS-only, hit it
+  // by direct local-IP + port 8123 (HA's built-in listener is plain
+  // HTTP unless you put it behind a reverse proxy):
+  //   http://<ha-local-ip>:8123/local/openbhzd.bin
+  // Or stand up a plain-HTTP server alongside HA (python -m
+  // http.server, busybox httpd, etc.) and serve the .bin from there.
   static const std::string scheme = "http://";
   if (url.compare(0, scheme.size(), scheme) != 0) {
-    ESP_LOGW(TAG, "OTA fetch: only http:// supported (got %s)", url.c_str());
+    ESP_LOGW(TAG, "OTA fetch: only http:// supported (got %s) — see "
+                  "openbhzd_tlv.cpp comment for HTTPS workaround",
+             url.c_str());
     return false;
   }
   size_t a = scheme.size();
@@ -1043,9 +1052,10 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   ESP_LOGI(TAG, "OTA fetch: host=%s port=%u path=%s",
            host.c_str(), unsigned(port), path.c_str());
 
-  WiFiClient client;
-  client.setTimeout(10000);   // ms
-  if (!client.connect(host.c_str(), port)) {
+  WiFiClient cstack;
+  Client *client = &cstack;
+  cstack.setTimeout(10000);   // ms
+  if (!client->connect(host.c_str(), port)) {
     ESP_LOGE(TAG, "OTA fetch: connect %s:%u failed", host.c_str(), unsigned(port));
     return false;
   }
@@ -1061,16 +1071,16 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   req += "User-Agent: openbhzd-fc41d/1\r\n";
   req += "Accept: application/octet-stream\r\n";
   req += "Connection: close\r\n\r\n";
-  client.write(reinterpret_cast<const uint8_t *>(req.data()), req.size());
+  client->write(reinterpret_cast<const uint8_t *>(req.data()), req.size());
 
   // Read status line + headers. Bail on anything but 200.
   uint32_t deadline = millis() + 10000;
   auto wait_line = [&](std::string &out) -> bool {
     out.clear();
     while (millis() < deadline) {
-      if (!client.connected() && !client.available()) return false;
-      if (!client.available()) { delay(5); continue; }
-      char c = char(client.read());
+      if (!client->connected() && !client->available()) return false;
+      if (!client->available()) { delay(5); continue; }
+      char c = char(client->read());
       if (c == '\n') {
         if (!out.empty() && out.back() == '\r') out.pop_back();
         return true;
@@ -1083,7 +1093,7 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   std::string line;
   if (!wait_line(line)) {
     ESP_LOGE(TAG, "OTA fetch: status line timeout");
-    client.stop();
+    client->stop();
     return false;
   }
   ESP_LOGD(TAG, "OTA fetch status: %s", line.c_str());
@@ -1092,7 +1102,7 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   int status = (sp1 == std::string::npos) ? 0 : std::atoi(line.c_str() + sp1 + 1);
   if (status != 200) {
     ESP_LOGW(TAG, "OTA fetch: HTTP %d", status);
-    client.stop();
+    client->stop();
     return false;
   }
 
@@ -1112,13 +1122,13 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   }
   if (!have_clen || content_length == 0u) {
     ESP_LOGW(TAG, "OTA fetch: missing/zero Content-Length");
-    client.stop();
+    client->stop();
     return false;
   }
   if (content_length > OTA_PUSH_MAX_IMAGE_BYTES) {
     ESP_LOGW(TAG, "OTA fetch: %u bytes exceeds cap %u",
              unsigned(content_length), unsigned(OTA_PUSH_MAX_IMAGE_BYTES));
-    client.stop();
+    client->stop();
     return false;
   }
 
@@ -1130,15 +1140,15 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   body.resize(content_length);
   size_t got = 0;
   while (got < content_length && millis() < deadline) {
-    if (!client.connected() && !client.available()) break;
-    int n = client.read(body.data() + got, content_length - got);
+    if (!client->connected() && !client->available()) break;
+    int n = client->read(body.data() + got, content_length - got);
     if (n > 0) {
       got += size_t(n);
     } else {
       delay(5);
     }
   }
-  client.stop();
+  client->stop();
 
   if (got != content_length) {
     ESP_LOGW(TAG, "OTA fetch: short read %u/%u",
