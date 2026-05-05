@@ -20,6 +20,7 @@ CONF_PUSH_BL0939_CAL = "push_bl0939_cal"
 CONF_RFID_LEARN_NEXT = "rfid_learn_next"
 CONF_RFID_CLEAR_LIST = "rfid_clear_list"
 CONF_RFID_GET_LIST = "rfid_get_list"
+CONF_OTA_ABORT = "ota_abort"
 
 OpenbhzdTlvButton = openbhzd_tlv_ns.class_("OpenbhzdTlvButton", button.Button)
 ButtonAction = openbhzd_tlv_ns.enum("ButtonAction", is_class=True)
@@ -39,6 +40,7 @@ _FIELDS = {
     CONF_RFID_LEARN_NEXT: "RFID_LEARN_NEXT",
     CONF_RFID_CLEAR_LIST: "RFID_CLEAR_LIST",
     CONF_RFID_GET_LIST: "RFID_GET_LIST",
+    CONF_OTA_ABORT: "OTA_ABORT",
 }
 
 # buzzer_beep takes an optional `buzzer_ms`.

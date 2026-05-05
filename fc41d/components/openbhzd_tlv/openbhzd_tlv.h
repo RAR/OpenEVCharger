@@ -62,6 +62,10 @@ static constexpr uint8_t CMD_RFID_CLEAR_LIST = 0x11;
 static constexpr uint8_t CMD_RFID_GET_LIST = 0x12;
 static constexpr uint8_t CMD_SET_REQUIRE_RFID_AUTH = 0x13;
 static constexpr uint8_t CMD_GET_RFID_CONFIG = 0x14;
+static constexpr uint8_t CMD_OTA_BEGIN  = 0x15;
+static constexpr uint8_t CMD_OTA_CHUNK  = 0x16;
+static constexpr uint8_t CMD_OTA_COMMIT = 0x17;
+static constexpr uint8_t CMD_OTA_ABORT  = 0x18;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -82,6 +86,28 @@ static constexpr uint8_t EVT_RFID_AUTH_RESULT = 0x8F;
 static constexpr uint8_t EVT_RFID_LIST_ENTRY = 0x90;
 static constexpr uint8_t EVT_RFID_LIST_END = 0x91;
 static constexpr uint8_t EVT_RFID_CONFIG = 0x92;
+static constexpr uint8_t EVT_OTA_BEGIN_ACK = 0x93;
+static constexpr uint8_t EVT_OTA_CHUNK_ACK = 0x94;
+static constexpr uint8_t EVT_OTA_COMMITTED = 0x95;
+static constexpr uint8_t EVT_OTA_ABORTED   = 0x96;
+
+// OTA status codes (mirror src/proto/commands.h).
+static constexpr uint8_t OTA_STATUS_OK              = 0;
+static constexpr uint8_t OTA_STATUS_SESSION_INVALID = 1;
+static constexpr uint8_t OTA_STATUS_OFFSET_MISMATCH = 2;
+static constexpr uint8_t OTA_STATUS_WRITE_ERROR     = 3;
+static constexpr uint8_t OTA_STATUS_OVERSIZE        = 4;
+static constexpr uint8_t OTA_STATUS_TOO_LARGE       = 5;
+static constexpr uint8_t OTA_STATUS_ERASE_FAIL      = 6;
+static constexpr uint8_t OTA_STATUS_INVALID_PAYLOAD = 7;
+static constexpr uint8_t OTA_STATUS_NO_SESSION      = 8;
+static constexpr uint8_t OTA_STATUS_CRC_MISMATCH    = 9;
+static constexpr uint8_t OTA_STATUS_PERSIST_FAIL    = 10;
+
+// Max chunk data bytes per CMD_OTA_CHUNK (matches MCU OTA_CHUNK_MAX_DATA).
+static constexpr size_t OTA_CHUNK_MAX_DATA = 48;
+// Hard cap mirrors MCU's FLASH_OTA_APPLY_MAX_SIZE.
+static constexpr size_t OTA_PUSH_MAX_IMAGE_BYTES = 64u * 1024u;
 
 // RFID auth-result codes (mirror src/proto/commands.h).
 static constexpr uint8_t RFID_AUTH_RESULT_LEARNED = 0;
@@ -177,6 +203,34 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t send_set_require_rfid_auth(bool enable);
   uint8_t send_get_rfid_config();
 
+  // --- OTA push (FC41D → MCU TLV upload) -----------------------------
+  // start_ota_push() copies the image into an internal buffer, picks a
+  // session_id, sends CMD_OTA_BEGIN, and from there the loop()-driven
+  // state machine streams CMD_OTA_CHUNKs in lockstep with the MCU's
+  // EVT_OTA_CHUNK_ACK responses. On the final ACK it issues
+  // CMD_OTA_COMMIT and the MCU verifies CRC32 + arms its pending-OTA
+  // flag. The MCU reboots into the new image only after a separate
+  // user-triggered reset (see openbhzd.yaml's "Reboot MCU After OTA"
+  // button in step 6).
+  //
+  // Returns true if the push was queued, false if size is out of range
+  // or another push is already in progress.
+  bool start_ota_push(const uint8_t *data, size_t len);
+  void abort_ota_push();
+  bool ota_push_active() const { return ota_state_ != OtaState::IDLE &&
+                                        ota_state_ != OtaState::DONE  &&
+                                        ota_state_ != OtaState::FAILED; }
+  uint8_t ota_progress_pct() const;
+  const char *ota_state_name() const;
+  uint8_t ota_last_status() const { return ota_last_status_; }
+  // Low-level send. Returns the seq used. data may be null for COMMIT/ABORT.
+  uint8_t send_ota_begin(uint32_t image_size, uint32_t image_crc32,
+                         uint32_t session_id);
+  uint8_t send_ota_chunk(uint32_t session_id, uint32_t offset,
+                         const uint8_t *data, uint8_t data_len);
+  uint8_t send_ota_commit(uint32_t session_id);
+  uint8_t send_ota_abort(uint32_t session_id);
+
   // Automation hook: fires for every EVT_RFID_AUTH_RESULT the MCU
   // emits, with the colon-formatted UID string + the raw result code
   // (RFID_AUTH_RESULT_*). Lets YAML wire arbitrary side effects —
@@ -230,6 +284,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void set_mains_frequency_sensor(sensor::Sensor *s) { mains_frequency_sensor_ = s; }
   void set_last_rfid_uid_sensor(sensor::Sensor *s) { last_rfid_uid_sensor_ = s; }
   void set_rfid_authlist_count_sensor(sensor::Sensor *s) { rfid_authlist_count_sensor_ = s; }
+  void set_ota_progress_sensor(sensor::Sensor *s) { ota_progress_sensor_ = s; }
   // Per-chassis BL0939 raw → engineering-unit scales. Pulled from YAML
   // substitutions; default 0 = no conversion (raw-only mode).
   void set_bl0939_v_uv_per_raw(int32_t s) { bl0939_v_uv_per_raw_ = s; }
@@ -341,6 +396,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *mains_frequency_sensor_{nullptr};
   sensor::Sensor *last_rfid_uid_sensor_{nullptr};
   sensor::Sensor *rfid_authlist_count_sensor_{nullptr};
+  sensor::Sensor *ota_progress_sensor_{nullptr};
   int32_t bl0939_v_uv_per_raw_{0};
   int32_t bl0939_ia_ua_per_raw_{0};
   int32_t bl0939_ib_ua_per_raw_{0};
@@ -380,6 +436,38 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
 #ifdef USE_SWITCH
   class OpenbhzdTlvSwitch *require_rfid_auth_switch_{nullptr};
 #endif
+
+  // --- OTA push state machine ----------------------------------------
+  // Driven by loop() — fires next CMD_OTA_CHUNK on every CHUNK_ACK with
+  // matching offset. ota_buf_ holds the entire image (size-capped at
+  // OTA_PUSH_MAX_IMAGE_BYTES, default 64 KB; lives on the FC41D heap
+  // for the duration of the upload only — released on DONE/FAILED).
+  enum class OtaState : uint8_t {
+    IDLE,
+    AWAIT_BEGIN,
+    AWAIT_CHUNK,
+    AWAIT_COMMIT,
+    DONE,
+    FAILED,
+  };
+  void ota_loop_tick_();
+  void ota_send_next_chunk_();
+  void ota_finish_(OtaState end_state, const char *why);
+  void ota_publish_progress_();
+
+  std::vector<uint8_t> ota_buf_;
+  uint32_t ota_session_id_{0};
+  uint32_t ota_image_crc32_{0};
+  uint32_t ota_total_bytes_{0};
+  uint32_t ota_next_offset_{0};
+  uint32_t ota_last_io_ms_{0};
+  uint32_t ota_op_timeout_ms_{2000};   // per-ack deadline
+  OtaState ota_state_{OtaState::IDLE};
+  uint8_t  ota_last_status_{0xFF};
+  uint8_t  ota_seq_begin_{0};
+  uint8_t  ota_seq_chunk_{0};
+  uint8_t  ota_seq_commit_{0};
+  uint8_t  ota_progress_pct_cache_{0xFF};
 #ifdef USE_NUMBER
   std::vector<OpenbhzdTlvNumber *> numbers_;
 #endif
@@ -409,6 +497,7 @@ enum class ButtonAction : uint8_t {
   RFID_LEARN_NEXT,
   RFID_CLEAR_LIST,
   RFID_GET_LIST,
+  OTA_ABORT,
 };
 
 #ifdef USE_NUMBER

@@ -51,6 +51,7 @@ CONF_ACTIVE_POWER = "active_power"
 CONF_MAINS_FREQUENCY = "mains_frequency"
 CONF_LAST_RFID_UID = "last_rfid_uid"
 CONF_RFID_AUTHLIST_COUNT = "rfid_authlist_count"
+CONF_OTA_PROGRESS = "ota_progress"
 CONF_BL0939_V_UV_PER_RAW = "bl0939_v_uv_per_raw"
 CONF_BL0939_IA_UA_PER_RAW = "bl0939_ia_ua_per_raw"
 CONF_BL0939_IB_UA_PER_RAW = "bl0939_ib_ua_per_raw"
@@ -183,6 +184,13 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        # OTA push progress percent — only meaningful while a push is
+        # active. Stays at the last value otherwise.
+        cv.Optional(CONF_OTA_PROGRESS): sensor.sensor_schema(
+            unit_of_measurement="%",
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
         # Per-chassis BL0939 raw → engineering scales. Default 0 means
         # skip the engineering-unit publish (raw counts still post).
         cv.Optional(CONF_BL0939_V_UV_PER_RAW, default=0): cv.int_,
@@ -219,6 +227,7 @@ _SETTERS = {
     CONF_MAINS_FREQUENCY: "set_mains_frequency_sensor",
     CONF_LAST_RFID_UID: "set_last_rfid_uid_sensor",
     CONF_RFID_AUTHLIST_COUNT: "set_rfid_authlist_count_sensor",
+    CONF_OTA_PROGRESS: "set_ota_progress_sensor",
 }
 
 _SCALE_SETTERS = {

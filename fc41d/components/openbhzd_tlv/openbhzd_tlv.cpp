@@ -95,6 +95,10 @@ void OpenbhzdTlv::loop() {
     }
   }
 
+  // OTA push state machine — non-blocking; advances on each loop()
+  // tick and on each EVT_OTA_*_ACK dispatched above.
+  ota_loop_tick_();
+
   // Drive the link_up binary sensor on a timer even with no traffic.
   bool up = link_up();
   if (up != last_link_up_) {
@@ -538,6 +542,98 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       break;
     }
 
+    case EVT_OTA_BEGIN_ACK: {
+      // Payload (8 B): u32 session_id, u8 status, u8 chunk_size_max, u16 reserved.
+      if (plen < 8) break;
+      uint32_t sid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                     (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      uint8_t  status = p[4];
+      uint8_t  cs_max = p[5];
+      ota_last_status_ = status;
+      ESP_LOGI(TAG, "OTA BEGIN_ACK sid=0x%08x status=%u chunk_max=%u",
+               unsigned(sid), unsigned(status), unsigned(cs_max));
+      if (ota_state_ != OtaState::AWAIT_BEGIN || sid != ota_session_id_) {
+        ESP_LOGW(TAG, "OTA BEGIN_ACK ignored (state=%s sid=%08x want=%08x)",
+                 ota_state_name(), unsigned(sid), unsigned(ota_session_id_));
+        break;
+      }
+      if (status != OTA_STATUS_OK) {
+        ota_finish_(OtaState::FAILED, "BEGIN rejected");
+        break;
+      }
+      ota_state_ = OtaState::AWAIT_CHUNK;
+      ota_last_io_ms_ = millis();
+      ota_send_next_chunk_();
+      break;
+    }
+
+    case EVT_OTA_CHUNK_ACK: {
+      // Payload (13 B): u32 session_id, u32 next_offset, u32 running_crc, u8 status.
+      if (plen < 13) break;
+      uint32_t sid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                     (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      uint32_t next_off = uint32_t(p[4]) | (uint32_t(p[5]) << 8) |
+                          (uint32_t(p[6]) << 16) | (uint32_t(p[7]) << 24);
+      uint8_t  status   = p[12];
+      ota_last_status_ = status;
+      if (ota_state_ != OtaState::AWAIT_CHUNK || sid != ota_session_id_) {
+        ESP_LOGW(TAG, "OTA CHUNK_ACK ignored (state=%s sid=%08x want=%08x)",
+                 ota_state_name(), unsigned(sid), unsigned(ota_session_id_));
+        break;
+      }
+      if (status != OTA_STATUS_OK) {
+        // OFFSET_MISMATCH means the MCU's next_off is authoritative —
+        // resync and try again. Anything else: bail.
+        if (status == OTA_STATUS_OFFSET_MISMATCH) {
+          ESP_LOGW(TAG, "OTA chunk offset resync: ours=%u mcu=%u",
+                   unsigned(ota_next_offset_), unsigned(next_off));
+          ota_next_offset_ = next_off;
+          ota_last_io_ms_ = millis();
+          ota_send_next_chunk_();
+        } else {
+          ota_finish_(OtaState::FAILED, "CHUNK rejected");
+        }
+        break;
+      }
+      ota_next_offset_ = next_off;
+      ota_last_io_ms_  = millis();
+      ota_publish_progress_();
+      if (ota_next_offset_ >= ota_total_bytes_) {
+        ota_state_       = OtaState::AWAIT_COMMIT;
+        ota_seq_commit_  = send_ota_commit(ota_session_id_);
+        ESP_LOGI(TAG, "OTA all chunks acked, sent COMMIT seq=%u",
+                 unsigned(ota_seq_commit_));
+      } else {
+        ota_send_next_chunk_();
+      }
+      break;
+    }
+
+    case EVT_OTA_COMMITTED: {
+      if (plen < 5) break;
+      uint32_t sid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                     (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      uint8_t status = p[4];
+      ota_last_status_ = status;
+      if (ota_state_ != OtaState::AWAIT_COMMIT || sid != ota_session_id_) break;
+      if (status == OTA_STATUS_OK) {
+        ESP_LOGI(TAG, "OTA committed: pending flag set on MCU; reboot to activate");
+        ota_finish_(OtaState::DONE, "committed");
+      } else {
+        ota_finish_(OtaState::FAILED, "COMMIT rejected");
+      }
+      break;
+    }
+
+    case EVT_OTA_ABORTED: {
+      if (plen < 4) break;
+      uint32_t sid = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                     (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      ESP_LOGI(TAG, "OTA aborted by MCU sid=0x%08x", unsigned(sid));
+      if (sid == ota_session_id_) ota_finish_(OtaState::FAILED, "aborted by MCU");
+      break;
+    }
+
     default:
       ESP_LOGD(TAG, "unhandled cmd=0x%02x seq=%u plen=%u", cmd, seq, (unsigned) plen);
       break;
@@ -858,6 +954,180 @@ uint8_t OpenbhzdTlv::send_write_bl0939_cal_from_yaml() {
 #endif
 }
 
+// --- OTA push state machine --------------------------------------------
+
+namespace {
+// IEEE 802.3 CRC32 (poly 0xEDB88320, reflected, init 0xFFFFFFFF, xor-out
+// 0xFFFFFFFF). Matches src/persist/crc.c on the MCU side.
+uint32_t crc32_ieee(const uint8_t *data, size_t len) {
+  uint32_t crc = 0xFFFFFFFFu;
+  while (len--) {
+    crc ^= *data++;
+    for (unsigned i = 0; i < 8; ++i) {
+      crc = (crc >> 1) ^ (0xEDB88320u & -(crc & 1u));
+    }
+  }
+  return ~crc;
+}
+}  // namespace
+
+uint8_t OpenbhzdTlv::send_ota_begin(uint32_t image_size, uint32_t image_crc32,
+                                    uint32_t session_id) {
+  uint8_t s = next_seq_();
+  uint8_t buf[12] = {
+      uint8_t(image_size),         uint8_t(image_size  >> 8),
+      uint8_t(image_size  >> 16),  uint8_t(image_size  >> 24),
+      uint8_t(image_crc32),        uint8_t(image_crc32 >> 8),
+      uint8_t(image_crc32 >> 16),  uint8_t(image_crc32 >> 24),
+      uint8_t(session_id),         uint8_t(session_id  >> 8),
+      uint8_t(session_id  >> 16),  uint8_t(session_id  >> 24),
+  };
+  send_frame_(CMD_OTA_BEGIN, s, buf, sizeof buf);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_ota_chunk(uint32_t session_id, uint32_t offset,
+                                    const uint8_t *data, uint8_t data_len) {
+  if (data_len == 0 || data_len > OTA_CHUNK_MAX_DATA) return 0;
+  uint8_t s = next_seq_();
+  uint8_t buf[8 + OTA_CHUNK_MAX_DATA];
+  buf[0] = uint8_t(session_id);
+  buf[1] = uint8_t(session_id >> 8);
+  buf[2] = uint8_t(session_id >> 16);
+  buf[3] = uint8_t(session_id >> 24);
+  buf[4] = uint8_t(offset);
+  buf[5] = uint8_t(offset >> 8);
+  buf[6] = uint8_t(offset >> 16);
+  buf[7] = uint8_t(offset >> 24);
+  for (uint8_t i = 0; i < data_len; ++i) buf[8 + i] = data[i];
+  send_frame_(CMD_OTA_CHUNK, s, buf, 8u + data_len);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_ota_commit(uint32_t session_id) {
+  uint8_t s = next_seq_();
+  uint8_t buf[4] = {uint8_t(session_id),         uint8_t(session_id >> 8),
+                    uint8_t(session_id >> 16),  uint8_t(session_id >> 24)};
+  send_frame_(CMD_OTA_COMMIT, s, buf, sizeof buf);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_ota_abort(uint32_t session_id) {
+  uint8_t s = next_seq_();
+  uint8_t buf[4] = {uint8_t(session_id),         uint8_t(session_id >> 8),
+                    uint8_t(session_id >> 16),  uint8_t(session_id >> 24)};
+  send_frame_(CMD_OTA_ABORT, s, buf, sizeof buf);
+  return s;
+}
+
+bool OpenbhzdTlv::start_ota_push(const uint8_t *data, size_t len) {
+  if (ota_push_active()) {
+    ESP_LOGW(TAG, "OTA push already active (state=%s) — refusing",
+             ota_state_name());
+    return false;
+  }
+  if (data == nullptr || len == 0 || len > OTA_PUSH_MAX_IMAGE_BYTES) {
+    ESP_LOGW(TAG, "OTA push rejected: size=%u out of range (cap=%u)",
+             unsigned(len), unsigned(OTA_PUSH_MAX_IMAGE_BYTES));
+    return false;
+  }
+
+  ota_buf_.assign(data, data + len);
+  ota_total_bytes_ = uint32_t(len);
+  ota_image_crc32_ = crc32_ieee(ota_buf_.data(), ota_buf_.size());
+  // Pick a non-zero session_id from millis(). Collision-resistant enough
+  // for the FC41D side (only one push at a time).
+  ota_session_id_  = millis();
+  if (ota_session_id_ == 0u) ota_session_id_ = 1u;
+  ota_next_offset_ = 0u;
+  ota_last_io_ms_  = millis();
+  ota_state_       = OtaState::AWAIT_BEGIN;
+  ota_progress_pct_cache_ = 0xFF;   // force first publish
+  ota_publish_progress_();
+
+  ota_seq_begin_ = send_ota_begin(ota_total_bytes_, ota_image_crc32_,
+                                  ota_session_id_);
+  ESP_LOGI(TAG, "OTA push started: %u bytes crc=0x%08x sid=0x%08x",
+           unsigned(ota_total_bytes_), unsigned(ota_image_crc32_),
+           unsigned(ota_session_id_));
+  return true;
+}
+
+void OpenbhzdTlv::abort_ota_push() {
+  if (!ota_push_active()) return;
+  ESP_LOGI(TAG, "OTA push aborted by host (sid=0x%08x at %u/%u)",
+           unsigned(ota_session_id_),
+           unsigned(ota_next_offset_), unsigned(ota_total_bytes_));
+  send_ota_abort(ota_session_id_);
+  ota_finish_(OtaState::FAILED, "aborted by host");
+}
+
+void OpenbhzdTlv::ota_send_next_chunk_() {
+  if (ota_state_ != OtaState::AWAIT_CHUNK) return;
+  uint32_t remaining = ota_total_bytes_ - ota_next_offset_;
+  uint8_t  this_len  = remaining > OTA_CHUNK_MAX_DATA
+                         ? uint8_t(OTA_CHUNK_MAX_DATA)
+                         : uint8_t(remaining);
+  if (this_len == 0u) return;
+  ota_seq_chunk_ = send_ota_chunk(ota_session_id_, ota_next_offset_,
+                                  ota_buf_.data() + ota_next_offset_,
+                                  this_len);
+  ESP_LOGV(TAG, "OTA chunk off=%u len=%u seq=%u",
+           unsigned(ota_next_offset_), unsigned(this_len),
+           unsigned(ota_seq_chunk_));
+}
+
+void OpenbhzdTlv::ota_loop_tick_() {
+  if (!ota_push_active()) return;
+  uint32_t now = millis();
+  if (now - ota_last_io_ms_ > ota_op_timeout_ms_) {
+    ESP_LOGW(TAG, "OTA timeout waiting in state %s (%u ms idle)",
+             ota_state_name(), unsigned(now - ota_last_io_ms_));
+    ota_finish_(OtaState::FAILED, "ack timeout");
+  }
+}
+
+void OpenbhzdTlv::ota_finish_(OtaState end_state, const char *why) {
+  ESP_LOGI(TAG, "OTA push finished: %s (state=%s last_status=%u)",
+           why, ota_state_name(), unsigned(ota_last_status_));
+  ota_state_ = end_state;
+  // Free the buffer immediately; ota_progress_pct() falls back on cached
+  // values for the post-push UI snapshot.
+  ota_buf_.clear();
+  ota_buf_.shrink_to_fit();
+  ota_publish_progress_();
+}
+
+uint8_t OpenbhzdTlv::ota_progress_pct() const {
+  if (ota_state_ == OtaState::DONE) return 100u;
+  if (ota_total_bytes_ == 0u) return 0u;
+  uint64_t pct = (uint64_t(ota_next_offset_) * 100u) / ota_total_bytes_;
+  if (pct > 100u) pct = 100u;
+  return uint8_t(pct);
+}
+
+void OpenbhzdTlv::ota_publish_progress_() {
+#ifdef USE_SENSOR
+  uint8_t pct = ota_progress_pct();
+  if (pct != ota_progress_pct_cache_) {
+    ota_progress_pct_cache_ = pct;
+    if (ota_progress_sensor_) ota_progress_sensor_->publish_state(float(pct));
+  }
+#endif
+}
+
+const char *OpenbhzdTlv::ota_state_name() const {
+  switch (ota_state_) {
+    case OtaState::IDLE:         return "IDLE";
+    case OtaState::AWAIT_BEGIN:  return "AWAIT_BEGIN";
+    case OtaState::AWAIT_CHUNK:  return "AWAIT_CHUNK";
+    case OtaState::AWAIT_COMMIT: return "AWAIT_COMMIT";
+    case OtaState::DONE:         return "DONE";
+    case OtaState::FAILED:       return "FAILED";
+  }
+  return "?";
+}
+
 // --- Helpers ------------------------------------------------------------
 
 uint16_t OpenbhzdTlv::crc16_ccitt_(const uint8_t *p, size_t n) {
@@ -974,6 +1244,7 @@ void OpenbhzdTlvButton::press_action() {
     case ButtonAction::RFID_LEARN_NEXT: parent_->send_rfid_learn_next(); break;
     case ButtonAction::RFID_CLEAR_LIST: parent_->send_rfid_clear_list(); break;
     case ButtonAction::RFID_GET_LIST: parent_->send_rfid_get_list(); break;
+    case ButtonAction::OTA_ABORT: parent_->abort_ota_push(); break;
   }
 }
 #endif

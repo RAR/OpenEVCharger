@@ -228,6 +228,13 @@ sensor:
     rfid_authlist_count:
       name: "RFID Authorized Tags"
       entity_category: diagnostic
+    # OTA push progress — only meaningful while a push is active. Stays
+    # at the last value (or 0) otherwise. Driven by the FC41D-side
+    # state machine on every CHUNK_ACK.
+    ota_progress:
+      id: ota_progress_sensor
+      name: "MCU OTA Progress"
+      entity_category: diagnostic
     # Per-chassis raw → engineering scales.
     #
     # Voltage: bench-anchored 2026-05-04 — Fluke reads 123.9 V when
@@ -376,6 +383,11 @@ button:
       entity_category: config
     rfid_get_list:
       name: "Refresh RFID List"
+      entity_category: diagnostic
+    # Abort an in-flight MCU OTA push. Safe to press at any time —
+    # no-op if no push is active.
+    ota_abort:
+      name: "Abort MCU OTA"
       entity_category: diagnostic
 
 # P24 drives a status LED on the FC41D module (identified 2026-05-04 by
