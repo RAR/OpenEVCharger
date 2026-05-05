@@ -174,6 +174,47 @@ static void publish_rfid_config(void);
  *     and the detector self-suppresses during EVSE_FAULT) */
 #define ADC_RUNTIME_PERSIST_TICKS  5U
 
+/* CC (Control Cable / cable-rating) ladder on PA7 (ADC_RANK_CC).
+ * SAE J1772 § 5: cable carries a CC resistor between CC and GND;
+ * EVSE has a pull-up to 3.3 V. Resistor value encodes the cable's
+ * max amperage. Standard ladder + the EVSE divider (assumed 330 Ω
+ * pull-up — same magnitude the OEM uses on the analogous CP read
+ * divider; **bench-characterise with a resistor decade to tune**):
+ *
+ *   1500 Ω → 13 A → raw ≈ 3360
+ *    680 Ω → 20 A → raw ≈ 2757
+ *    220 Ω → 32 A → raw ≈ 1638
+ *    100 Ω → 63 A → raw ≈  955
+ *    open  → no cable / wire severed → raw ≈ 4095
+ *    short → broken cable → raw ≈ 0
+ *
+ * Bands picked with ~300-raw guard either side of each centre.
+ * Re-fit once bench data lands (workflow: plug a J1772 with a
+ * known CC resistor / decade, capture PA7 raw at each rung, write
+ * tighter band edges). Per spec § 3 the ladder is 13/20/32/40/80;
+ * 40/80 don't have canonical SAE resistor values so this map keeps
+ * the standard 13/20/32/63 bands and treats anything else as
+ * out-of-range. */
+#define CC_BAND_OPEN_MIN_RAW   3700U
+#define CC_BAND_13A_LO         3060U
+#define CC_BAND_20A_LO         2400U
+#define CC_BAND_32A_LO         1300U
+#define CC_BAND_63A_LO          600U
+#define CC_PERSIST_TICKS         10U   /* 200 ms debounce */
+
+/* Bench unit on 2026-05-04 reads PA7 raw ≈ 12 with no J1772 plug
+ * inserted, contradicting the M2 bring-up reading of raw=4095. The
+ * OEM CC divider topology is therefore different from the standard
+ * SAE pull-up-to-3.3V assumption baked into the band map above —
+ * "no cable" appears to read at the LOW rail, not the high rail.
+ * Until a bench characterisation pass with a known-resistor decade
+ * pins down the actual map, leave the FAULT_CC_OUT_OF_RANGE raise
+ * path gated. The decoder still runs (publishes cc_max_amps for
+ * diagnostic) so HA can log raw vs decoded as we capture data. */
+#ifndef OPENBHZD_CC_DETECTOR
+#define OPENBHZD_CC_DETECTOR  0
+#endif
+
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
  * J1772 state C confirmed for an additional 50 ticks (1 s at the
  * 50 Hz safety tick) before closing the relay. Prevents rapid
@@ -936,6 +977,75 @@ static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* CC ladder decode. Maps PA7 raw to a J1772 cable-rating amp value;
+ * 0 means "no cable / not installed" (raw at open-rail) and is used
+ * by the snapshot to populate system_state.cc_max_amps. The detector
+ * below distinguishes "0 because open-rail (OK)" from "0 because
+ * raw fell into a between-bands no-mans-land (fault)". */
+static uint16_t decode_cc_amps(uint16_t raw)
+{
+    if (raw >= CC_BAND_OPEN_MIN_RAW) return 0u;     /* open = no cable */
+    if (raw >= CC_BAND_13A_LO)       return 13u;
+    if (raw >= CC_BAND_20A_LO)       return 20u;
+    if (raw >= CC_BAND_32A_LO)       return 32u;
+    if (raw >= CC_BAND_63A_LO)       return 63u;
+    return 0u;                                       /* shorted / out-of-band */
+}
+
+/* In-band = decoder returned a known amp value, or raw is in the
+ * "open" band (cable absent / EVSE-side CC unwired — also OK on the
+ * bench unit before a cable is hooked up). Anything else is a real
+ * out-of-band reading and trips the detector. */
+static int cc_raw_in_band(uint16_t raw)
+{
+    if (raw >= CC_BAND_OPEN_MIN_RAW)        return 1;
+    if (raw >= CC_BAND_13A_LO)              return 1;
+    if (raw >= CC_BAND_20A_LO)              return 1;
+    if (raw >= CC_BAND_32A_LO)              return 1;
+    if (raw >= CC_BAND_63A_LO)              return 1;
+    return 0;
+}
+
+/* CC out-of-range detector (spec § 4 #12). Self-clearing — if the
+ * raw drifts back into a band the streak resets and the fault clears
+ * on the next tick that publishes a CLEAR_FAULT or transitions away
+ * from EVSE_FAULT. The fault is in the latched range (id=18) but
+ * the spec marks it [SELF-CLEAR]; treat it as recoverable via
+ * CMD_CLEAR_FAULT in the meantime — bench tuning + a re-read of the
+ * map will tell us if we need to demote it to FAULT_FIRST_SELF_CLEARING. */
+static void check_cc_out_of_range(fault_state_t *fs, evse_state_t *es,
+                                  j1772_state_t js, int32_t cp_mv,
+                                  int *cc_streak)
+{
+#if OPENBHZD_CC_DETECTOR
+    if (*es == EVSE_BOOT || *es == EVSE_SELF_TEST || *es == EVSE_FAULT) {
+        *cc_streak = 0;
+        return;
+    }
+
+    uint16_t raw = adc_scan_rank(ADC_RANK_CC);
+    if (!cc_raw_in_band(raw)) {
+        if (*cc_streak < (int)CC_PERSIST_TICKS) ++(*cc_streak);
+    } else {
+        *cc_streak = 0;
+    }
+
+    if (*cc_streak >= (int)CC_PERSIST_TICKS &&
+        !fault_is_active(fs, FAULT_CC_OUT_OF_RANGE)) {
+        if (fault_raise(fs, FAULT_CC_OUT_OF_RANGE) == 1) {
+            printk("FAULT raised: %s (PA7 raw=%u out-of-band for >=%u ticks)\n",
+                   fault_name(FAULT_CC_OUT_OF_RANGE),
+                   (unsigned)raw, (unsigned)CC_PERSIST_TICKS);
+            post_fault_event(FAULT_CC_OUT_OF_RANGE, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+#else
+    (void)fs; (void)es; (void)js; (void)cp_mv;
+    (void)cc_streak; (void)cc_raw_in_band;
+#endif
+}
+
 /* Runtime ADC out-of-range detector (spec § 4 #8). Debounces
  * ADC_RUNTIME_PERSIST_TICKS (5 ticks = 100 ms) of any-rail reads on
  * AC / CT / LCT / CP ranks before raising. The boot self-test
@@ -1288,6 +1398,7 @@ static void safety_task_run(void *arg)
     int gfci_streak = 0;
     int pe_streak = 0;
     int adc_runtime_streak = 0;
+    int cc_streak = 0;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
     rfid_ctx_t      rfid_ctx;
     rfid_init_ctx(&rfid_ctx);
@@ -1424,6 +1535,7 @@ static void safety_task_run(void *arg)
         check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
         check_pe_continuity(&fs, &es, s, cp_mv, &pe_streak);
         check_adc_runtime(&fs, &es, s, cp_mv, &adc_runtime_streak);
+        check_cc_out_of_range(&fs, &es, s, cp_mv, &cc_streak);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
         /* PA3 (rank NTC1) is the wall-plug NTC; PA2 (rank "AC", legacy
          * name pre-channel-role correction) is the gun-cable NTC.
@@ -1575,7 +1687,7 @@ static void safety_task_run(void *arg)
             .active_amps_x10   = 0,
             .ntc1_dC           = 0,
             .ntc2_dC           = 0,
-            .cc_max_amps       = 0,
+            .cc_max_amps       = decode_cc_amps(adc_scan_rank(ADC_RANK_CC)),
             .ac_present        = 0,
             .pad               = 0,
             .fault_active_bits = fs.active_bits,

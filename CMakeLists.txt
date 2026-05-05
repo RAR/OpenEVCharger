@@ -174,6 +174,14 @@ if(DEFINED OPENBHZD_BL0939_SMOKE)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_BL0939_SMOKE=${OPENBHZD_BL0939_SMOKE})
 endif()
+# CC ladder detector (FAULT_CC_OUT_OF_RANGE). Default OFF until a
+# bench characterisation pass nails down the OEM CC divider topology.
+# Decoder still runs unconditionally so cc_max_amps publishes for
+# diagnostic logging.
+if(DEFINED OPENBHZD_CC_DETECTOR)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_CC_DETECTOR=${OPENBHZD_CC_DETECTOR})
+endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
 # Default ON for bench builds; pass -DOPENBHZD_STACK_WATCH=0 for production.
