@@ -61,7 +61,6 @@ int ota_stage_begin(uint32_t image_size)
 int ota_stage_write(uint32_t offset, const void *data, size_t len)
 {
     if (data == NULL || len == 0) return -4;
-    if (offset & (W25Q_PAGE_SIZE - 1U)) return -2;
     if ((uint64_t)offset + (uint64_t)len > (uint64_t)OTA_STAGE_REGION_SIZE) {
         return -3;
     }
@@ -69,12 +68,15 @@ int ota_stage_write(uint32_t offset, const void *data, size_t len)
     const uint8_t *src = (const uint8_t *)data;
     uint32_t flash_addr = OTA_STAGE_REGION_BASE + offset;
     while (len > 0) {
-        size_t this_page = (len < W25Q_PAGE_SIZE) ? len : W25Q_PAGE_SIZE;
-        int rc = w25q_program(flash_addr, src, this_page);
+        /* Bytes left in the current 256 B page from this address. */
+        uint32_t page_off  = flash_addr & (W25Q_PAGE_SIZE - 1U);
+        uint32_t in_page   = W25Q_PAGE_SIZE - page_off;
+        size_t   this_prog = (len < in_page) ? len : in_page;
+        int rc = w25q_program(flash_addr, src, this_prog);
         if (rc < 0) return -1;
-        flash_addr += this_page;
-        src        += this_page;
-        len        -= this_page;
+        flash_addr += this_prog;
+        src        += this_prog;
+        len        -= this_prog;
     }
     return 0;
 }

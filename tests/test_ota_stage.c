@@ -73,16 +73,26 @@ void suite_ota_stage(void)
                                         2U * W25Q_SECTOR_SIZE));
     }
 
-    TEST_CASE("ota_stage_write rejects misaligned offset");
+    TEST_CASE("ota_stage_write splits arbitrary offset across page boundary");
     {
         w25q_mock_reset(); w25q_init();
         ota_stage_begin(2048);
-        uint8_t blob[256];
-        fill_pattern(blob, sizeof blob, 0x11);
-        int rc = ota_stage_write(1, blob, sizeof blob);    /* not page-aligned */
-        CHECK_EQ_INT(rc, -2);
-        rc = ota_stage_write(128, blob, sizeof blob);      /* still not 256-aligned */
-        CHECK_EQ_INT(rc, -2);
+        /* Mirrors the FC41D's 48-byte chunk cadence: offsets 0, 48, 96,
+         * ... none page-aligned past the first. The helper must accept
+         * each one and split where needed. Pattern is per-byte
+         * deterministic so we can verify the assembled image. */
+        uint8_t scratch[OTA_STAGE_REGION_BASE > 0 ? 600 : 1];   /* 600 B */
+        for (size_t i = 0; i < 600; ++i) scratch[i] = (uint8_t)(i & 0xFF);
+        size_t off = 0;
+        while (off < 600) {
+            size_t take = (600 - off < 48) ? (600 - off) : 48;
+            int rc = ota_stage_write((uint32_t)off, scratch + off, take);
+            CHECK_EQ_INT(rc, 0);
+            off += take;
+        }
+        uint8_t back[600];
+        w25q_read(OTA_STAGE_REGION_BASE, back, sizeof back);
+        CHECK_EQ_INT(memcmp(back, scratch, 600), 0);
     }
 
     TEST_CASE("ota_stage_write rejects past-end writes");

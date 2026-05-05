@@ -42,13 +42,13 @@ uint32_t ota_crc_finalize(const struct ota_crc_ctx *ctx);
 int ota_stage_begin(uint32_t image_size);
 
 /* Write `len` bytes at `offset` (relative to the stage region base).
- * `offset` must be page-aligned (256 B). `len` is split internally into
- * 256 B page programs as needed. The destination sectors must already
- * have been erased by ota_stage_begin() — this helper does NOT erase
+ * Any offset is accepted; the helper splits the buffer at every 256-byte
+ * page boundary so each underlying w25q_program() stays inside a single
+ * page (W25Q's hard rule). The destination sectors must already have
+ * been erased by ota_stage_begin() — this helper does NOT erase
  * before write.
  *   0   → success
  *  -1   → W25Q program error
- *  -2   → offset not page-aligned
  *  -3   → write extends past OTA_STAGE_REGION_SIZE
  *  -4   → null buffer / zero len */
 int ota_stage_write(uint32_t offset, const void *data, size_t len);
