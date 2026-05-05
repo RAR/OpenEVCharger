@@ -8,6 +8,7 @@
 #include "../proto/build_info.h"
 #include "../core/system_state.h"
 #include "../core/system_time.h"
+#include "../hal/rtc.h"
 #include "../core/fault.h"
 #include "../persist/boot_config.h"
 #include "../ui/led_patterns.h"
@@ -389,6 +390,10 @@ static void handle_set_time(const uint8_t *p, size_t plen, uint8_t seq)
     }
     uint32_t unix_s = le32(p);
     system_time_set(unix_s, now_ms_());
+    /* Mirror to the on-chip RTC so the wall clock survives any
+     * non-power-cycle reset (OTA, watchdog, crash-loop). Cold boot
+     * still needs an HA push because VBAT isn't wired on this PCB. */
+    if (unix_s != 0u) rtc_store_unix(unix_s);
     if (unix_s == 0u) {
         printk("system_time: cleared\n");
     } else {

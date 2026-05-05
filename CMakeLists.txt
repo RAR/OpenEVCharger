@@ -30,6 +30,9 @@ set(STDP_SRCS
     ${STDP_SRC}/gd32f20x_dma.c
     ${STDP_SRC}/gd32f20x_timer.c
     ${STDP_SRC}/gd32f20x_spi.c
+    ${STDP_SRC}/gd32f20x_rtc.c
+    ${STDP_SRC}/gd32f20x_bkp.c
+    ${STDP_SRC}/gd32f20x_pmu.c
 )
 
 # ---------- FreeRTOS ----------
@@ -67,6 +70,7 @@ set(APP_SRCS
     src/hal/cp_pwm.c
     src/hal/relay.c
     src/hal/gfci.c
+    src/hal/rtc.c
     src/hal/bl0939.c
     src/hal/spi3.c
     src/hal/flash.c

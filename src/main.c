@@ -18,6 +18,8 @@
 #include "hal/spi3.h"
 #include "hal/w25q.h"
 #include "hal/flash.h"
+#include "hal/rtc.h"
+#include "core/system_time.h"
 #include "persist/boot_count.h"
 #include "persist/boot_config.h"
 #include "persist/calibration.h"
@@ -73,6 +75,23 @@ int main(void)
     printk("*** OTA-APPLIED v%d ***\n", (int)(OPENBHZD_OTA_TEST_MARKER));
 #endif
     clock_log_status();
+
+    /* Bring up the on-chip RTC (LSI-clocked, ±5%) and seed the software
+     * clock from it if a previous boot in this VDD cycle stored a value.
+     * Wins us correct wall-stamps in the few seconds between an OTA /
+     * watchdog reset and HA's next time-push. Lost on full power-cycle
+     * because VBAT isn't wired to a battery on this PCB. */
+    rtc_init();
+    {
+        uint32_t saved_unix = 0;
+        if (rtc_load_unix(&saved_unix) && saved_unix != 0u) {
+            system_time_set(saved_unix, 0u);
+            printk("rtc: resumed unix=%u (LSI-clocked)\n",
+                   (unsigned)saved_unix);
+        } else {
+            printk("rtc: cold (no valid magic; awaiting HA time push)\n");
+        }
+    }
 
     /* Release JTAG pins (PA15, PB3, PB4) so SPI3 (PB3/PB4/PB5) and
      * TIMER1_CH0 (PA15) can use them. SWDPENABLE keeps SWD alive
