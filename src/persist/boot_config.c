@@ -85,3 +85,38 @@ int boot_config_set_require_rfid_auth(uint8_t enable)
     s_cfg.require_rfid_auth = enable;
     return store("require_rfid_auth");
 }
+
+uint8_t boot_config_pending_ota_flag(void)
+{
+    return s_cfg.pending_ota_flag;
+}
+
+uint32_t boot_config_staged_image_size(void)
+{
+    return s_cfg.staged_image_size;
+}
+
+uint32_t boot_config_staged_image_crc32(void)
+{
+    return s_cfg.staged_image_crc32;
+}
+
+int boot_config_set_pending_ota(uint8_t pending,
+                                uint32_t image_size,
+                                uint32_t image_crc32)
+{
+    pending = pending ? 1u : 0u;
+    if (!pending) {
+        image_size = 0;
+        image_crc32 = 0;
+    }
+    if (s_cfg.pending_ota_flag    == pending    &&
+        s_cfg.staged_image_size   == image_size &&
+        s_cfg.staged_image_crc32  == image_crc32) {
+        return 0;
+    }
+    s_cfg.pending_ota_flag   = pending;
+    s_cfg.staged_image_size  = image_size;
+    s_cfg.staged_image_crc32 = image_crc32;
+    return store("pending_ota");
+}
