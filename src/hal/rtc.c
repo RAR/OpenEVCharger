@@ -27,7 +27,7 @@ static void magic_set(int valid)
 }
 
 /* Bounded waits — keep the RTC bring-up from wedging the boot if the
- * peripheral clock or LSI isn't behaving. ~50 ms at 120 MHz core. */
+ * peripheral clock or LSI isn't behaving. */
 static int rtc_lwoff_wait_bounded(void)
 {
     for (uint32_t i = 0; i < 800000u; ++i) {
@@ -36,9 +36,6 @@ static int rtc_lwoff_wait_bounded(void)
     return 0;
 }
 
-/* RSYNF sets within microseconds on a healthy RTC, but allow up to
- * ~2 s here so that even a worst-case 1 Hz shadow-sync window can't
- * leave us reading a stale counter on warm boot. */
 static int rtc_rsyn_wait_bounded(void)
 {
     RTC_CTL &= ~RTC_CTL_RSYNF;
@@ -57,35 +54,17 @@ void rtc_init(void)
     /* Allow writes to backup domain (BKP_DATAx + RTC + RCU_BDCTL). */
     pmu_backup_write_enable();
 
-    /* Diagnostic: surface raw BKP/RTC/BDCTL state at boot. Sample BKP_DATA
-     * into locals so the print and the magic check can't disagree about
-     * what we just read. Also peek at the RTC divider twice with a small
-     * busy-wait between, which tells us whether RTCCLK is actually
-     * ticking — a healthy RTC will have DIV decrement between the two
-     * reads, a frozen RTC will hold the same value. */
-    uint16_t b0 = BKP_DATA0;
-    uint16_t b1 = BKP_DATA1;
-    int      mv = (b0 == RTC_MAGIC_LO) && (b1 == RTC_MAGIC_HI);
-    uint32_t div_a = (RTC_DIVH << 16) | (RTC_DIVL & 0xFFFFu);
-    for (volatile int i = 0; i < 200000; ++i) { __asm__ volatile (""); }
-    uint32_t div_b = (RTC_DIVH << 16) | (RTC_DIVL & 0xFFFFu);
-    printk("rtc: bkp0=0x%04x bkp1=0x%04x cnt=0x%08x bdctl=0x%08x "
-           "div_a=0x%08x div_b=0x%08x mv=%d\n",
-           (unsigned)b0, (unsigned)b1,
-           (unsigned)rtc_counter_get(), (unsigned)RCU_BDCTL,
-           (unsigned)div_a, (unsigned)div_b, mv);
+    /* LSI (IRC40K) lives in the system-domain RCU_RSTSCK register and
+     * gets disabled by every system reset / SYSRESETREQ. Even when
+     * BDCTL.RTCEN + BDCTL.RTCSRC=LSI survive (backup domain), the clock
+     * source itself is off after a warm boot, the counter freezes, and
+     * shadow regs can't sync. So always re-assert LSI here, regardless
+     * of whether we're cold or warm. */
+    rcu_osci_on(RCU_IRC40K);
+    rcu_osci_stab_wait(RCU_IRC40K);
 
-    if (mv) {
-        /* Backup domain (BKP_DATA, RTC counter, BDCTL) is intact. But
-         * LSI (IRC40K) lives in the system-domain RCU_RSTSCK register,
-         * which IS reset on every system reset / SYSRESETREQ. So even
-         * though BDCTL.RTCSRC still selects IRC40K and BDCTL.RTCEN is
-         * set, the clock source itself is off after warm boot — the
-         * counter holds its value but the shadow regs can't sync until
-         * we re-enable LSI here. (Bench-confirmed 2026-05-05: div_a /
-         * div_b read 0/0 after SYSRESETREQ until this fix landed.) */
-        rcu_osci_on(RCU_IRC40K);
-        rcu_osci_stab_wait(RCU_IRC40K);
+    if (magic_valid()) {
+        /* Backup domain (BKP_DATA, RTC counter, BDCTL) is intact. */
         rcu_periph_clock_enable(RCU_RTC);
         return;
     }
@@ -95,19 +74,11 @@ void rtc_init(void)
     rcu_bkp_reset_enable();
     rcu_bkp_reset_disable();
 
-    /* Start LSI (IRC40K) and wait for it to stabilise. LSI lives in
-     * the always-on domain and isn't gated by VBAT; we use it as the
-     * RTC reference because LSE crystal isn't characterised on this
-     * PCB. */
-    rcu_osci_on(RCU_IRC40K);
-    rcu_osci_stab_wait(RCU_IRC40K);
-
     rcu_rtc_clock_config(RCU_RTCSRC_IRC40K);
     rcu_periph_clock_enable(RCU_RTC);
 
-    /* Wait for RTC APB shadow regs to mirror peripheral state, then
-     * push a 1 Hz prescaler. Bounded — if RSYNF/LWOFF never set we
-     * leave magic invalid and fall back to "no RTC" rather than hang. */
+    /* Bounded RSYNF + LWOFF — if either expires we bail with magic
+     * invalid rather than hang the boot. */
     if (!rtc_rsyn_wait_bounded()) { magic_set(0); return; }
     if (!rtc_lwoff_wait_bounded()) { magic_set(0); return; }
     rtc_configuration_mode_enter();
@@ -121,39 +92,20 @@ void rtc_init(void)
 int rtc_load_unix(uint32_t *out)
 {
     if (!magic_valid()) return 0;
-    /* The RTC counter shadow regs reset to 0 on every system reset
-     * and must re-sync from the always-on side before the read is
-     * meaningful. RSYNF gets set every 1 Hz tick (PSC=39999 @ LSI),
-     * so we wait up to ~2 s; if it never sets the RTC really is dead
-     * and we report cold. */
+    /* RTC counter shadow regs reset to 0 on every system reset and
+     * must re-sync from the always-on side before the read is
+     * meaningful. */
     (void)rtc_rsyn_wait_bounded();
     uint32_t cnt = rtc_counter_get();
-    if (cnt == 0u) {
-        printk("rtc: load found cnt=0 (shadow not synced) — cold\n");
-        return 0;
-    }
+    if (cnt == 0u) return 0;
     if (out) *out = cnt;
     return 1;
 }
 
 void rtc_store_unix(uint32_t unix_seconds)
 {
-    if (!rtc_lwoff_wait_bounded()) {
-        printk("rtc: store unix=%u TIMEOUT (LWOFF#1 stuck)\n",
-               (unsigned)unix_seconds);
-        return;
-    }
+    if (!rtc_lwoff_wait_bounded()) return;
     rtc_counter_set(unix_seconds);
-    if (!rtc_lwoff_wait_bounded()) {
-        printk("rtc: store unix=%u TIMEOUT (LWOFF#2 stuck)\n",
-               (unsigned)unix_seconds);
-        return;
-    }
+    if (!rtc_lwoff_wait_bounded()) return;
     magic_set(1);
-    /* Force a shadow re-sync so the read-back proves the write took. */
-    (void)rtc_rsyn_wait_bounded();
-    uint32_t verify = rtc_counter_get();
-    printk("rtc: stored unix=%u verify=0x%08x (bkp0=0x%04x bkp1=0x%04x)\n",
-           (unsigned)unix_seconds, (unsigned)verify,
-           (unsigned)BKP_DATA0, (unsigned)BKP_DATA1);
 }
