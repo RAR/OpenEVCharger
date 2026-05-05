@@ -91,6 +91,7 @@ int persist_post_ota_chunk(uint32_t session_id,
                            const uint8_t *data,
                            uint8_t  data_len,
                            uint8_t  seq);
+int persist_post_ota_commit(uint32_t session_id, uint8_t seq);
 int persist_post_ota_abort(uint32_t session_id, uint8_t seq);
 
 #endif

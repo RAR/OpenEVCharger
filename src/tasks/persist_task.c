@@ -34,6 +34,7 @@ typedef enum {
     PERSIST_REQ_REQUIRE_RFID_AUTH,
     PERSIST_REQ_OTA_BEGIN,
     PERSIST_REQ_OTA_CHUNK,
+    PERSIST_REQ_OTA_COMMIT,
     PERSIST_REQ_OTA_ABORT,
 } persist_req_type_t;
 
@@ -70,10 +71,14 @@ struct __attribute__((packed)) ota_chunk_args {
     uint8_t  data[OTA_CHUNK_MAX_DATA];
 };
 
+/* OTA_COMMIT and OTA_ABORT have identical FC41D-side payloads. The
+ * persist queue carries the same shape for both; the tag in
+ * persist_req.type discriminates. */
 struct __attribute__((packed)) ota_abort_args {
     uint32_t session_id;
     uint8_t  seq;
 };
+typedef struct ota_abort_args ota_commit_args;
 
 struct persist_req {
     persist_req_type_t type;
@@ -282,6 +287,15 @@ int persist_post_ota_chunk(uint32_t session_id,
     return post(&req);
 }
 
+int persist_post_ota_commit(uint32_t session_id, uint8_t seq)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_OTA_COMMIT;
+    req.payload.ota_abort.session_id = session_id;
+    req.payload.ota_abort.seq        = seq;
+    return post(&req);
+}
+
 int persist_post_ota_abort(uint32_t session_id, uint8_t seq)
 {
     struct persist_req req;
@@ -468,6 +482,67 @@ reply:
                                   &ack, sizeof ack);
 }
 
+static void handle_ota_commit(const ota_commit_args *c)
+{
+    struct __attribute__((packed)) {
+        uint32_t session_id;
+        uint8_t  status;
+    } ack = { .session_id = c->session_id };
+
+    if (!ota_in_session()) {
+        ack.status = OTA_STATUS_NO_SESSION;
+        goto reply;
+    }
+    if (c->session_id != s_ota.session_id) {
+        ack.status = OTA_STATUS_SESSION_INVALID;
+        goto reply;
+    }
+    /* Refuse to commit a partial upload — the FC41D side's bug, not ours.
+     * Surface it as OFFSET_MISMATCH so the client retries from
+     * next_offset (still carried in the prior CHUNK_ACK). */
+    if (s_ota.next_offset != s_ota.expected_size) {
+        printk("ota: COMMIT premature: got %u of %u bytes\n",
+               (unsigned)s_ota.next_offset,
+               (unsigned)s_ota.expected_size);
+        ack.status = OTA_STATUS_OFFSET_MISMATCH;
+        goto reply;
+    }
+
+    /* Re-read from W25Q and recompute CRC. ota_stage_compute_crc reads
+     * straight off flash — independent of the running incremental CRC
+     * we tracked during the upload, which catches bit-rot in the
+     * staging area between write and commit. */
+    uint32_t staged_crc = ota_stage_compute_crc(s_ota.expected_size);
+    if (staged_crc != s_ota.expected_crc32) {
+        printk("ota: COMMIT CRC mismatch: staged=0x%08x expected=0x%08x\n",
+               (unsigned)staged_crc, (unsigned)s_ota.expected_crc32);
+        ack.status = OTA_STATUS_CRC_MISMATCH;
+        goto reply;
+    }
+
+    int rc = ota_stage_mark_pending(s_ota.expected_size,
+                                    s_ota.expected_crc32);
+    if (rc != 0) {
+        printk("ota: pending-flag persist FAIL rc=%d\n", rc);
+        ack.status = OTA_STATUS_PERSIST_FAIL;
+        goto reply;
+    }
+
+    printk("ota: COMMIT OK session=0x%08x size=%u crc=0x%08x — "
+           "pending flag set; reboot to activate\n",
+           (unsigned)c->session_id,
+           (unsigned)s_ota.expected_size,
+           (unsigned)s_ota.expected_crc32);
+    ack.status = OTA_STATUS_OK;
+    /* Session state stays around until ABORT or another BEGIN —
+     * deliberately, so a duplicate COMMIT is idempotent and a power
+     * cycle resumes from the same flag. */
+
+reply:
+    (void)comms_publish_event_seq(EVT_OTA_COMMITTED, c->seq,
+                                  &ack, sizeof ack);
+}
+
 static void handle_ota_abort(const struct ota_abort_args *a)
 {
     /* Echo regardless — caller doesn't need to know whether a session
@@ -565,6 +640,9 @@ static void persist_task_run(void *arg)
                 break;
             case PERSIST_REQ_OTA_CHUNK:
                 handle_ota_chunk(&req.payload.ota_chunk);
+                break;
+            case PERSIST_REQ_OTA_COMMIT:
+                handle_ota_commit(&req.payload.ota_abort);
                 break;
             case PERSIST_REQ_OTA_ABORT:
                 handle_ota_abort(&req.payload.ota_abort);

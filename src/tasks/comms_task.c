@@ -335,6 +335,19 @@ static void handle_ota_chunk(const uint8_t *p, size_t plen, uint8_t seq)
     }
 }
 
+static void handle_ota_commit(const uint8_t *p, size_t plen, uint8_t seq)
+{
+    if (plen < 4) {
+        printk("comms: OTA_COMMIT plen=%u <4, dropped\n", (unsigned)plen);
+        return;
+    }
+    uint32_t session_id = le32(p);
+    int rc = persist_post_ota_commit(session_id, seq);
+    if (rc != 0) {
+        printk("comms: OTA_COMMIT post FAIL rc=%d\n", rc);
+    }
+}
+
 static void handle_ota_abort(const uint8_t *p, size_t plen, uint8_t seq)
 {
     if (plen < 4) {
@@ -385,6 +398,7 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_GET_RFID_CONFIG:       handle_get_rfid_config(); break;
     case CMD_OTA_BEGIN:             handle_ota_begin(payload, plen, seq); break;
     case CMD_OTA_CHUNK:             handle_ota_chunk(payload, plen, seq); break;
+    case CMD_OTA_COMMIT:            handle_ota_commit(payload, plen, seq); break;
     case CMD_OTA_ABORT:             handle_ota_abort(payload, plen, seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
