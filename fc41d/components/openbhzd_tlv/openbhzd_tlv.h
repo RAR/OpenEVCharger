@@ -11,6 +11,7 @@
 // ../../../src/core/system_state.h openbhzd_state (packed, 30 bytes).
 // Keep these in sync if either side changes.
 
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/components/uart/uart.h"
 
@@ -175,6 +176,16 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t send_rfid_remove_uid(uint32_t uid);
   uint8_t send_set_require_rfid_auth(bool enable);
   uint8_t send_get_rfid_config();
+
+  // Automation hook: fires for every EVT_RFID_AUTH_RESULT the MCU
+  // emits, with the colon-formatted UID string + the raw result code
+  // (RFID_AUTH_RESULT_*). Lets YAML wire arbitrary side effects —
+  // e.g. driving an OCPP transaction lifecycle via the ocpp component
+  // — without baking that knowledge into openbhzd_tlv itself.
+  void add_on_rfid_auth_result_callback(
+      std::function<void(std::string, uint8_t)> &&cb) {
+    rfid_auth_result_callbacks_.push_back(std::move(cb));
+  }
 
   // Cached state.
   const StateReport &state() const { return state_; }
@@ -364,6 +375,8 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   std::string last_rejected_uid_str_;
   bool        require_rfid_auth_{false};
   bool        session_authorized_{false};
+  std::vector<std::function<void(std::string, uint8_t)>>
+      rfid_auth_result_callbacks_;
 #ifdef USE_SWITCH
   class OpenbhzdTlvSwitch *require_rfid_auth_switch_{nullptr};
 #endif
@@ -450,6 +463,20 @@ class OpenbhzdTlvButton : public button::Button {
   uint16_t buzzer_ms_{50};
 };
 #endif
+
+// YAML automation trigger for EVT_RFID_AUTH_RESULT. Variables:
+//   x = colon-formatted UID string ("B3:EA:04:88")
+//   result = RFID_AUTH_RESULT_* code (0=LEARNED, 1=START, 2=STOP,
+//            3=MATCHED_NOOP, 4=REJECTED, 5=LIST_FULL)
+class RFIDAuthResultTrigger : public Trigger<std::string, uint8_t> {
+ public:
+  explicit RFIDAuthResultTrigger(OpenbhzdTlv *parent) {
+    parent->add_on_rfid_auth_result_callback(
+        [this](std::string uid, uint8_t result) {
+          this->trigger(uid, result);
+        });
+  }
+};
 
 }  // namespace openbhzd_tlv
 }  // namespace esphome

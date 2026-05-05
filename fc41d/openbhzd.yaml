@@ -80,12 +80,37 @@ external_components:
       type: local
       path: components
     components: [openbhzd_tlv]
+  # OCPP 1.6J Charge Point — registers against a Central System (SteVe
+  # for dev, evcc / SteVe / CitrineOS / Monta in prod). MicroOcpp under
+  # the hood; GPLv3. Pin to main here; users can pin a SHA in their
+  # fork.
+  - source:
+      type: git
+      url: https://github.com/RAR/esphome-ocpp-server
+      ref: main
+    refresh: always
+    components: [ocpp]
 
 openbhzd_tlv:
   id: openbhzd_mcu
   uart_id: mcu_uart
   poll_interval: 5s
   link_timeout: 15s
+  # RFID swipe outcomes drive the OCPP transaction lifecycle. The MCU
+  # has already done local authlist matching by the time this fires —
+  # OCPP layers a CSMS billing record on top, it doesn't gate the
+  # contactor (the local authlist + require_rfid_auth flag do that).
+  # Result codes (RFID_AUTH_RESULT_*):
+  #   1 START         — matched tag, EVSE entering CHARGING
+  #   2 STOP          — matched tag, EVSE exiting CHARGING (toggle stop)
+  #   3 MATCHED_NOOP  — matched tag, no state-change applicable; ignore
+  on_rfid_auth_result:
+    - lambda: |-
+        if (result == 1) {                          // START
+          id(ocpp_cp)->start_transaction(x);
+        } else if (result == 2) {                   // STOP (toggle)
+          id(ocpp_cp)->end_transaction_with_idtag(x);
+        }
 
 sensor:
   - platform: openbhzd_tlv
@@ -108,6 +133,7 @@ sensor:
       name: "Lifetime Energy"
       # OpenBHZD persists this in W25Q session_log, monotonic across reboots.
     session_kwh:
+      id: session_kwh_sensor
       name: "Session Energy"
     fault_count:
       name: "Active Faults"
@@ -178,12 +204,15 @@ sensor:
       name: "BL0939 A_WATT Raw"
       entity_category: diagnostic
     mains_voltage:
+      id: mains_voltage_sensor
       name: "Mains Voltage"
     mains_current_a:
+      id: mains_current_a_sensor
       name: "Mains Current (Leg A)"
     mains_current_b:
       name: "Mains Current (Leg B)"
     active_power:
+      id: active_power_sensor
       name: "Active Power"
     # BL0939 measures line period directly (TPS1 register); no per-
     # chassis scale needed.
@@ -194,6 +223,7 @@ sensor:
     # racing the lift-off edge. The text-sensor "Last RFID UID" has
     # the same value in colon-formatted form.
     last_rfid_uid:
+      id: rfid_uid_sensor
       name: "Last RFID UID Number"
     rfid_authlist_count:
       name: "RFID Authorized Tags"
@@ -236,6 +266,7 @@ binary_sensor:
       name: "MCU Link"
       entity_category: diagnostic
     vehicle_connected:
+      id: plugged_bsensor
       name: "Vehicle Connected"
     charging:
       name: "Charging"
@@ -257,6 +288,7 @@ binary_sensor:
 text_sensor:
   - platform: openbhzd_tlv
     evse_state:
+      id: evse_state_tsensor
       name: "EVSE State"
     j1772_state:
       name: "J1772 State"
@@ -271,6 +303,12 @@ text_sensor:
       name: "RFID Last Auth Result"
     last_rejected_uid:
       name: "RFID Last Rejected UID"
+
+  - platform: ocpp
+    ocpp_id: ocpp_cp
+    connection_state:
+      name: "OCPP Connection"
+      entity_category: diagnostic
 
   - platform: debug
     reset_reason:
@@ -365,3 +403,49 @@ ota:
 time:
   - platform: homeassistant
     id: ha_time
+
+# OCPP 1.6J Charge Point. Set csms_url + charge_point_id via secrets
+# (e.g. ws://steve.local:8180/steve/websocket/CentralSystemService/openbhzd-01).
+# SmartCharging hooks the existing MCU TLV surface: on a CSMS-accepted
+# StartTransaction we send Start to the MCU; on accepted StopTransaction
+# we send Stop. RFID swipes that match the local authlist drive the
+# OCPP transaction lifecycle from the MCU side via the EVT_RFID_AUTH_RESULT
+# automation block in the openbhzd_tlv component (see lambda below).
+ocpp:
+  id: ocpp_cp
+  csms_url: !secret ocpp_csms_url
+  charge_point_id: !secret ocpp_charge_point_id
+  vendor: OpenBHZD
+  model: ROC001-OpenBHZD
+  firmware_version: "1.0.0"
+  phase: L1
+  nominal_voltage: 240.0
+  phase_switching_supported: false
+  heartbeat_interval: 60s
+  meter_value_sample_interval: 30s
+  stop_txn_sampled_data:
+    - Energy.Active.Import.Register
+  meter_values:
+    voltage: mains_voltage_sensor
+    current: mains_current_a_sensor
+    power: active_power_sensor
+    energy: session_kwh_sensor
+  status_from: evse_state_tsensor
+  # Map OpenBHZD evse_state strings (see core/evse_state.h evse_state_name)
+  # to OCPP 1.6J ChargePointStatus enum.
+  status_mapping:
+    "BOOT": Unavailable
+    "SELF_TEST": Preparing
+    "READY": Preparing
+    "CHARGING": Charging
+    "USER_PAUSED": SuspendedEVSE
+    "COOLING_DOWN": SuspendedEVSE
+    "FAULT": Faulted
+  plugged_from: plugged_bsensor
+  # CSMS-initiated start: relay request to the MCU. The MCU still gates
+  # this on its own conditions (J1772 state, local fault state, RFID
+  # auth gate if enabled) — CSMS Accept doesn't bypass safety.
+  on_remote_start:
+    - lambda: id(openbhzd_mcu)->send_request_start_resume();
+  on_remote_stop:
+    - lambda: id(openbhzd_mcu)->send_request_stop();

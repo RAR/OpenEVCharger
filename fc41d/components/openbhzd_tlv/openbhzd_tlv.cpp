@@ -444,6 +444,11 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       if (result == RFID_AUTH_RESULT_LEARNED) {
         send_rfid_get_list();
       }
+      // Fan out to YAML automation hooks (e.g. ocpp component drives
+      // start_transaction(idTag) / end_transaction_with_idtag here).
+      for (auto &cb : rfid_auth_result_callbacks_) {
+        cb(std::string(hex), result);
+      }
       break;
     }
 
