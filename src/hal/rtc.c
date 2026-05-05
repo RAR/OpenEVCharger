@@ -55,12 +55,17 @@ void rtc_init(void)
     pmu_backup_write_enable();
 
     /* Diagnostic: surface raw BKP/RTC/BDCTL state at boot so a stuck
-     * "always cold" path is visible without an SWD probe. */
-    printk("rtc: bkp0=0x%04x bkp1=0x%04x cnt=0x%08x bdctl=0x%08x\n",
-           (unsigned)BKP_DATA0, (unsigned)BKP_DATA1,
-           (unsigned)rtc_counter_get(), (unsigned)RCU_BDCTL);
+     * "always cold" path is visible without an SWD probe. Sample
+     * BKP_DATA into locals so the print and the magic check can't
+     * disagree about what we just read. */
+    uint16_t b0 = BKP_DATA0;
+    uint16_t b1 = BKP_DATA1;
+    int      mv = (b0 == RTC_MAGIC_LO) && (b1 == RTC_MAGIC_HI);
+    printk("rtc: bkp0=0x%04x bkp1=0x%04x cnt=0x%08x bdctl=0x%08x mv=%d\n",
+           (unsigned)b0, (unsigned)b1,
+           (unsigned)rtc_counter_get(), (unsigned)RCU_BDCTL, mv);
 
-    if (magic_valid()) {
+    if (mv) {
         /* Backup domain already configured by a previous boot in this
          * VDD cycle. Don't reset it (that would wipe BKP_DATA + RTC).
          *
