@@ -66,6 +66,8 @@ static constexpr uint8_t CMD_OTA_BEGIN  = 0x15;
 static constexpr uint8_t CMD_OTA_CHUNK  = 0x16;
 static constexpr uint8_t CMD_OTA_COMMIT = 0x17;
 static constexpr uint8_t CMD_OTA_ABORT  = 0x18;
+static constexpr uint8_t CMD_SET_TIME   = 0x19;
+static constexpr uint8_t CMD_GET_TIME   = 0x1A;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -90,6 +92,7 @@ static constexpr uint8_t EVT_OTA_BEGIN_ACK = 0x93;
 static constexpr uint8_t EVT_OTA_CHUNK_ACK = 0x94;
 static constexpr uint8_t EVT_OTA_COMMITTED = 0x95;
 static constexpr uint8_t EVT_OTA_ABORTED   = 0x96;
+static constexpr uint8_t EVT_TIME          = 0x97;
 
 // OTA status codes (mirror src/proto/commands.h).
 static constexpr uint8_t OTA_STATUS_OK              = 0;
@@ -202,6 +205,18 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   uint8_t send_rfid_remove_uid(uint32_t uid);
   uint8_t send_set_require_rfid_auth(bool enable);
   uint8_t send_get_rfid_config();
+
+  // Push the current HA wall-clock to the MCU. Caller must check the
+  // time component's is_valid() before calling — sending 0 is allowed
+  // but means "clear". Returns the seq used.
+  uint8_t send_set_time(uint32_t unix_seconds);
+  uint8_t send_get_time();
+  // Cached MCU clock (last value reported via EVT_TIME, with the
+  // FC41D millis at receipt — caller can extrapolate live by adding
+  // the millis-since delta).
+  uint32_t mcu_unix_seconds() const { return mcu_unix_seconds_; }
+  uint32_t mcu_unix_seconds_recv_ms() const { return mcu_unix_seconds_recv_ms_; }
+  bool     mcu_time_is_set() const { return mcu_time_is_set_; }
 
   // --- OTA push (FC41D → MCU TLV upload) -----------------------------
   // start_ota_push() copies the image into an internal buffer, picks a
@@ -465,6 +480,13 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   // ota_buf_.size() bytes of image data; sends BEGIN with that
   // payload and arms the state machine. Returns true on success.
   bool start_ota_push_from_buf_();
+
+  // Cached clock state from EVT_TIME. mcu_unix_seconds_recv_ms_ is the
+  // FC41D millis() at receipt, used to extrapolate "MCU clock now"
+  // without a fresh GET_TIME round-trip.
+  uint32_t mcu_unix_seconds_{0};
+  uint32_t mcu_unix_seconds_recv_ms_{0};
+  bool     mcu_time_is_set_{false};
 
   std::vector<uint8_t> ota_buf_;
   uint32_t ota_session_id_{0};

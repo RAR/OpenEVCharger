@@ -272,6 +272,16 @@ binary_sensor:
     link_up:
       name: "MCU Link"
       entity_category: diagnostic
+      # When the MCU comes back up after a reboot, immediately push
+      # the current HA wall-clock so its system_time is fresh. Guarded
+      # by ha_time.is_valid() — first boot before the FC41D has
+      # synced HA's clock just no-ops.
+      on_press:
+        - lambda: |-
+            auto now = id(ha_time).now();
+            if (now.is_valid()) {
+              id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+            }
     vehicle_connected:
       id: plugged_bsensor
       name: "Vehicle Connected"
@@ -477,6 +487,27 @@ ota:
 time:
   - platform: homeassistant
     id: ha_time
+    # Push the freshly-synced wall-clock to the MCU on the first valid
+    # sync after WiFi/HA come up.
+    on_time_sync:
+      then:
+        - lambda: |-
+            auto now = id(ha_time).now();
+            if (now.is_valid()) {
+              id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+            }
+    # Drift / DST correction every 30 minutes. The MCU clock is purely
+    # software (ticks-based), so re-anchoring it periodically keeps it
+    # within ~1 s of HA across long uptimes.
+    on_time:
+      - seconds: 0
+        minutes: '/30'
+        then:
+          - lambda: |-
+              auto now = id(ha_time).now();
+              if (now.is_valid()) {
+                id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+              }
 
 # OCPP 1.6J Charge Point. Set csms_url + charge_point_id via secrets
 # (e.g. ws://steve.local:8180/steve/websocket/CentralSystemService/openbhzd-01).

@@ -635,6 +635,20 @@ void OpenbhzdTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       break;
     }
 
+    case EVT_TIME: {
+      // Payload (5 B): u32 unix_seconds LE, u8 is_set.
+      if (plen < 5) break;
+      uint32_t u = uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
+                   (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+      bool set = (p[4] != 0);
+      mcu_unix_seconds_         = u;
+      mcu_unix_seconds_recv_ms_ = millis();
+      mcu_time_is_set_          = set;
+      ESP_LOGD(TAG, "EVT_TIME unix=%u set=%u", unsigned(u), unsigned(set));
+      last_state_ms_ = millis();
+      break;
+    }
+
     default:
       ESP_LOGD(TAG, "unhandled cmd=0x%02x seq=%u plen=%u", cmd, seq, (unsigned) plen);
       break;
@@ -936,6 +950,22 @@ uint8_t OpenbhzdTlv::send_set_require_rfid_auth(bool enable) {
 uint8_t OpenbhzdTlv::send_get_rfid_config() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_RFID_CONFIG, s, nullptr, 0);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_set_time(uint32_t unix_seconds) {
+  uint8_t s = next_seq_();
+  uint8_t buf[4] = {
+      uint8_t(unix_seconds),         uint8_t(unix_seconds >> 8),
+      uint8_t(unix_seconds >> 16),   uint8_t(unix_seconds >> 24),
+  };
+  send_frame_(CMD_SET_TIME, s, buf, sizeof buf);
+  return s;
+}
+
+uint8_t OpenbhzdTlv::send_get_time() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_GET_TIME, s, nullptr, 0);
   return s;
 }
 

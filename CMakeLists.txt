@@ -57,6 +57,7 @@ set(APP_SRCS
     src/core/over_temp.c
     src/core/rfid.c
     src/core/system_state.c
+    src/core/system_time.c
     src/hal/clock.c
     src/hal/wdg.c
     src/hal/uart.c

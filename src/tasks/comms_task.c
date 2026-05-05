@@ -7,6 +7,7 @@
 #include "../proto/commands.h"
 #include "../proto/build_info.h"
 #include "../core/system_state.h"
+#include "../core/system_time.h"
 #include "../core/fault.h"
 #include "../persist/boot_config.h"
 #include "../ui/led_patterns.h"
@@ -361,6 +362,49 @@ static void handle_ota_abort(const uint8_t *p, size_t plen, uint8_t seq)
     }
 }
 
+static uint32_t now_ms_(void)
+{
+    /* xTaskGetTickCount returns FreeRTOS ticks; portTICK_PERIOD_MS
+     * converts to milliseconds. configTICK_RATE_HZ = 1000 → 1 tick/ms,
+     * but writing it portably keeps this correct if the rate moves. */
+    return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+static void publish_time_(uint8_t seq)
+{
+    struct __attribute__((packed)) {
+        uint32_t unix_s;
+        uint8_t  is_set;
+    } pl;
+    pl.unix_s = system_time_now(now_ms_());
+    pl.is_set = system_time_is_set() ? 1u : 0u;
+    (void)send_frame(EVT_TIME, seq, &pl, sizeof pl);
+}
+
+static void handle_set_time(const uint8_t *p, size_t plen, uint8_t seq)
+{
+    if (plen < 4) {
+        printk("comms: SET_TIME plen=%u <4, dropped\n", (unsigned)plen);
+        return;
+    }
+    uint32_t unix_s = le32(p);
+    system_time_set(unix_s, now_ms_());
+    if (unix_s == 0u) {
+        printk("system_time: cleared\n");
+    } else {
+        printk("system_time: set unix=%u\n", (unsigned)unix_s);
+    }
+    /* Echo current state so HA sees the ack on the same seq. Also
+     * fires unsolicited (seq=0) so anyone tracking EVT_TIME gets the
+     * fresh value without polling. */
+    publish_time_(seq);
+}
+
+static void handle_get_time(uint8_t seq)
+{
+    publish_time_(seq);
+}
+
 static void handle_request_stop(const uint8_t *p, size_t plen)
 {
     uint8_t reason = (plen >= 1) ? p[0] : 0u;
@@ -400,6 +444,8 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_OTA_CHUNK:             handle_ota_chunk(payload, plen, seq); break;
     case CMD_OTA_COMMIT:            handle_ota_commit(payload, plen, seq); break;
     case CMD_OTA_ABORT:             handle_ota_abort(payload, plen, seq); break;
+    case CMD_SET_TIME:              handle_set_time(payload, plen, seq); break;
+    case CMD_GET_TIME:              handle_get_time(seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

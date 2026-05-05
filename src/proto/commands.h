@@ -58,6 +58,12 @@
 #define CMD_OTA_COMMIT            0x17u   /* payload (4 B): u32 session_id */
 #define CMD_OTA_ABORT             0x18u   /* payload (4 B): u32 session_id */
 
+/* Wall-clock sync. The MCU keeps a software clock seeded by the FC41D
+ * from HA's `time:` component. unix_seconds = 0 in CMD_SET_TIME means
+ * "clear / mark not-set". */
+#define CMD_SET_TIME              0x19u   /* payload (4 B): u32 unix_seconds LE */
+#define CMD_GET_TIME              0x1Au   /* no payload */
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */
@@ -112,6 +118,11 @@
 #define EVT_OTA_CHUNK_ACK         0x94u
 #define EVT_OTA_COMMITTED         0x95u
 #define EVT_OTA_ABORTED           0x96u
+
+/* Response to CMD_GET_TIME — and emitted unsolicited every time the
+ * MCU clock is set via CMD_SET_TIME so HA sees the round-trip ack.
+ *   payload (5 B): u32 unix_seconds LE, u8 is_set */
+#define EVT_TIME                  0x97u
 
 /* Result codes carried in EVT_RFID_AUTH_RESULT.result. */
 #define RFID_AUTH_RESULT_LEARNED       0u   /* UID added to list */
