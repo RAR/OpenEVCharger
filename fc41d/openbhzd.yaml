@@ -436,6 +436,20 @@ wifi:
   password: !secret wifi_password
 
 api:
+  # When HA finishes the API handshake the time component is
+  # guaranteed to start its sync immediately — push the wall-clock to
+  # the MCU as soon as it's valid. Belt-and-braces with on_time_sync,
+  # which fires on the *first* valid time after a sync; this hook
+  # fires per HA reconnect and catches the case where the FC41D is
+  # already running but the MCU rebooted (or vice versa) and we want
+  # the push without waiting for the next 30-min cron tick.
+  on_client_connected:
+    - lambda: |-
+        auto now = id(ha_time).now();
+        if (now.is_valid()) {
+          id(openbhzd_mcu).send_set_time((uint32_t) now.timestamp);
+        }
+
   # MCU-side OTA driven from HA → Developer Tools → Actions.
   #
   # Preferred path (no base64; works for the full 64 KB image cap):
