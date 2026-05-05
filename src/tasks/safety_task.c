@@ -58,6 +58,19 @@ static uint16_t s_rfid_learn_ticks = 0;
  * authorized when the require-auth flag is OFF. */
 static uint8_t s_session_authorized = 0;
 
+/* Per-session soft-OC derate. Subtracted from effective_advertised_amps()
+ * by check_soft_over_current after a sustained 1.05× threshold cross.
+ * Floor at SOC_DERATE_FLOOR_A (J1772 minimum); reset on session end so
+ * a fresh charge starts at the user-configured rate. Sticky within a
+ * session — we don't auto-restore advertised on a transient cool-off,
+ * spec semantic is "ramp duty −10%" and stay there until the user /
+ * CSMS re-issues. */
+static uint8_t s_soc_derate_amps = 0;
+
+/* Forward decl — session_end() lives upstream of the soft-OC detector
+ * that owns the accumulator. */
+static void clear_soc_derate_for_session_end(void);
+
 static void publish_rfid_config(void);
 
 /* Debounce: 3 consecutive same-band reads at safety_task's 50 Hz tick
@@ -130,14 +143,22 @@ static void publish_rfid_config(void);
 
 /* Hard / soft over-current thresholds. Both ride on top of a per-
  * chassis raw → mA scale (see calibration.c). Until the scale is
- * non-zero, both detectors are silent. Soft OC trips at advertised
- * × 1.20 (matches OpenEVSE 20 % overcurrent margin). Hard OC trips
- * at (DIP1 cap or hw cap) × 1.25 — anything past that is broken
- * hardware. */
-#define BL0939_SOC_TOL_NUM  120U   /* / 100 — i.e. 20 % over advertised */
-#define BL0939_SOC_TOL_DEN  100U
-#define BL0939_HOC_TOL_NUM  125U   /* / 100 — i.e. 25 % over hw cap */
-#define BL0939_HOC_TOL_DEN  100U
+ * non-zero, both detectors are silent.
+ *
+ * Soft OC trips per spec § 4 #11: > advertised × 1.05 sustained for
+ * 30 s → ramp advertised duty -10% and log; only raise the fault
+ * once the ramp has bottomed at the J1772 6 A floor and we're still
+ * over. Persist counter is in BL0939 poll cycles (one per 400 ms),
+ * so 75 polls = 30 s.
+ *
+ * Hard OC trips at (DIP1 / hw cap) × 1.25 — anything past that is
+ * broken hardware, no derate, latched. */
+#define BL0939_SOC_TOL_NUM           105U   /* / 100 = 1.05× advertised */
+#define BL0939_SOC_TOL_DEN           100U
+#define BL0939_SOC_PERSIST_POLLS      75U   /* 75 × 400 ms = 30 s */
+#define SOC_DERATE_FLOOR_A             6U   /* J1772 minimum advertised */
+#define BL0939_HOC_TOL_NUM           125U   /* / 100 = 1.25× hw cap */
+#define BL0939_HOC_TOL_DEN           100U
 
 /* GFCI fault sense (PE2 LOW) sustained for this many ticks before
  * raising. 3 ticks @ 20 ms = 60 ms — well under UL2231's 25 ms +
@@ -373,11 +394,13 @@ static void session_end(session_end_reason_t reason)
     };
     (void)comms_publish_event(EVT_SESSION_ENDED, &evt, sizeof(evt));
     s_session.active = 0;
+    clear_soc_derate_for_session_end();
 }
 
-/* Effective advertised amps = min(FC41D, DIP1 cap, hardware cap).
- * FC41D=0 means "unset" → fall back to DIP1 cap. DIP1 input is
- * pull-up, active-low (closed switch reads LOW). Spec § 3. */
+/* Effective advertised amps = min(FC41D, DIP1 cap, hardware cap),
+ * minus any in-session soft-OC derate. FC41D=0 means "unset" → fall
+ * back to DIP1 cap. DIP1 input is pull-up, active-low (closed switch
+ * reads LOW). Spec § 3 + § 4 #11. */
 static uint8_t effective_advertised_amps(void)
 {
     int dip1_closed = (gpio_input_bit_get(PIN_DIP1_PORT, PIN_DIP1_PIN) == RESET) ? 1 : 0;
@@ -385,8 +408,11 @@ static uint8_t effective_advertised_amps(void)
     uint8_t dip1_cap = dip1_closed ? DIP1_AMPS_CLOSED : DIP1_AMPS_OPEN;
     uint8_t cap = (dip1_cap < hw_cap) ? dip1_cap : hw_cap;
     uint8_t fc  = boot_config_advertised_amps();
-    if (fc == 0U) return cap;
-    return (fc < cap) ? fc : cap;
+    uint8_t base = (fc == 0U) ? cap : ((fc < cap) ? fc : cap);
+    uint8_t derate = s_soc_derate_amps;
+    if (derate >= base) return SOC_DERATE_FLOOR_A;
+    uint8_t derated = base - derate;
+    return (derated < SOC_DERATE_FLOOR_A) ? SOC_DERATE_FLOOR_A : derated;
 }
 
 /* Per-tick CP output dispatch. Spec § 3 PWM-duty-vs-state table:
@@ -1337,8 +1363,26 @@ static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
     }
 }
 
-/* Soft over-current — > advertised × 1.20. Self-clearing.
- * Same gate on cal scale. */
+/* Soft over-current (spec § 4 #11). Sequence:
+ *
+ *   1. IA_RMS > advertised × 1.05 sustained for 30 s →
+ *      ramp advertised duty -10% (or -1 A min step), reset streak,
+ *      log the derate. Apply via the s_soc_derate_amps accumulator
+ *      that effective_advertised_amps subtracts.
+ *
+ *   2. After ramp, the new (lower) effective_advertised_amps becomes
+ *      the threshold baseline for the next 30 s window. If the
+ *      vehicle keeps drawing > 1.05× of the new advertised, ramp
+ *      again. Repeat down to the J1772 6 A floor.
+ *
+ *   3. At the floor and still over-threshold for 30 s → raise
+ *      FAULT_SOFT_OVER_CURRENT (self-clearing). The fault clears
+ *      automatically once IA_RMS drops below the (derated) threshold;
+ *      the derate itself is sticky for the session — session_end
+ *      resets it via clear_soc_derate_for_session_end().
+ *
+ * Self-clear semantic: fault tracks the OVER condition; the derate
+ * stays in place to keep the cause from immediately re-occurring. */
 static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
                                     const struct bl0939_readings *bl,
                                     j1772_state_t js, int32_t cp_mv,
@@ -1352,24 +1396,58 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
     uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
     uint64_t threshold_ma = (uint64_t)adv * 1000u
                             * BL0939_SOC_TOL_NUM / BL0939_SOC_TOL_DEN;
-    if (ma > threshold_ma) {
-        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
-    } else {
+
+    if (ma <= threshold_ma) {
         *streak = 0;
         if (fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
-            (void)fault_clear(fs, FAULT_SOFT_OVER_CURRENT);
+            if (fault_clear(fs, FAULT_SOFT_OVER_CURRENT) == 1) {
+                printk("FAULT cleared: SOFT_OVER_CURRENT (current %u mA back below %u mA)\n",
+                       (unsigned)ma, (unsigned)threshold_ma);
+                uint32_t evt_id = (uint32_t)FAULT_SOFT_OVER_CURRENT;
+                (void)comms_publish_event(EVT_FAULT_CLEARED, &evt_id, sizeof evt_id);
+            }
         }
         return;
     }
-    if (*streak >= BL0939_DETECTOR_PERSIST &&
-        !fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
+
+    if (*streak < BL0939_SOC_PERSIST_POLLS) {
+        ++(*streak);
+        return;
+    }
+
+    /* 30 s sustained over threshold — try to ramp first; only raise
+     * the fault if we can't ramp any further. */
+    if (adv > SOC_DERATE_FLOOR_A) {
+        uint8_t step = (adv >= 10u) ? (uint8_t)(adv / 10u) : 1u;
+        s_soc_derate_amps = (uint8_t)(s_soc_derate_amps + step);
+        uint8_t new_adv = effective_advertised_amps();
+        printk("SOC: ramp advertised %uA -> %uA (cur=%u mA, thr=%u mA, derate=%u)\n",
+               (unsigned)adv, (unsigned)new_adv,
+               (unsigned)ma, (unsigned)threshold_ma,
+               (unsigned)s_soc_derate_amps);
+        *streak = 0;
+        return;
+    }
+
+    if (!fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
         if (fault_raise(fs, FAULT_SOFT_OVER_CURRENT) == 1) {
-            printk("FAULT raised: SOFT_OVER_CURRENT (mA=%u > advertised %uA × 1.2)\n",
-                   (unsigned)ma, (unsigned)adv);
+            printk("FAULT raised: SOFT_OVER_CURRENT (at %uA floor, cur=%u mA still over %u mA)\n",
+                   (unsigned)adv, (unsigned)ma, (unsigned)threshold_ma);
             post_fault_event(FAULT_SOFT_OVER_CURRENT, js, *es, cp_mv);
         }
-        /* Self-clearing — don't transition to FAULT; classifier opens
-         * the relay via apply_relay_state once the fault is active. */
+    }
+}
+
+/* Reset the soft-OC derate accumulator. Called from session_end so a
+ * fresh plug-in / CSMS-StartTransaction starts at the user-configured
+ * advertised amps; an over-current condition that ramped us down on
+ * the previous session shouldn't bleed into the next. */
+static void clear_soc_derate_for_session_end(void)
+{
+    if (s_soc_derate_amps != 0) {
+        printk("SOC: derate cleared (%uA -> 0) on session end\n",
+               (unsigned)s_soc_derate_amps);
+        s_soc_derate_amps = 0;
     }
 }
 
