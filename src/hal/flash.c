@@ -44,11 +44,14 @@ void flash_copy_ramfunc_to_ram(void)
 #define RAMFUNC __attribute__((section(".ramfunc"), noinline))
 
 /* Spin until BUSY clears or a hard timeout. We don't have a timer in
- * RAM-resident scope — just a deterministic loop count sized for ~250 ms
- * at 120 MHz (page erase is typically 20-40 ms). */
+ * RAM-resident scope — just a deterministic loop count. Sized for
+ * ~300 ms at 120 MHz: page erase is typically 30 ms (datasheet
+ * max ~60 ms), word program is < 100 µs. The full overwrite is
+ * called per-op ~10 000+ times for a 48 KB image, so an oversized
+ * timeout dominates real wall-clock if anything actually stalls. */
 static RAMFUNC int flash_wait_idle_ram(void)
 {
-    volatile uint32_t timeout = 30000000U;
+    volatile uint32_t timeout = 5000000U;
     while ((FMC_STAT0 & FMC_STAT0_BUSY) && timeout) {
         timeout--;
     }
@@ -77,27 +80,28 @@ static RAMFUNC void flash_lock_ram(void)
     FMC_CTL0 |= FMC_CTL0_LK;
 }
 
+/* Inner helpers below assume FMC_STAT0_BUSY is already clear on entry —
+ * the orchestrator does an explicit wait_idle once at the top before
+ * the first op, and each helper's trailing wait keeps the invariant.
+ * Skipping the redundant pre-op wait is a 2× win on word programming
+ * (12 KB image = ~3000 word programs; 48 KB = ~12 000). */
 static RAMFUNC int flash_erase_page_ram(uint32_t page_addr)
 {
-    int rc = flash_wait_idle_ram();
-    if (rc != 0) return rc;
     flash_clear_status_ram();
     FMC_CTL0 |= FMC_CTL0_PER;
     FMC_ADDR0 = page_addr;
     FMC_CTL0 |= FMC_CTL0_START;
-    rc = flash_wait_idle_ram();
+    int rc = flash_wait_idle_ram();
     FMC_CTL0 &= ~FMC_CTL0_PER;
     return rc;
 }
 
 static RAMFUNC int flash_program_word_ram(uint32_t addr, uint32_t data)
 {
-    int rc = flash_wait_idle_ram();
-    if (rc != 0) return rc;
     flash_clear_status_ram();
     FMC_CTL0 |= FMC_CTL0_PG;
     *(volatile uint32_t *)addr = data;
-    rc = flash_wait_idle_ram();
+    int rc = flash_wait_idle_ram();
     FMC_CTL0 &= ~FMC_CTL0_PG;
     /* Verify the write. The flash bus is idle now so a read returns the
      * just-programmed word. */
@@ -121,6 +125,10 @@ static RAMFUNC int flash_overwrite_bank0_from_ram(const uint32_t *src,
 
     int rc = flash_unlock_ram();
     if (rc != 0) return rc;
+    /* One-shot pre-flight wait so each subsequent helper can skip its
+     * leading wait_idle (entry-precondition: BUSY = 0). */
+    rc = flash_wait_idle_ram();
+    if (rc != 0) goto out;
 
     /* Erase covering the full image, page-aligned upward. */
     uint32_t end = FLASH_BANK0_BASE + size_bytes;
