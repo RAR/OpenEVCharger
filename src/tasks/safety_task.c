@@ -333,9 +333,12 @@ enum st_relay_result {
 };
 
 /* Session tracking — populated only between READY→CHARGING and
- * CHARGING→{anything else} transitions. mWh delivered stays 0 until
- * a future milestone derives it from the CT902 ADC reading +
- * elapsed time; bench has no CT base offset yet. */
+ * CHARGING→{anything else} transitions. Energy delivered is integrated
+ * from BL0939 active-power readings each poll cycle (gated on the
+ * relay being commanded closed). When the BL0939 chassis scale is
+ * uncalibrated (calibration_bl0939_pa_mw_per_raw == 0), the
+ * accumulator stays 0 — uncalibrated chargers report no kWh rather
+ * than spurious totals. */
 typedef enum {
     SESSION_END_NORMAL    = 0,   /* J1772 dropped from C cleanly */
     SESSION_END_FAULT     = 1,   /* entered EVSE_FAULT */
@@ -348,6 +351,7 @@ static struct {
     uint8_t  j1772_max;
     uint16_t fault_count;
     uint16_t max_temp_dC;
+    int64_t  mws_accum;          /* integrated milli-watt-seconds (mJ) */
 } s_session;
 
 static void session_start(void)
@@ -357,6 +361,7 @@ static void session_start(void)
     s_session.j1772_max    = (uint8_t)J1772_STATE_C;
     s_session.fault_count  = 0;
     s_session.max_temp_dC  = 0;
+    s_session.mws_accum    = 0;
     printk("session: start ts=%u\n", (unsigned)s_session.start_ts);
     (void)comms_publish_event(EVT_SESSION_BEGAN,
                               &s_session.start_ts,
@@ -380,10 +385,19 @@ static void session_end(session_end_reason_t reason)
                   (s_session.fault_count > 0u) ||
                   (reason == SESSION_END_FAULT);
 
+    /* mWs accumulator → mWh (1 Wh = 3600 J). Clamp to u32 max so a
+     * runaway BL0939 cal value doesn't wrap; saturating is a clearer
+     * signal than rolling. */
+    int64_t mwh64 = (s_session.mws_accum > 0)
+                       ? (s_session.mws_accum / 3600)
+                       : 0;
+    if (mwh64 > 0xFFFFFFFFLL) mwh64 = 0xFFFFFFFFLL;
+    uint32_t session_mwh = (uint32_t)mwh64;
+
     struct session_record rec = {
         .start_ts             = s_session.start_ts,
         .end_ts               = now,
-        .mwh_delivered        = 0,
+        .mwh_delivered        = session_mwh,
         .end_reason           = (uint8_t)reason,
         .j1772_max_state_seen = s_session.j1772_max,
         .fault_count          = s_session.fault_count,
@@ -1804,6 +1818,27 @@ static void safety_task_run(void *arg)
                                           &stuck_open_bl_streak);
             check_hard_over_current(&fs, &es, &bl, s, cp_mv, &hoc_streak);
             check_soft_over_current(&fs, &es, &bl, s, cp_mv, &soc_streak);
+
+            /* Energy integration: only count power flow while we're
+             * actively driving the contactor (avoids integrating noise
+             * across READY / USER_PAUSED / FAULT stretches). bl.a_watt
+             * is BL0939's signed channel-A active power; with a
+             * non-zero chassis scale it converts to mW. Negative power
+             * (back-flow) is dropped so fluctuations around zero don't
+             * artificially deplete the accumulator. Integration window
+             * is the BL0939 poll period = BL0939_POLL_TICKS ×
+             * SAFETY_TASK_PERIOD_MS = 400 ms. */
+            if (s_session.active && relay_main_commanded()) {
+                int16_t pa_scale = calibration_bl0939_pa_mw_per_raw();
+                if (pa_scale > 0) {
+                    int64_t mw = (int64_t)bl.a_watt * (int64_t)pa_scale;
+                    if (mw > 0) {
+                        s_session.mws_accum +=
+                            (mw * (int64_t)BL0939_POLL_TICKS *
+                                 (int64_t)SAFETY_TASK_PERIOD_MS) / 1000;
+                    }
+                }
+            }
         }
 
         /* RFID: drain RX ring + re-frame; periodic keepalive @ ~3 Hz.
@@ -1922,7 +1957,14 @@ static void safety_task_run(void *arg)
             .pad               = 0,
             .fault_active_bits = fs.active_bits,
             .first_fault_id    = (uint32_t)fs.first_raised,
-            .session_mwh       = 0,
+            /* Live session-mWh from the integrator. Saturate at u32
+             * max if the cal scale is wildly out of range so HA shows
+             * a clear signal rather than wrapping. */
+            .session_mwh       = (s_session.mws_accum > 0)
+                ? (uint32_t)((s_session.mws_accum / 3600) > 0xFFFFFFFFLL
+                                ? 0xFFFFFFFFu
+                                : (s_session.mws_accum / 3600))
+                : 0u,
             .ac_adc_raw        = adc_scan_rank(ADC_RANK_AC),
             .ntc1_adc_raw      = adc_scan_rank(ADC_RANK_NTC1),
             .ntc2_adc_raw      = adc_scan_rank(ADC_RANK_NTC2),
