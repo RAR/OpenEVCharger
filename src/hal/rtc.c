@@ -145,7 +145,10 @@ void rtc_store_unix(uint32_t unix_seconds)
         return;
     }
     magic_set(1);
-    printk("rtc: stored unix=%u (bkp0=0x%04x bkp1=0x%04x cnt=0x%08x)\n",
-           (unsigned)unix_seconds, (unsigned)BKP_DATA0,
-           (unsigned)BKP_DATA1, (unsigned)rtc_counter_get());
+    /* Force a shadow re-sync so the read-back proves the write took. */
+    (void)rtc_rsyn_wait_bounded();
+    uint32_t verify = rtc_counter_get();
+    printk("rtc: stored unix=%u verify=0x%08x (bkp0=0x%04x bkp1=0x%04x)\n",
+           (unsigned)unix_seconds, (unsigned)verify,
+           (unsigned)BKP_DATA0, (unsigned)BKP_DATA1);
 }
