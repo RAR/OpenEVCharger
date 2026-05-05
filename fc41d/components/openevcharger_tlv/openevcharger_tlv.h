@@ -490,6 +490,13 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   uint32_t mcu_unix_seconds_recv_ms_{0};
   bool     mcu_time_is_set_{false};
 
+  // Rate-limit guard for send_set_time(). HA fires both
+  // on_client_connected and on_time_sync within ms of a reconnect;
+  // we squelch the duplicate so the MCU log + W25Q stay quiet.
+  uint32_t last_set_time_ms_{0};
+  uint32_t last_set_time_unix_{0};
+  uint8_t  last_set_time_seq_{0};
+
   std::vector<uint8_t> ota_buf_;
   uint32_t ota_session_id_{0};
   uint32_t ota_image_crc32_{0};

@@ -954,12 +954,27 @@ uint8_t OpenevchargerTlv::send_get_rfid_config() {
 }
 
 uint8_t OpenevchargerTlv::send_set_time(uint32_t unix_seconds) {
+  /* Rate-limit at 2 s gap: HA fires on_client_connected and time
+   * on_time_sync within ms of each other on every reconnect, which
+   * spams the MCU log + a redundant W25Q crash_state touch. The
+   * 30-minute on_time cron is well outside the gap so legitimate
+   * resyncs always go through. unix_seconds=0 (clear) bypasses the
+   * gate so an explicit clear is always honoured. */
+  uint32_t now = millis();
+  if (unix_seconds != 0u &&
+      last_set_time_unix_ == unix_seconds &&
+      (now - last_set_time_ms_) < 2000u) {
+    return last_set_time_seq_;
+  }
   uint8_t s = next_seq_();
   uint8_t buf[4] = {
       uint8_t(unix_seconds),         uint8_t(unix_seconds >> 8),
       uint8_t(unix_seconds >> 16),   uint8_t(unix_seconds >> 24),
   };
   send_frame_(CMD_SET_TIME, s, buf, sizeof buf);
+  last_set_time_ms_   = now;
+  last_set_time_unix_ = unix_seconds;
+  last_set_time_seq_  = s;
   return s;
 }
 
