@@ -25,6 +25,25 @@ static void magic_set(int valid)
     BKP_DATA1 = valid ? RTC_MAGIC_HI : 0u;
 }
 
+/* Bounded waits — keep the RTC bring-up from wedging the boot if the
+ * peripheral clock or LSI isn't behaving. ~50 ms at 120 MHz core. */
+static int rtc_lwoff_wait_bounded(void)
+{
+    for (uint32_t i = 0; i < 800000u; ++i) {
+        if (RTC_CTL & RTC_CTL_LWOFF) return 1;
+    }
+    return 0;
+}
+
+static int rtc_rsyn_wait_bounded(void)
+{
+    RTC_CTL &= ~RTC_CTL_RSYNF;
+    for (uint32_t i = 0; i < 800000u; ++i) {
+        if (RTC_CTL & RTC_CTL_RSYNF) return 1;
+    }
+    return 0;
+}
+
 void rtc_init(void)
 {
     /* APB1 clocks for PMU + BKP register interface. */
@@ -37,9 +56,17 @@ void rtc_init(void)
     if (magic_valid()) {
         /* Backup domain already configured by a previous boot in this
          * VDD cycle. Don't reset it (that would wipe BKP_DATA + RTC).
-         * Just sync the shadow registers in case the prescaler/counter
-         * read paths need it. */
-        rtc_register_sync_wait();
+         *
+         * Make sure BDCTL.RTCEN is set — survives non-VDD resets but
+         * cheap to re-assert defensively.
+         *
+         * Skip rtc_register_sync_wait() here: it polls RSYNF after
+         * clearing it, which can hang forever if the RTC peripheral
+         * clock or LSI source isn't running for any reason. The
+         * counter reads in rtc_load_unix() are robust to slightly
+         * stale shadow registers (they re-sync within a few LSI
+         * ticks after the warm reset). */
+        rcu_periph_clock_enable(RCU_RTC);
         return;
     }
 
@@ -59,13 +86,14 @@ void rtc_init(void)
     rcu_periph_clock_enable(RCU_RTC);
 
     /* Wait for RTC APB shadow regs to mirror peripheral state, then
-     * push a 1 Hz prescaler. */
-    rtc_register_sync_wait();
-    rtc_lwoff_wait();
+     * push a 1 Hz prescaler. Bounded — if RSYNF/LWOFF never set we
+     * leave magic invalid and fall back to "no RTC" rather than hang. */
+    if (!rtc_rsyn_wait_bounded()) { magic_set(0); return; }
+    if (!rtc_lwoff_wait_bounded()) { magic_set(0); return; }
     rtc_configuration_mode_enter();
     rtc_prescaler_set(RTC_PRESCALER);
     rtc_configuration_mode_exit();
-    rtc_lwoff_wait();
+    (void)rtc_lwoff_wait_bounded();
 
     magic_set(0);
 }
@@ -73,15 +101,17 @@ void rtc_init(void)
 int rtc_load_unix(uint32_t *out)
 {
     if (!magic_valid()) return 0;
-    rtc_register_sync_wait();
+    /* Skip the SPL's RSYNF wait — see rtc_init() warm path note.
+     * Shadow regs may briefly hold the previous boot's value (≤ 1 s
+     * skew at 40 kHz LSI / PSC=39999) which we accept. */
     if (out) *out = rtc_counter_get();
     return 1;
 }
 
 void rtc_store_unix(uint32_t unix_seconds)
 {
-    rtc_lwoff_wait();
+    if (!rtc_lwoff_wait_bounded()) return;
     rtc_counter_set(unix_seconds);
-    rtc_lwoff_wait();
+    if (!rtc_lwoff_wait_bounded()) return;
     magic_set(1);
 }
