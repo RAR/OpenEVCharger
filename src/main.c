@@ -69,6 +69,9 @@ int main(void)
     uart_init();
     printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
            (unsigned)SystemCoreClock);
+#if defined(OPENBHZD_OTA_TEST_MARKER) && OPENBHZD_OTA_TEST_MARKER
+    printk("*** OTA-APPLIED v%d ***\n", (int)(OPENBHZD_OTA_TEST_MARKER));
+#endif
     clock_log_status();
 
     /* Release JTAG pins (PA15, PB3, PB4) so SPI3 (PB3/PB4/PB5) and

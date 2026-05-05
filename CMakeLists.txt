@@ -202,6 +202,13 @@ if(DEFINED OPENBHZD_OTA_APPLY_ENABLED)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_OTA_APPLY_ENABLED=${OPENBHZD_OTA_APPLY_ENABLED})
 endif()
+# Phase-B bench marker: when set, main() prints a distinct banner at
+# boot. Use it to tell pre- and post-OTA images apart on the bench
+# console with an otherwise-identical source tree.
+if(DEFINED OPENBHZD_OTA_TEST_MARKER)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_OTA_TEST_MARKER=${OPENBHZD_OTA_TEST_MARKER})
+endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
 # Default ON for bench builds; pass -DOPENBHZD_STACK_WATCH=0 for production.
