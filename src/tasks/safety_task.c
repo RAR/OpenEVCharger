@@ -160,6 +160,20 @@ static void publish_rfid_config(void);
 #define PE_OK_RAW_MAX        400U
 #define PE_PERSIST_TICKS     10U
 
+/* Runtime ADC sanity (spec § 4 #8). Same band as the boot self-test
+ * (ST_ADC_MIN..ST_ADC_MAX) but checked every tick against the safety-
+ * relevant analog rails. >5 consecutive ticks any-rank-rail = stuck
+ * mux / broken op-amp / sheared ADC reference → latched fault.
+ *
+ * Channels excluded from runtime sanity:
+ *   - PA7 (CC) rails high when nothing is plugged in (J1772 spec)
+ *   - PC5 (PE) rails low when bonded to mains earth (covered by
+ *     check_pe_continuity, which is the inverse semantic)
+ *   - PB0 (NTC2) is non-thermistor and reads 0 raw on this PCB
+ *   - PA4 (CP) rails low while we drive state F (in EVSE_FAULT only,
+ *     and the detector self-suppresses during EVSE_FAULT) */
+#define ADC_RUNTIME_PERSIST_TICKS  5U
+
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
  * J1772 state C confirmed for an additional 50 ticks (1 s at the
  * 50 Hz safety tick) before closing the relay. Prevents rapid
@@ -922,6 +936,58 @@ static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* Runtime ADC out-of-range detector (spec § 4 #8). Debounces
+ * ADC_RUNTIME_PERSIST_TICKS (5 ticks = 100 ms) of any-rail reads on
+ * AC / CT / LCT / CP ranks before raising. The boot self-test
+ * (run_boot_self_test) covers the same set in a one-shot way; this
+ * detector keeps watching once we're past the boot warm-up. */
+static void check_adc_runtime(fault_state_t *fs, evse_state_t *es,
+                              j1772_state_t js, int32_t cp_mv,
+                              int *adc_streak)
+{
+    if (*es == EVSE_BOOT || *es == EVSE_SELF_TEST || *es == EVSE_FAULT) {
+        *adc_streak = 0;
+        return;
+    }
+
+    uint16_t b[ADC_RANKS];
+    adc_scan_latest(b);
+
+    static const uint8_t ranks[] = {
+        ADC_RANK_AC, ADC_RANK_CT, ADC_RANK_LCT, ADC_RANK_CP,
+    };
+    int rail = 0;
+    unsigned bad_rank = 0;
+    uint16_t bad_raw = 0;
+    for (size_t i = 0; i < sizeof(ranks)/sizeof(ranks[0]); ++i) {
+        unsigned r = ranks[i];
+        if (b[r] < ST_ADC_MIN || b[r] > ST_ADC_MAX) {
+            rail = 1;
+            bad_rank = r;
+            bad_raw = b[r];
+            break;
+        }
+    }
+
+    if (rail) {
+        if (*adc_streak < (int)ADC_RUNTIME_PERSIST_TICKS) ++(*adc_streak);
+    } else {
+        *adc_streak = 0;
+    }
+
+    if (*adc_streak >= (int)ADC_RUNTIME_PERSIST_TICKS &&
+        !fault_is_active(fs, FAULT_ADC_OUT_OF_RANGE)) {
+        if (fault_raise(fs, FAULT_ADC_OUT_OF_RANGE) == 1) {
+            printk("FAULT raised: %s (rank %u raw=%u for >=%u ticks)\n",
+                   fault_name(FAULT_ADC_OUT_OF_RANGE),
+                   bad_rank, (unsigned)bad_raw,
+                   (unsigned)ADC_RUNTIME_PERSIST_TICKS);
+            post_fault_event(FAULT_ADC_OUT_OF_RANGE, js, *es, cp_mv);
+        }
+        evse_transition(es, EVSE_FAULT);
+    }
+}
+
 /* GFCI fault detector. Reads PE2 (active-low: module pulls LOW on
  * fault, idle HIGH). Debounces GFCI_PERSIST_TICKS consecutive LOW
  * reads before raising. FAULT_GFCI is latched + power-cycle-only
@@ -1221,6 +1287,7 @@ static void safety_task_run(void *arg)
     int evse_c_streak = 0;
     int gfci_streak = 0;
     int pe_streak = 0;
+    int adc_runtime_streak = 0;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
     rfid_ctx_t      rfid_ctx;
     rfid_init_ctx(&rfid_ctx);
@@ -1356,6 +1423,7 @@ static void safety_task_run(void *arg)
 #endif
         check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
         check_pe_continuity(&fs, &es, s, cp_mv, &pe_streak);
+        check_adc_runtime(&fs, &es, s, cp_mv, &adc_runtime_streak);
         check_cp_e(&fs, &es, s, cp_mv, &cp_e_streak);
         /* PA3 (rank NTC1) is the wall-plug NTC; PA2 (rank "AC", legacy
          * name pre-channel-role correction) is the gun-cable NTC.
