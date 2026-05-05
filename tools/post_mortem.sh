@@ -17,8 +17,8 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="$REPO_ROOT/tools/openocd-gd32f205.cfg"
-MAP="$REPO_ROOT/build/ota_baseline/openbhzd.map"
-[[ -e "$MAP" ]] || MAP="$REPO_ROOT/build/openbhzd.map"
+MAP="$REPO_ROOT/build/ota_baseline/openevcharger.map"
+[[ -e "$MAP" ]] || MAP="$REPO_ROOT/build/openevcharger.map"
 
 echo "=== running-image .ramfunc range (from $MAP) ==="
 grep -E "^\s*0x[0-9a-f]+\s+_(s|e)ramfunc" "$MAP" || echo "(no .ramfunc syms in map)"

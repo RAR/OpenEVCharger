@@ -12,7 +12,7 @@
 # without involving the running firmware.
 #
 # Usage:
-#   tools/gpio_diff.sh save              # snapshot → /tmp/.openbhzd-gpio-baseline
+#   tools/gpio_diff.sh save              # snapshot → /tmp/.openevcharger-gpio-baseline
 #   tools/gpio_diff.sh diff              # snapshot now, diff vs baseline
 #   tools/gpio_diff.sh watch [interval]  # poll + print diffs, default 1 s
 #   tools/gpio_diff.sh dump              # one-shot full ISTAT dump
@@ -20,7 +20,7 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="$REPO/tools/openocd-gd32f205.cfg"
-BASELINE="${TMPDIR:-/tmp}/.openbhzd-gpio-baseline"
+BASELINE="${TMPDIR:-/tmp}/.openevcharger-gpio-baseline"
 
 GPIOA_ISTAT=0x40010808
 GPIOB_ISTAT=0x40010C08
@@ -135,7 +135,7 @@ case "${1:-help}" in
             echo "No baseline at $BASELINE — run \`save\` first." >&2
             exit 1
         fi
-        local_now="${TMPDIR:-/tmp}/.openbhzd-gpio-now"
+        local_now="${TMPDIR:-/tmp}/.openevcharger-gpio-now"
         snapshot_to "$local_now"
         echo "Baseline:"
         cat "$BASELINE" | sed 's/^/  /'
@@ -149,8 +149,8 @@ case "${1:-help}" in
         interval="${2:-1}"
         echo "Watching every ${interval}s — drive the stimulus and watch for diffs."
         echo "Ctrl-C to stop."
-        local_prev="${TMPDIR:-/tmp}/.openbhzd-gpio-prev"
-        local_now="${TMPDIR:-/tmp}/.openbhzd-gpio-now"
+        local_prev="${TMPDIR:-/tmp}/.openevcharger-gpio-prev"
+        local_now="${TMPDIR:-/tmp}/.openevcharger-gpio-now"
         snapshot_to "$local_prev"
         echo "[$(date '+%H:%M:%S')] initial:"
         cat "$local_prev" | sed 's/^/  /'

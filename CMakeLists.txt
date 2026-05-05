@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # The toolchain file MUST be set on the cmake command line via
 # -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
-project(openbhzd C ASM)
+project(openevcharger C ASM)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)

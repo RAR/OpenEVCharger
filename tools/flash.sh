@@ -9,7 +9,7 @@
 #
 # An explicit .elf is programmed directly. An explicit .bin is
 # programmed at 0x08000000 (bank0 base). With no argument, the script
-# rebuilds the default `build/` tree and flashes its openbhzd.elf, the
+# rebuilds the default `build/` tree and flashes its openevcharger.elf, the
 # original behaviour.
 
 set -euo pipefail
@@ -54,7 +54,7 @@ if [[ $# -ge 1 ]]; then
             ;;
     esac
 else
-    ELF="$REPO_ROOT/build/openbhzd.elf"
+    ELF="$REPO_ROOT/build/openevcharger.elf"
     if [[ ! -e "$ELF" ]] || \
        find "$REPO_ROOT/src" -newer "$ELF" -type f | grep -q .; then
         echo "Build needed; running cmake --build build"
