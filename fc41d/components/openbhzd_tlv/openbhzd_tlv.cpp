@@ -1132,16 +1132,32 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
     return false;
   }
 
-  // Stream body straight into a vector sized once. Peak FC41D heap ≈
-  // content_length plus the OTA state machine's own ota_buf_ copy
-  // inside start_ota_push (= 2× image size momentarily, then the
-  // local vector goes out of scope so steady-state during push is 1×).
-  std::vector<uint8_t> body;
-  body.resize(content_length);
+  // Stream body straight into ota_buf_. This avoids a doubled
+  // allocation (body + ota_buf_) that fragmented the FC41D heap on
+  // 48 KB images. ota_buf_ is the state machine's source of truth
+  // anyway; we just fill it here and call the state-machine half of
+  // start_ota_push() directly.
+  if (ota_push_active()) {
+    ESP_LOGW(TAG, "OTA fetch: push already active (state=%s) — refusing",
+             ota_state_name());
+    client->stop();
+    return false;
+  }
+  ota_buf_.clear();
+  ota_buf_.shrink_to_fit();
+  ota_buf_.resize(content_length);
+  if (ota_buf_.size() != content_length) {
+    ESP_LOGE(TAG, "OTA fetch: heap alloc failed for %u-byte ota_buf_",
+             unsigned(content_length));
+    ota_buf_.clear();
+    ota_buf_.shrink_to_fit();
+    client->stop();
+    return false;
+  }
   size_t got = 0;
   while (got < content_length && millis() < deadline) {
     if (!client->connected() && !client->available()) break;
-    int n = client->read(body.data() + got, content_length - got);
+    int n = client->read(ota_buf_.data() + got, content_length - got);
     if (n > 0) {
       got += size_t(n);
     } else {
@@ -1153,15 +1169,12 @@ bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
   if (got != content_length) {
     ESP_LOGW(TAG, "OTA fetch: short read %u/%u",
              unsigned(got), unsigned(content_length));
+    ota_buf_.clear();
+    ota_buf_.shrink_to_fit();
     return false;
   }
-  ESP_LOGI(TAG, "OTA fetch: got %u bytes — handing to start_ota_push",
-           unsigned(got));
-
-  bool ok = start_ota_push(body.data(), body.size());
-  // Free body now that start_ota_push has copied into ota_buf_.
-  std::vector<uint8_t>().swap(body);
-  return ok;
+  ESP_LOGI(TAG, "OTA fetch: got %u bytes — starting push", unsigned(got));
+  return start_ota_push_from_buf_();
 }
 
 bool OpenbhzdTlv::start_ota_push(const uint8_t *data, size_t len) {
@@ -1175,9 +1188,19 @@ bool OpenbhzdTlv::start_ota_push(const uint8_t *data, size_t len) {
              unsigned(len), unsigned(OTA_PUSH_MAX_IMAGE_BYTES));
     return false;
   }
-
   ota_buf_.assign(data, data + len);
-  ota_total_bytes_ = uint32_t(len);
+  if (ota_buf_.size() != len) {
+    ESP_LOGE(TAG, "OTA push: heap alloc failed for %u-byte buffer",
+             unsigned(len));
+    ota_buf_.clear();
+    ota_buf_.shrink_to_fit();
+    return false;
+  }
+  return start_ota_push_from_buf_();
+}
+
+bool OpenbhzdTlv::start_ota_push_from_buf_() {
+  ota_total_bytes_ = uint32_t(ota_buf_.size());
   ota_image_crc32_ = crc32_ieee(ota_buf_.data(), ota_buf_.size());
   // Pick a non-zero session_id from millis(). Collision-resistant enough
   // for the FC41D side (only one push at a time).

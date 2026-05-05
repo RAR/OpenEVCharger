@@ -460,6 +460,11 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   void ota_send_next_chunk_();
   void ota_finish_(OtaState end_state, const char *why);
   void ota_publish_progress_();
+  // Common path for both `start_ota_push(data,len)` and the fetch-
+  // and-push variant. Assumes ota_buf_ has just been populated with
+  // ota_buf_.size() bytes of image data; sends BEGIN with that
+  // payload and arms the state machine. Returns true on success.
+  bool start_ota_push_from_buf_();
 
   std::vector<uint8_t> ota_buf_;
   uint32_t ota_session_id_{0};
