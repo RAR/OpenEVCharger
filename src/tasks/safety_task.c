@@ -397,12 +397,18 @@ static uint8_t effective_advertised_amps(void)
  *   EVSE=FAULT  → state-F regardless of J1772
  *   EVSE=USER_PAUSED → idle high (no advertise; tells the EV that
  *                       charging isn't currently available)
+ *   EVSE=COOLING_DOWN → idle high (same semantic: present but not
+ *                       offering charge — transient thermal pause)
  *
  * safety_task is the single owner of TIM1_CCR3 per spec § 4. */
 static void apply_cp_for_state(evse_state_t es, j1772_state_t js)
 {
     if (es == EVSE_FAULT) {
         cp_pwm_set_state_f();
+        return;
+    }
+    if (es == EVSE_COOLING_DOWN) {
+        cp_pwm_set_idle_high();
         return;
     }
     if (es == EVSE_USER_PAUSED) {
@@ -682,12 +688,14 @@ static void check_relay_stuck_open(fault_state_t *fs, evse_state_t *es,
  *                       relay opens immediately; allows re-progression)
  *   USER_PAUSED + J1772=A → READY (unplug ends the paused session;
  *                       USER_PAUSED otherwise exits only via RESUME)
- * Sticky: BOOT, SELF_TEST, FAULT do not transition out via this path.
- * COOLING_DOWN is M6.b territory, not entered yet. */
+ * Sticky: BOOT, SELF_TEST, FAULT, COOLING_DOWN do not transition out
+ * via this path. COOLING_DOWN exits only when check_over_temp clears
+ * the over-temp condition (hysteresis-low). */
 static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js,
                                    int *c_streak)
 {
-    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST) {
+    if (*es == EVSE_FAULT || *es == EVSE_BOOT || *es == EVSE_SELF_TEST ||
+        *es == EVSE_COOLING_DOWN) {
         *c_streak = 0;
         return;
     }
@@ -1410,12 +1418,30 @@ static void check_over_temp(fault_state_t *fs, evse_state_t *es,
                    OT_TRIP_RAW, (unsigned)OT_PERSIST_TICKS);
             post_fault_event(FAULT_OVER_TEMP, J1772_STATE_INVALID, *es, 0);
         }
-        evse_transition(es, EVSE_FAULT);
+        /* Spec § 4 #9: over-temp is SELF-CLEAR with hysteresis. Route
+         * to EVSE_COOLING_DOWN rather than EVSE_FAULT — relay opens
+         * (apply_relay_state gates close on EVSE_CHARGING only),
+         * apply_cp_for_state drives idle_high (no advertise = "EVSE
+         * present but not currently offering charge"), and the unit
+         * auto-recovers to READY when temps drop below the clear
+         * threshold. Other latched faults still take us to FAULT
+         * normally — only do this transition if we're not already
+         * in a hard-fault state. */
+        if (*es != EVSE_FAULT) {
+            evse_transition(es, EVSE_COOLING_DOWN);
+        }
     } else if (act.clear) {
         if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
             printk("FAULT cleared: OVER_TEMP (wall_raw=%u gun_raw=%u, "
                    "clear>=%u)\n",
                    (unsigned)ntc1_raw, (unsigned)gun_raw, OT_CLEAR_RAW);
+        }
+        /* Auto-recover from COOLING_DOWN. Don't disturb FAULT — if a
+         * latched fault is also active, the user must CLEAR_FAULT
+         * first. From READY/CHARGING/USER_PAUSED the clear is a
+         * no-op transition. */
+        if (*es == EVSE_COOLING_DOWN) {
+            evse_transition(es, EVSE_READY);
         }
     }
 }
