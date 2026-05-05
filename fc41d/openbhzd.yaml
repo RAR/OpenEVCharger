@@ -390,6 +390,24 @@ button:
       name: "Abort MCU OTA"
       entity_category: diagnostic
 
+  # Local-only Phase A round-trip exerciser. Pushes a synthetic 256 B
+  # blob (counter pattern); the MCU stages it to W25Q, verifies CRC,
+  # and arms boot_config.pending_ota_flag. With OPENBHZD_OTA_APPLY_ENABLED=0
+  # (default), next boot logs "clearing without apply" and continues
+  # normally — safe to press without an SWD recovery setup. Watch the
+  # "MCU OTA Progress" sensor climb to 100 and the printk on UART3:
+  # `ota: COMMIT OK ... pending flag set`.
+  - platform: template
+    name: "MCU OTA Self-Test (256 B)"
+    entity_category: diagnostic
+    on_press:
+      - lambda: |-
+          static uint8_t blob[256];
+          for (int i = 0; i < 256; ++i) blob[i] = (uint8_t) i;
+          if (!id(openbhzd_mcu).start_ota_push(blob, sizeof blob)) {
+            ESP_LOGW("ota", "self-test: start_ota_push refused");
+          }
+
 # P24 drives a status LED on the FC41D module (identified 2026-05-04 by
 # wiggle-test on P10/P22/P23/P24). ESPHome's status_led semantic: blinks
 # slowly during WiFi/API connect, fast on component errors, OFF when
@@ -408,6 +426,30 @@ wifi:
   password: !secret wifi_password
 
 api:
+  # MCU-side OTA via TLV chunked upload. Call from HA →
+  # Developer Tools → Actions → "ESPHome: openbhzd_start_ota_push":
+  #   image_b64: <base64 of the new openbhzd.bin>
+  # On the workstation:
+  #   base64 -w0 build/openbhzd.bin
+  # Watch "MCU OTA Progress" climb 0..100. Abort with the
+  # openbhzd_abort_ota_push action.
+  services:
+    - service: start_ota_push
+      variables:
+        image_b64: string
+      then:
+        - lambda: |-
+            std::string s(image_b64);
+            std::vector<uint8_t> bin = esphome::base64_decode(s);
+            ESP_LOGI("ota", "start_ota_push: %u bytes (b64 %u chars)",
+                     (unsigned) bin.size(), (unsigned) s.size());
+            if (!id(openbhzd_mcu).start_ota_push(bin.data(), bin.size())) {
+              ESP_LOGW("ota", "start_ota_push refused (in-flight or size out of range)");
+            }
+    - service: abort_ota_push
+      then:
+        - lambda: |-
+            id(openbhzd_mcu).abort_ota_push();
 
 ota:
   - platform: esphome
