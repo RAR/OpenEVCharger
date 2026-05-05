@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_BL0939_H
-#define OPENBHZD_HAL_BL0939_H
+#ifndef OPENEVCHARGER_HAL_BL0939_H
+#define OPENEVCHARGER_HAL_BL0939_H
 
 #include <stdint.h>
 
@@ -117,4 +117,4 @@ void bl0939_get_readings(struct bl0939_readings *out);
 #define BL0939_REG_TPS2_B           0x1D
 #define BL0939_REG_IB_FAST_RMS_CTRL 0x1E
 
-#endif /* OPENBHZD_HAL_BL0939_H */
+#endif /* OPENEVCHARGER_HAL_BL0939_H */

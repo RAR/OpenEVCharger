@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_PROTO_TLV_H
-#define OPENBHZD_PROTO_TLV_H
+#ifndef OPENEVCHARGER_PROTO_TLV_H
+#define OPENEVCHARGER_PROTO_TLV_H
 
 /* FC41D ↔ MCU TLV protocol per spec § 5.
  *
@@ -48,4 +48,4 @@ int tlv_parse(const uint8_t *buf, size_t len,
               uint8_t *cmd, uint8_t *seq,
               const uint8_t **payload, size_t *payload_len);
 
-#endif /* OPENBHZD_PROTO_TLV_H */
+#endif /* OPENEVCHARGER_PROTO_TLV_H */

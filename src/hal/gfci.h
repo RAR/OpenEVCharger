@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_GFCI_H
-#define OPENBHZD_HAL_GFCI_H
+#ifndef OPENEVCHARGER_HAL_GFCI_H
+#define OPENEVCHARGER_HAL_GFCI_H
 
 #include <stdint.h>
 
@@ -28,4 +28,4 @@ void gfci_init(void);
  * 0 if PE2 reads HIGH (= idle / no fault). Active-low. */
 int  gfci_fault_active(void);
 
-#endif /* OPENBHZD_HAL_GFCI_H */
+#endif /* OPENEVCHARGER_HAL_GFCI_H */

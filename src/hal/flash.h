@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_FLASH_H
-#define OPENBHZD_HAL_FLASH_H
+#ifndef OPENEVCHARGER_HAL_FLASH_H
+#define OPENEVCHARGER_HAL_FLASH_H
 
 #include <stddef.h>
 #include <stdint.h>

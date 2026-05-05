@@ -79,8 +79,8 @@ static void handle_get_build_info(uint8_t seq)
     /* Payload format: ASCII "version|sha", null-terminated. */
     char info[48];
     int n = 0;
-    const char *v = OPENBHZD_VERSION;
-    const char *g = OPENBHZD_GIT_SHA;
+    const char *v = OPENEVCHARGER_VERSION;
+    const char *g = OPENEVCHARGER_GIT_SHA;
     while (*v && n < 23) info[n++] = *v++;
     info[n++] = '|';
     while (*g && n < 46) info[n++] = *g++;

@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_CORE_FAULT_H
-#define OPENBHZD_CORE_FAULT_H
+#ifndef OPENEVCHARGER_CORE_FAULT_H
+#define OPENEVCHARGER_CORE_FAULT_H
 
 #include <stdint.h>
 
@@ -67,4 +67,4 @@ int  fault_clear_all_clearable(fault_state_t *s);
 /* Stable short string for logging / TLV. Never returns NULL. */
 const char *fault_name(fault_id_t id);
 
-#endif /* OPENBHZD_CORE_FAULT_H */
+#endif /* OPENEVCHARGER_CORE_FAULT_H */

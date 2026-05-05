@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_PROTO_COMMANDS_H
-#define OPENBHZD_PROTO_COMMANDS_H
+#ifndef OPENEVCHARGER_PROTO_COMMANDS_H
+#define OPENEVCHARGER_PROTO_COMMANDS_H
 
 #include <stdint.h>
 
@@ -150,4 +150,4 @@
 #define OTA_STATUS_CRC_MISMATCH        9u   /* COMMIT: staged CRC != expected */
 #define OTA_STATUS_PERSIST_FAIL       10u   /* COMMIT: pending-flag write failed */
 
-#endif /* OPENBHZD_PROTO_COMMANDS_H */
+#endif /* OPENEVCHARGER_PROTO_COMMANDS_H */

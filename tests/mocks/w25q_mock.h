@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_TESTS_W25Q_MOCK_H
-#define OPENBHZD_TESTS_W25Q_MOCK_H
+#ifndef OPENEVCHARGER_TESTS_W25Q_MOCK_H
+#define OPENEVCHARGER_TESTS_W25Q_MOCK_H
 
 /* Host-side mock implementation of hal/w25q.h.
  *

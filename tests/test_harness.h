@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_TESTS_HARNESS_H
-#define OPENBHZD_TESTS_HARNESS_H
+#ifndef OPENEVCHARGER_TESTS_HARNESS_H
+#define OPENEVCHARGER_TESTS_HARNESS_H
 
 /* Minimal assert + counter test harness. Each test_*.c declares a
  * suite_<name>(void) entry point that calls TEST_CASE(name) once per

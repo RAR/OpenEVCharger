@@ -4,7 +4,7 @@ from esphome.components import text_sensor
 
 from . import openbhzd_tlv_ns, OpenbhzdTlv
 
-CONF_OPENBHZD_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
 CONF_EVSE_STATE = "evse_state"
 CONF_J1772_STATE = "j1772_state"
@@ -16,7 +16,7 @@ CONF_LAST_REJECTED_UID = "last_rejected_uid"
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENBHZD_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
         cv.Optional(CONF_EVSE_STATE): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_J1772_STATE): text_sensor.text_sensor_schema(),
         cv.Optional(CONF_FIRST_FAULT): text_sensor.text_sensor_schema(),
@@ -39,7 +39,7 @@ _SETTERS = {
 
 
 async def to_code(config):
-    parent = await cg.get_variable(config[CONF_OPENBHZD_TLV_ID])
+    parent = await cg.get_variable(config[CONF_OPENEVCHARGER_TLV_ID])
     for key, setter in _SETTERS.items():
         if conf := config.get(key):
             t = await text_sensor.new_text_sensor(conf)

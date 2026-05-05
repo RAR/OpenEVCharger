@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_CORE_RFID_H
-#define OPENBHZD_CORE_RFID_H
+#ifndef OPENEVCHARGER_CORE_RFID_H
+#define OPENEVCHARGER_CORE_RFID_H
 
 #include <stdint.h>
 #include <stddef.h>

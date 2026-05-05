@@ -23,9 +23,9 @@ static volatile uint8_t s_uart_ready = 0;
  * openocd exited.
  *
  * Therefore default OFF. Enable for monitor-attached bench sessions
- * with `cmake -DOPENBHZD_SEMIHOSTING=1`. */
-#ifndef OPENBHZD_SEMIHOSTING
-#define OPENBHZD_SEMIHOSTING 0
+ * with `cmake -DOPENEVCHARGER_SEMIHOSTING=1`. */
+#ifndef OPENEVCHARGER_SEMIHOSTING
+#define OPENEVCHARGER_SEMIHOSTING 0
 #endif
 
 #define DHCSR_ADDR    0xE000EDF0u
@@ -38,7 +38,7 @@ static int debugger_attached(void)
 
 static void semihost_write(const void *buf, size_t len)
 {
-#if OPENBHZD_SEMIHOSTING
+#if OPENEVCHARGER_SEMIHOSTING
     if (!debugger_attached() || len == 0) return;
     struct { int handle; const char *buf; int len; } args =
         { 2 /* stderr */, (const char *)buf, (int)len };

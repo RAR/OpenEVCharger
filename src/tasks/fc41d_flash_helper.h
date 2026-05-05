@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_TASKS_FC41D_FLASH_HELPER_H
-#define OPENBHZD_TASKS_FC41D_FLASH_HELPER_H
+#ifndef OPENEVCHARGER_TASKS_FC41D_FLASH_HELPER_H
+#define OPENEVCHARGER_TASKS_FC41D_FLASH_HELPER_H
 
 /* "FC41D flash mode" helper task. Created in place of comms_task when
  * DIP4 is held LOW at boot. Powers up the FC41D (VEN high, CEN high)

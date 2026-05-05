@@ -10,7 +10,7 @@ from esphome.const import (
 
 from . import openbhzd_tlv_ns, OpenbhzdTlv
 
-CONF_OPENBHZD_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
 CONF_LINK_UP = "link_up"
 CONF_VEHICLE_CONNECTED = "vehicle_connected"
@@ -24,7 +24,7 @@ CONF_RFID_SESSION_AUTHORIZED = "rfid_session_authorized"
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENBHZD_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
         cv.Optional(CONF_LINK_UP): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_CONNECTIVITY,
         ),
@@ -61,7 +61,7 @@ _SETTERS = {
 
 
 async def to_code(config):
-    parent = await cg.get_variable(config[CONF_OPENBHZD_TLV_ID])
+    parent = await cg.get_variable(config[CONF_OPENEVCHARGER_TLV_ID])
     for key, setter in _SETTERS.items():
         if conf := config.get(key):
             b = await binary_sensor.new_binary_sensor(conf)

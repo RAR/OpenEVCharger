@@ -18,7 +18,7 @@
  * but bench data shows it stays in the 565-686 raw band regardless
  * of contactor state. The function returns 0 (treat as open) until a
  * real sense is identified. Sense-dependent detectors (M6.2 weld,
- * M7.5 stuck-open) are gated off via OPENBHZD_RELAY_FEEDBACK_KNOWN. */
+ * M7.5 stuck-open) are gated off via OPENEVCHARGER_RELAY_FEEDBACK_KNOWN. */
 
 static int s_main_cmd = 0;
 static int s_aux_cmd  = 0;

@@ -93,8 +93,8 @@ static void publish_rfid_config(void);
 #define WELD_PERSIST_TICKS         10U
 #define STUCK_OPEN_PERSIST_TICKS   10U
 
-#ifndef OPENBHZD_RELAY_FEEDBACK_KNOWN
-#define OPENBHZD_RELAY_FEEDBACK_KNOWN 0
+#ifndef OPENEVCHARGER_RELAY_FEEDBACK_KNOWN
+#define OPENEVCHARGER_RELAY_FEEDBACK_KNOWN 0
 #endif
 
 /* CP=E classifier-output fault: J1772 state E sustained for 3 ticks
@@ -232,8 +232,8 @@ static void publish_rfid_config(void);
  * pins down the actual map, leave the FAULT_CC_OUT_OF_RANGE raise
  * path gated. The decoder still runs (publishes cc_max_amps for
  * diagnostic) so HA can log raw vs decoded as we capture data. */
-#ifndef OPENBHZD_CC_DETECTOR
-#define OPENBHZD_CC_DETECTOR  0
+#ifndef OPENEVCHARGER_CC_DETECTOR
+#define OPENEVCHARGER_CC_DETECTOR  0
 #endif
 
 /* GFCI CAL self-test (spec § 4.1.2). Pulses PE3 to inject a synthetic
@@ -246,8 +246,8 @@ static void publish_rfid_config(void);
  * polarity-agnostic, but a wrong PCB topology (e.g. CAL not actually
  * wired to the module) would always fail. Set =1 once bench
  * confirms the path on a real unit. */
-#ifndef OPENBHZD_GFCI_CAL_SELF_TEST
-#define OPENBHZD_GFCI_CAL_SELF_TEST  0
+#ifndef OPENEVCHARGER_GFCI_CAL_SELF_TEST
+#define OPENEVCHARGER_GFCI_CAL_SELF_TEST  0
 #endif
 
 /* Asymmetric hysteresis on the READY → CHARGING transition: require
@@ -321,8 +321,8 @@ static void publish_rfid_config(void);
  * (PE12 HIGH = force open). Re-enable only after bench confirms the
  * inverted-polarity actuate-and-readback works without welding the
  * contactor. */
-#ifndef OPENBHZD_RELAY_ACTUATE_SELF_TEST
-#define OPENBHZD_RELAY_ACTUATE_SELF_TEST  0
+#ifndef OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST
+#define OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST  0
 #endif
 
 #define ST_RELAY_CLOSE_POLL_MS    5
@@ -686,12 +686,12 @@ static int run_boot_self_test(int32_t cp_mv)
  * the live check_gfci detector once the safety loop starts ticking.
  * Has to fire AFTER gfci_init() and BEFORE the for(;;) loop. Returns
  * 0 on PASS or no-op-skip (build-flag gated), 1 on FAIL. Gated
- * behind OPENBHZD_GFCI_CAL_SELF_TEST default 0 — the PE3 polarity is
+ * behind OPENEVCHARGER_GFCI_CAL_SELF_TEST default 0 — the PE3 polarity is
  * contradicted in pin_map.h and the CAL-→-sense path hasn't been
  * bench-validated. */
 static int self_test_gfci_cal(void)
 {
-#if OPENBHZD_GFCI_CAL_SELF_TEST
+#if OPENEVCHARGER_GFCI_CAL_SELF_TEST
     int rc = gfci_self_test();
     if (rc == 0) {
         printk("self-test: GFCI CAL PASS\n");
@@ -705,7 +705,7 @@ static int self_test_gfci_cal(void)
     return 1;
 #else
     printk("self-test: GFCI CAL DISABLED at build time "
-           "(OPENBHZD_GFCI_CAL_SELF_TEST=0; bench carve-out)\n");
+           "(OPENEVCHARGER_GFCI_CAL_SELF_TEST=0; bench carve-out)\n");
     return 0;
 #endif
 }
@@ -1164,7 +1164,7 @@ static void check_cc_out_of_range(fault_state_t *fs, evse_state_t *es,
                                   j1772_state_t js, int32_t cp_mv,
                                   int *cc_streak)
 {
-#if OPENBHZD_CC_DETECTOR
+#if OPENEVCHARGER_CC_DETECTOR
     if (*es == EVSE_BOOT || *es == EVSE_SELF_TEST || *es == EVSE_FAULT) {
         *cc_streak = 0;
         return;
@@ -1549,11 +1549,11 @@ static void clear_soc_derate_for_session_end(void)
  * PB0 ("NTC2" in system_state) is NOT a thermistor — see pin_map.h —
  * and is never fed to the over-temp detector. Future: runtime masks
  * in boot_config so a single image runs on any chassis variant. */
-#ifndef OPENBHZD_NTC1_PRESENT
-#define OPENBHZD_NTC1_PRESENT  1
+#ifndef OPENEVCHARGER_NTC1_PRESENT
+#define OPENEVCHARGER_NTC1_PRESENT  1
 #endif
-#ifndef OPENBHZD_GUN_NTC_PRESENT
-#define OPENBHZD_GUN_NTC_PRESENT  1
+#ifndef OPENEVCHARGER_GUN_NTC_PRESENT
+#define OPENEVCHARGER_GUN_NTC_PRESENT  1
 #endif
 
 static void check_over_temp(fault_state_t *fs, evse_state_t *es,
@@ -1565,8 +1565,8 @@ static void check_over_temp(fault_state_t *fs, evse_state_t *es,
     ot->fault_active = fault_is_active(fs, FAULT_OVER_TEMP);
 
     over_temp_action_t act = over_temp_step(ot, ntc1_raw, gun_raw,
-                                            OPENBHZD_NTC1_PRESENT,
-                                            OPENBHZD_GUN_NTC_PRESENT);
+                                            OPENEVCHARGER_NTC1_PRESENT,
+                                            OPENEVCHARGER_GUN_NTC_PRESENT);
 
     if (act.trip) {
         if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
@@ -1688,7 +1688,7 @@ static void safety_task_run(void *arg)
     /* Spec § 4.1.4 step 4: relay actuate-and-readback. Only run with
      * CP in state A (no vehicle plugged) so the brief close is a
      * no-op on the J1772 plug side. Skip if anything is connected. */
-#if OPENBHZD_RELAY_ACTUATE_SELF_TEST
+#if OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST
     if (js0 == J1772_STATE_A) {
         int relay_st = self_test_relay_actuate();
         if (relay_st == ST_RELAY_OPEN_AT_BOOT &&
@@ -1714,7 +1714,7 @@ static void safety_task_run(void *arg)
     }
 #else
     printk("self-test: relay actuate test DISABLED at build time "
-           "(OPENBHZD_RELAY_ACTUATE_SELF_TEST=0; bench carve-out)\n");
+           "(OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST=0; bench carve-out)\n");
     (void)self_test_relay_actuate;     /* avoid -Wunused-function */
 #endif
 
@@ -1756,7 +1756,7 @@ static void safety_task_run(void *arg)
         }
 
         check_safe_fail(&fs, &es, s, cp_mv);
-#if OPENBHZD_RELAY_FEEDBACK_KNOWN
+#if OPENEVCHARGER_RELAY_FEEDBACK_KNOWN
         int sensed = relay_main_sense_closed();
         check_relay_weld(&fs, &es, sensed,
                          &weld_streak, &last_logged_sense,

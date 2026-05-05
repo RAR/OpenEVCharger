@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_CORE_SYSTEM_STATE_H
-#define OPENBHZD_CORE_SYSTEM_STATE_H
+#ifndef OPENEVCHARGER_CORE_SYSTEM_STATE_H
+#define OPENEVCHARGER_CORE_SYSTEM_STATE_H
 
 #include <stdint.h>
 
@@ -45,7 +45,7 @@ struct __attribute__((packed)) openbhzd_state {
                                  * see pin_map.h; likely AC-mains-
                                  * presence sense. OVER_TEMP detector
                                  * masks this channel via
-                                 * OPENBHZD_NTC2_PRESENT (default 0). */
+                                 * OPENEVCHARGER_NTC2_PRESENT (default 0). */
 
     /* BL0939 metering chip — raw 24-bit register reads. Engineering-
      * unit conversion (V, A, W) is done FC41D-side via per-chassis
@@ -68,4 +68,4 @@ _Static_assert(sizeof(struct openbhzd_state) == 56,
 void                  system_state_publish(const struct openbhzd_state *s);
 struct openbhzd_state system_state_snapshot(void);
 
-#endif /* OPENBHZD_CORE_SYSTEM_STATE_H */
+#endif /* OPENEVCHARGER_CORE_SYSTEM_STATE_H */

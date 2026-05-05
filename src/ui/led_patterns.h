@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_UI_LED_PATTERNS_H
-#define OPENBHZD_UI_LED_PATTERNS_H
+#ifndef OPENEVCHARGER_UI_LED_PATTERNS_H
+#define OPENEVCHARGER_UI_LED_PATTERNS_H
 
 #include <stdint.h>
 #include "../core/evse_state.h"
@@ -37,4 +37,4 @@ void led_render(const struct led_inputs *in, uint32_t t_ms);
 void led_override_set(uint8_t mode, uint8_t r, uint8_t g, uint8_t b);
 void led_override_get(uint8_t *mode, uint8_t rgb_out[3]);
 
-#endif /* OPENBHZD_UI_LED_PATTERNS_H */
+#endif /* OPENEVCHARGER_UI_LED_PATTERNS_H */

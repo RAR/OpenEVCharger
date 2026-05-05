@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_W25Q_H
-#define OPENBHZD_HAL_W25Q_H
+#ifndef OPENEVCHARGER_HAL_W25Q_H
+#define OPENEVCHARGER_HAL_W25Q_H
 
 #include <stddef.h>
 #include <stdint.h>

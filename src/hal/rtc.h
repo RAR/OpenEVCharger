@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_RTC_H
-#define OPENBHZD_HAL_RTC_H
+#ifndef OPENEVCHARGER_HAL_RTC_H
+#define OPENEVCHARGER_HAL_RTC_H
 
 #include <stdint.h>
 

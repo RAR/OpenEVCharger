@@ -4,7 +4,7 @@ from esphome.components import button
 
 from . import openbhzd_tlv_ns, OpenbhzdTlv
 
-CONF_OPENBHZD_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
 CONF_PING = "ping"
 CONF_REQUEST_STOP = "request_stop"
@@ -52,7 +52,7 @@ _BUZZER_SCHEMA = button.button_schema(OpenbhzdTlvButton).extend(
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENBHZD_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
         **{
             cv.Optional(key): _BUZZER_SCHEMA
             if key == CONF_BUZZER_BEEP
@@ -64,7 +64,7 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
-    parent = await cg.get_variable(config[CONF_OPENBHZD_TLV_ID])
+    parent = await cg.get_variable(config[CONF_OPENEVCHARGER_TLV_ID])
     for key, action_name in _FIELDS.items():
         if conf := config.get(key):
             b = await button.new_button(conf)

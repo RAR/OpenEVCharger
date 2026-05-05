@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_ADC_SCAN_H
-#define OPENBHZD_HAL_ADC_SCAN_H
+#ifndef OPENEVCHARGER_HAL_ADC_SCAN_H
+#define OPENEVCHARGER_HAL_ADC_SCAN_H
 
 #include <stdint.h>
 

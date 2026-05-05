@@ -1,6 +1,6 @@
 #include "stack_watch.h"
 
-#if OPENBHZD_STACK_WATCH
+#if OPENEVCHARGER_STACK_WATCH
 
 #include "hal/uart.h"
 
@@ -53,4 +53,4 @@ void stack_watch_dump(void)
     printk("\n");
 }
 
-#endif /* OPENBHZD_STACK_WATCH */
+#endif /* OPENEVCHARGER_STACK_WATCH */

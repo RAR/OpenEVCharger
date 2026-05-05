@@ -8,7 +8,7 @@ from esphome.const import (
 
 from . import openbhzd_tlv_ns, OpenbhzdTlv
 
-CONF_OPENBHZD_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 CONF_ADVERTISED_AMPS = "advertised_amps"
 
 OpenbhzdTlvNumber = openbhzd_tlv_ns.class_(
@@ -18,7 +18,7 @@ NumberKind = openbhzd_tlv_ns.enum("NumberKind", is_class=True)
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENBHZD_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
         cv.Optional(CONF_ADVERTISED_AMPS): number.number_schema(
             OpenbhzdTlvNumber,
             unit_of_measurement=UNIT_AMPERE,
@@ -29,7 +29,7 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
-    parent = await cg.get_variable(config[CONF_OPENBHZD_TLV_ID])
+    parent = await cg.get_variable(config[CONF_OPENEVCHARGER_TLV_ID])
     if conf := config.get(CONF_ADVERTISED_AMPS):
         # 6 A = J1772 minimum advertised; 48 A = OpenBHZD MCU hw cap
         # (COMMS_HW_AMPS_MAX). DIP1 may further floor/ceil this.

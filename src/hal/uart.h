@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_UART_H
-#define OPENBHZD_HAL_UART_H
+#ifndef OPENEVCHARGER_HAL_UART_H
+#define OPENEVCHARGER_HAL_UART_H
 
 #include <stddef.h>
 #include <stdint.h>

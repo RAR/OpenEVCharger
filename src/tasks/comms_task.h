@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_TASKS_COMMS_TASK_H
-#define OPENBHZD_TASKS_COMMS_TASK_H
+#ifndef OPENEVCHARGER_TASKS_COMMS_TASK_H
+#define OPENEVCHARGER_TASKS_COMMS_TASK_H
 
 #include <stddef.h>
 #include <stdint.h>

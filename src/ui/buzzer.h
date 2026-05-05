@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_UI_BUZZER_H
-#define OPENBHZD_UI_BUZZER_H
+#ifndef OPENEVCHARGER_UI_BUZZER_H
+#define OPENEVCHARGER_UI_BUZZER_H
 
 #include <stdint.h>
 
@@ -24,4 +24,4 @@ void buzzer_set_pattern(buzzer_pattern_t p);
 void buzzer_set_oneshot(uint16_t ms);    /* enters BUZ_ONESHOT for ms */
 void buzzer_tick(uint32_t now_ms);       /* called from io_task each 20 ms */
 
-#endif /* OPENBHZD_UI_BUZZER_H */
+#endif /* OPENEVCHARGER_UI_BUZZER_H */

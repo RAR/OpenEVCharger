@@ -32,3 +32,4 @@ __pycache__/
 # ESPHome FC41D firmware: build cache + per-checkout secrets
 fc41d/.esphome/
 fc41d/secrets.yaml
+build_host/

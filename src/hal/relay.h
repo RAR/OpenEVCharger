@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_RELAY_H
-#define OPENBHZD_HAL_RELAY_H
+#ifndef OPENEVCHARGER_HAL_RELAY_H
+#define OPENEVCHARGER_HAL_RELAY_H
 
 #include <stdint.h>
 
@@ -37,4 +37,4 @@ void relay_aux_open(void);
 void relay_aux_close(void);
 int  relay_aux_commanded(void);
 
-#endif /* OPENBHZD_HAL_RELAY_H */
+#endif /* OPENEVCHARGER_HAL_RELAY_H */

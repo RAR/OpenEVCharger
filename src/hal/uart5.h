@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_UART5_H
-#define OPENBHZD_HAL_UART5_H
+#ifndef OPENEVCHARGER_HAL_UART5_H
+#define OPENEVCHARGER_HAL_UART5_H
 
 /* "UART5" per spec § 5 / pinout doc; on GD32F2 vendor SPL this is
  * UART4 (PC12 TX, PD2 RX). 115200 8N1, no flow control.
@@ -24,4 +24,4 @@ size_t uart5_rx_pop(uint8_t *out, size_t cap);
  * reentrant — wrap in a mutex if multiple producers. */
 size_t uart5_send(const void *buf, size_t len);
 
-#endif /* OPENBHZD_HAL_UART5_H */
+#endif /* OPENEVCHARGER_HAL_UART5_H */

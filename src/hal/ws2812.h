@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_WS2812_H
-#define OPENBHZD_HAL_WS2812_H
+#ifndef OPENEVCHARGER_HAL_WS2812_H
+#define OPENEVCHARGER_HAL_WS2812_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -16,12 +16,12 @@
  * 1.25 µs).
  *
  * Override the protocol with:
- *   cmake -DOPENBHZD_LED_PROTOCOL_WS2812B=1   (24-bit GRB, T0H=0.4 / T1H=0.8)
- *   cmake -DOPENBHZD_LED_PROTOCOL_UCS1903=1   (24-bit RGB, 400 kHz)
- *   cmake -DOPENBHZD_LED_PROTOCOL_APA106=1    (24-bit RGB, asym timing)
+ *   cmake -DOPENEVCHARGER_LED_PROTOCOL_WS2812B=1   (24-bit GRB, T0H=0.4 / T1H=0.8)
+ *   cmake -DOPENEVCHARGER_LED_PROTOCOL_UCS1903=1   (24-bit RGB, 400 kHz)
+ *   cmake -DOPENEVCHARGER_LED_PROTOCOL_APA106=1    (24-bit RGB, asym timing)
  *
  * Override the LED count with:
- *   cmake -DOPENBHZD_WS2812_LEDS=N
+ *   cmake -DOPENEVCHARGER_WS2812_LEDS=N
  *
  * Caller fills pixels with ws2812_set_pixel(); ws2812_show() kicks
  * DMA + returns immediately.  Frame finishes ~ N × bits_per_led ×
@@ -29,8 +29,8 @@
  * Don't call ws2812_show() faster than ~30 Hz; pre-check the previous
  * DMA via ws2812_busy(). */
 
-#ifndef OPENBHZD_WS2812_LEDS
-#define OPENBHZD_WS2812_LEDS  134U
+#ifndef OPENEVCHARGER_WS2812_LEDS
+#define OPENEVCHARGER_WS2812_LEDS  134U
 #endif
 
 void ws2812_init(void);
@@ -39,4 +39,4 @@ void ws2812_set_pixel(unsigned idx, uint8_t r, uint8_t g, uint8_t b);
 void ws2812_clear(void);
 void ws2812_show(void);
 
-#endif /* OPENBHZD_HAL_WS2812_H */
+#endif /* OPENEVCHARGER_HAL_WS2812_H */

@@ -64,15 +64,15 @@ int main(void)
     /* Vendor SystemInit() has already run from startup_gd32f20x_cl.S
      * (clock tree at 120 MHz). */
 
-    /* If built with OPENBHZD_REAL_120M_PLL=1, swap the SDK's broken
+    /* If built with OPENEVCHARGER_REAL_120M_PLL=1, swap the SDK's broken
      * 120m_hxtal config for a clean direct chain. No-op otherwise. */
     clock_real_120m_init();
 
     uart_init();
     printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
            (unsigned)SystemCoreClock);
-#if defined(OPENBHZD_OTA_TEST_MARKER) && OPENBHZD_OTA_TEST_MARKER
-    printk("*** OTA-APPLIED v%d ***\n", (int)(OPENBHZD_OTA_TEST_MARKER));
+#if defined(OPENEVCHARGER_OTA_TEST_MARKER) && OPENEVCHARGER_OTA_TEST_MARKER
+    printk("*** OTA-APPLIED v%d ***\n", (int)(OPENEVCHARGER_OTA_TEST_MARKER));
 #endif
     clock_log_status();
 
@@ -109,10 +109,10 @@ int main(void)
     adc_inject_init();
     printk("cp: injected ADC armed PA4 sampled on each PWM rising edge\n");
 
-#if defined(OPENBHZD_BL0939_SMOKE) && OPENBHZD_BL0939_SMOKE
+#if defined(OPENEVCHARGER_BL0939_SMOKE) && OPENEVCHARGER_BL0939_SMOKE
     /* One-shot bench probe: bit-bang SPI to U11 (BL0939) and log
      * what we get back. Pure observation; no protocol decoding yet.
-     * Enable with `cmake -DOPENBHZD_BL0939_SMOKE=1`. Default off so
+     * Enable with `cmake -DOPENEVCHARGER_BL0939_SMOKE=1`. Default off so
      * production builds don't waste boot time on the test. */
     {
         extern void bl0939_smoke_test(void);
@@ -126,7 +126,7 @@ int main(void)
     } else {
         printk("w25q: JEDEC ID = 0x%06x\n", (unsigned)w25q_jedec_id());
 
-#if defined(OPENBHZD_BENCH_CRASH_RESET) && OPENBHZD_BENCH_CRASH_RESET
+#if defined(OPENEVCHARGER_BENCH_CRASH_RESET) && OPENEVCHARGER_BENCH_CRASH_RESET
         /* One-shot recovery: erase crash_state ping-pong sectors so
          * fast_restart_count returns to 0. Set during a single
          * flash cycle when the bench has gotten itself into
@@ -156,7 +156,7 @@ int main(void)
          * enabling on a unit that's not behind an SWD probe. With the
          * flag off, a stale pending flag from prior development just
          * gets logged and cleared so the firmware boots normally. */
-#if defined(OPENBHZD_OTA_APPLY_ENABLED) && OPENBHZD_OTA_APPLY_ENABLED
+#if defined(OPENEVCHARGER_OTA_APPLY_ENABLED) && OPENEVCHARGER_OTA_APPLY_ENABLED
         if (boot_config_pending_ota_flag()) {
             flash_copy_ramfunc_to_ram();
             int rc = flash_apply_pending_ota_image();
@@ -164,7 +164,7 @@ int main(void)
         }
 #else
         if (boot_config_pending_ota_flag()) {
-            printk("flash-ota: pending flag set but OPENBHZD_OTA_APPLY_ENABLED=0 "
+            printk("flash-ota: pending flag set but OPENEVCHARGER_OTA_APPLY_ENABLED=0 "
                    "— clearing without apply (bench-gated path)\n");
             (void)ota_stage_clear_pending();
         }

@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_CORE_PIN_MAP_H
-#define OPENBHZD_CORE_PIN_MAP_H
+#ifndef OPENEVCHARGER_CORE_PIN_MAP_H
+#define OPENEVCHARGER_CORE_PIN_MAP_H
 
 /* Canonical pin assignments for OpenBHZD on the Rippleon ROC001 board.
  *
@@ -63,7 +63,7 @@
  *                             sense (reads 565..686 raw with mains;
  *                             stays in that band regardless of relay
  *                             state — see relay.h note). NOT a
- *                             thermistor; OPENBHZD_NTC2_PRESENT=0.
+ *                             thermistor; OPENEVCHARGER_NTC2_PRESENT=0.
  * Earlier "mains voltage from PA2" calibration (V/count=0.06151
  * against a Fluke @ 123.9 V) was coincidence — the unpopulated NTC
  * pin happened to float-rail near 1.7 V which scaled to a plausible
@@ -93,7 +93,7 @@
  *     combinations of PE12 + PB12 / open + closed contactor.
  * Most likely an AC-mains-presence sense (rectified L1 upstream of
  * the contactor). Closed-feedback is therefore still UNKNOWN; weld /
- * stuck-open detection is gated off via OPENBHZD_RELAY_FEEDBACK_KNOWN
+ * stuck-open detection is gated off via OPENEVCHARGER_RELAY_FEEDBACK_KNOWN
  * until the real sense pin is found. */
 #define PIN_ADC_NTC2_PORT       GPIOB
 #define PIN_ADC_NTC2_PIN        GPIO_PIN_0     /* rank 7, ch 8 — AC-presence (likely) */
@@ -268,4 +268,4 @@
 #define PIN_STRAP_PB14_PORT     GPIOB
 #define PIN_STRAP_PB14_PIN      GPIO_PIN_14
 
-#endif /* OPENBHZD_CORE_PIN_MAP_H */
+#endif /* OPENEVCHARGER_CORE_PIN_MAP_H */

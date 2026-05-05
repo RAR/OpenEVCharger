@@ -5,31 +5,31 @@
 /* Strip protocol family.  All families share the single-wire DIN /
  * daisy-chain DOUT topology; they differ in bit timing, byte order,
  * and (for SK6812-RGBW) bit count.  Runtime keying is via the
- * OPENBHZD_LED_PROTOCOL_* build flags; default is WS2812B. */
-#ifndef OPENBHZD_LED_PROTOCOL_UCS1903
-#define OPENBHZD_LED_PROTOCOL_UCS1903 0
+ * OPENEVCHARGER_LED_PROTOCOL_* build flags; default is WS2812B. */
+#ifndef OPENEVCHARGER_LED_PROTOCOL_UCS1903
+#define OPENEVCHARGER_LED_PROTOCOL_UCS1903 0
 #endif
-#ifndef OPENBHZD_LED_PROTOCOL_APA106
-#define OPENBHZD_LED_PROTOCOL_APA106  0
+#ifndef OPENEVCHARGER_LED_PROTOCOL_APA106
+#define OPENEVCHARGER_LED_PROTOCOL_APA106  0
 #endif
-#ifndef OPENBHZD_LED_PROTOCOL_WS2812B
-#define OPENBHZD_LED_PROTOCOL_WS2812B 0
+#ifndef OPENEVCHARGER_LED_PROTOCOL_WS2812B
+#define OPENEVCHARGER_LED_PROTOCOL_WS2812B 0
 #endif
-#ifndef OPENBHZD_LED_PROTOCOL_SK6812_RGBW
-#define OPENBHZD_LED_PROTOCOL_SK6812_RGBW 0
+#ifndef OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW
+#define OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW 0
 #endif
 /* OEM_GRB_600KHZ is the *default* (matches the bench strip — values
  * extracted from stock V1.0.066 via openocd halt: TIMER1_CARL=99,
- * T0H=20, T1H=60).  Set OPENBHZD_LED_PROTOCOL_WS2812B=1 (or one of
+ * T0H=20, T1H=60).  Set OPENEVCHARGER_LED_PROTOCOL_WS2812B=1 (or one of
  * the other family flags) to override for a different rebadge. */
-#if !OPENBHZD_LED_PROTOCOL_UCS1903 && !OPENBHZD_LED_PROTOCOL_APA106 && \
-    !OPENBHZD_LED_PROTOCOL_WS2812B && !OPENBHZD_LED_PROTOCOL_SK6812_RGBW
-#define OPENBHZD_LED_PROTOCOL_OEM_GRB_600KHZ 1
+#if !OPENEVCHARGER_LED_PROTOCOL_UCS1903 && !OPENEVCHARGER_LED_PROTOCOL_APA106 && \
+    !OPENEVCHARGER_LED_PROTOCOL_WS2812B && !OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW
+#define OPENEVCHARGER_LED_PROTOCOL_OEM_GRB_600KHZ 1
 #else
-#define OPENBHZD_LED_PROTOCOL_OEM_GRB_600KHZ 0
+#define OPENEVCHARGER_LED_PROTOCOL_OEM_GRB_600KHZ 0
 #endif
 
-#if OPENBHZD_LED_PROTOCOL_UCS1903
+#if OPENEVCHARGER_LED_PROTOCOL_UCS1903
 /* UCS1903 / TM1804: 400 kHz, RGB byte order.
  *   T0H = 0.5 µs, T1H = 2.0 µs, period = 2.5 µs, reset ≥24 µs. */
 #define WS_PERIOD_TICKS  149U   /* 2.5 µs @ 60 MHz */
@@ -37,7 +37,7 @@
 #define WS_T1H_TICKS     120U   /* 2.0 µs */
 #define WS_PACK_RGB        1    /* R, G, B (vs WS2812B's G, R, B) */
 #define WS_BITS_PER_LED   24U   /* 3 bytes */
-#elif OPENBHZD_LED_PROTOCOL_APA106
+#elif OPENEVCHARGER_LED_PROTOCOL_APA106
 /* APA106: 800 kHz-ish, RGB, asymmetric T1H = 1.36 µs.
  *   T0H = 0.35 µs, T1H = 1.36 µs, period = 1.71 µs, reset ≥50 µs. */
 #define WS_PERIOD_TICKS  102U   /* 1.71 µs @ 60 MHz */
@@ -45,14 +45,14 @@
 #define WS_T1H_TICKS      82U   /* 1.36 µs */
 #define WS_PACK_RGB        1
 #define WS_BITS_PER_LED   24U
-#elif OPENBHZD_LED_PROTOCOL_WS2812B
+#elif OPENEVCHARGER_LED_PROTOCOL_WS2812B
 /* WS2812B: 800 kHz, GRB byte order. */
 #define WS_PERIOD_TICKS   74U   /* 1.25 µs @ 60 MHz */
 #define WS_T0H_TICKS      24U   /* 0.40 µs */
 #define WS_T1H_TICKS      48U   /* 0.80 µs */
 #define WS_PACK_RGB        0
 #define WS_BITS_PER_LED   24U   /* G8 R8 B8 */
-#elif OPENBHZD_LED_PROTOCOL_SK6812_RGBW
+#elif OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW
 /* SK6812 RGBW: 800 kHz, GRBW byte order, **32 bits per LED**.
  *   T0H = 0.30 µs, T1H = 0.60 µs, period = 1.25 µs, reset ≥80 µs. */
 #define WS_PERIOD_TICKS   74U
@@ -73,13 +73,13 @@
  * Burst length = 134 × 24 × 1.667 µs ≈ 5.4 ms.
  *
  * Two clock branches:
- *   1. OPENBHZD_REAL_120M_PLL=1 — sysclk is real 120 MHz → APB1 = 60
+ *   1. OPENEVCHARGER_REAL_120M_PLL=1 — sysclk is real 120 MHz → APB1 = 60
  *      MHz → TIMER1 clock = 60 MHz, exactly matching stock. Use the
  *      stock unscaled values directly.
  *   2. Default (SDK 120m_hxtal lying) — sysclk ≈ 38.4 MHz → TIMER1
  *      clock ≈ 39 MHz. Scale ARR/CCR proportionally so the wire
  *      timing still matches stock. */
-#if defined(OPENBHZD_REAL_120M_PLL) && OPENBHZD_REAL_120M_PLL
+#if defined(OPENEVCHARGER_REAL_120M_PLL) && OPENEVCHARGER_REAL_120M_PLL
 #define WS_PERIOD_TICKS   99U   /* stock ARR @ 60 MHz timer clock */
 #define WS_T0H_TICKS      20U   /* stock 0.333 µs */
 #define WS_T1H_TICKS      60U   /* stock 1.000 µs */
@@ -97,7 +97,7 @@
 #endif
 #define WS_RESET_PADDING  60U   /* 60 × 1.25 µs = 75 µs latch (≥ 50 µs spec) */
 
-#define WS_FRAME_BITS     (OPENBHZD_WS2812_LEDS * WS_BITS_PER_LED)
+#define WS_FRAME_BITS     (OPENEVCHARGER_WS2812_LEDS * WS_BITS_PER_LED)
 #define WS_BUF_HALFWORDS  (WS_FRAME_BITS + WS_RESET_PADDING)
 
 /* Wire byte order: GRB (WS2812B spec). The bench strip showed
@@ -120,7 +120,7 @@ static void load_byte_at(uint16_t *out, uint8_t v)
 
 void ws2812_set_pixel(unsigned idx, uint8_t r, uint8_t g, uint8_t b)
 {
-    if (idx >= OPENBHZD_WS2812_LEDS) return;
+    if (idx >= OPENEVCHARGER_WS2812_LEDS) return;
     uint16_t *p = &s_buf[idx * WS_BITS_PER_LED];
 #if WS_PACK_RGBW
     /* SK6812 RGBW: G R B W, 4 bytes per LED. White channel left at 0
@@ -142,7 +142,7 @@ void ws2812_set_pixel(unsigned idx, uint8_t r, uint8_t g, uint8_t b)
 
 void ws2812_clear(void)
 {
-    for (unsigned i = 0; i < OPENBHZD_WS2812_LEDS; ++i) {
+    for (unsigned i = 0; i < OPENEVCHARGER_WS2812_LEDS; ++i) {
         ws2812_set_pixel(i, 0, 0, 0);
     }
 }
@@ -228,7 +228,7 @@ void ws2812_init(void)
     timer_channel_output_struct_para_init(&oc);
     oc.outputstate  = TIMER_CCX_ENABLE;
     oc.outputnstate = TIMER_CCXN_DISABLE;
-    /* OPENBHZD_WS2812_INVERT=1 flips the OC polarity so the line idles
+    /* OPENEVCHARGER_WS2812_INVERT=1 flips the OC polarity so the line idles
      * HIGH and pulses LOW. Use this if the bench has an inverting
      * level-shifter / buffer between PA15 and the strip's DIN pad —
      * which is a strong candidate for the "uniform white-ish blue"
@@ -238,7 +238,7 @@ void ws2812_init(void)
      * means we still need ws2812_clear() (all zeros) to look like the
      * inactive 50 µs latch from the strip's perspective — done by the
      * tail padding which is always zero. */
-#if defined(OPENBHZD_WS2812_INVERT) && OPENBHZD_WS2812_INVERT
+#if defined(OPENEVCHARGER_WS2812_INVERT) && OPENEVCHARGER_WS2812_INVERT
     oc.ocpolarity   = TIMER_OC_POLARITY_LOW;
     oc.ocidlestate  = TIMER_OC_IDLE_STATE_HIGH;
 #else

@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_PERSIST_CRC16_H
-#define OPENBHZD_PERSIST_CRC16_H
+#ifndef OPENEVCHARGER_PERSIST_CRC16_H
+#define OPENEVCHARGER_PERSIST_CRC16_H
 
 #include <stddef.h>
 #include <stdint.h>

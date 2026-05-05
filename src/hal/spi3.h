@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_SPI3_H
-#define OPENBHZD_HAL_SPI3_H
+#ifndef OPENEVCHARGER_HAL_SPI3_H
+#define OPENEVCHARGER_HAL_SPI3_H
 
 #include <stdint.h>
 

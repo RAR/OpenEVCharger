@@ -2,8 +2,8 @@
 #include "uart.h"
 #include "gd32f20x.h"
 
-#ifndef OPENBHZD_REAL_120M_PLL
-#define OPENBHZD_REAL_120M_PLL 0
+#ifndef OPENEVCHARGER_REAL_120M_PLL
+#define OPENEVCHARGER_REAL_120M_PLL 0
 #endif
 
 extern uint32_t SystemCoreClock;
@@ -13,7 +13,7 @@ extern uint32_t SystemCoreClock;
  * stage that failed (1=HXTAL, 2=PLL stab). */
 static int s_clock_init_status = -1;
 
-#if OPENBHZD_REAL_120M_PLL
+#if OPENEVCHARGER_REAL_120M_PLL
 
 /* Wait helpers — bounded busy-loops since FreeRTOS is not running yet
  * and we have no SysTick or DWT cycle counter calibrated either. The
@@ -88,13 +88,13 @@ void clock_real_120m_init(void)
     s_clock_init_status = 0;
 }
 
-#else  /* !OPENBHZD_REAL_120M_PLL — legacy SDK config, no-op */
+#else  /* !OPENEVCHARGER_REAL_120M_PLL — legacy SDK config, no-op */
 
 void clock_real_120m_init(void)
 {
     /* SDK's system_clock_120m_hxtal already ran from SystemInit; the
      * apparent ~38.4 MHz sysclk has been our working config since M0.
-     * Build with -DOPENBHZD_REAL_120M_PLL=1 to switch to a real
+     * Build with -DOPENEVCHARGER_REAL_120M_PLL=1 to switch to a real
      * 120 MHz chain (and drop the ws2812 timing kludge). */
 }
 

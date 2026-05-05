@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_GPIO_H
-#define OPENBHZD_HAL_GPIO_H
+#ifndef OPENEVCHARGER_HAL_GPIO_H
+#define OPENEVCHARGER_HAL_GPIO_H
 
 #include <stdint.h>
 

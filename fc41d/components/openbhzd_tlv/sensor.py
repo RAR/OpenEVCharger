@@ -21,7 +21,7 @@ from esphome.const import (
 
 from . import openbhzd_tlv_ns, OpenbhzdTlv
 
-CONF_OPENBHZD_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
 
 # CP voltages are reported in mV; expose as raw mV for clarity (not V) since
 # the J1772 PWM swings ±12 V and "12000 mV" is the natural unit.
@@ -68,7 +68,7 @@ _AMP_SCHEMA = sensor.sensor_schema(
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(CONF_OPENBHZD_TLV_ID): cv.use_id(OpenbhzdTlv),
+        cv.GenerateID(CONF_OPENEVCHARGER_TLV_ID): cv.use_id(OpenbhzdTlv),
         cv.Optional(CONF_CP_HIGH_MV): sensor.sensor_schema(
             unit_of_measurement=UNIT_MILLIVOLT,
             accuracy_decimals=0,
@@ -239,7 +239,7 @@ _SCALE_SETTERS = {
 
 
 async def to_code(config):
-    parent = await cg.get_variable(config[CONF_OPENBHZD_TLV_ID])
+    parent = await cg.get_variable(config[CONF_OPENEVCHARGER_TLV_ID])
     for key, setter in _SETTERS.items():
         if conf := config.get(key):
             s = await sensor.new_sensor(conf)

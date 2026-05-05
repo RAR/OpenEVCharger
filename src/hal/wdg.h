@@ -2,8 +2,8 @@
  * STM32). Owned by safety_task: no other code calls wdg_kick().
  */
 
-#ifndef OPENBHZD_HAL_WDG_H
-#define OPENBHZD_HAL_WDG_H
+#ifndef OPENEVCHARGER_HAL_WDG_H
+#define OPENEVCHARGER_HAL_WDG_H
 
 #include <stdint.h>
 
@@ -22,4 +22,4 @@ void wdg_kick(void);
  */
 int wdg_was_last_reset(void);
 
-#endif /* OPENBHZD_HAL_WDG_H */
+#endif /* OPENEVCHARGER_HAL_WDG_H */

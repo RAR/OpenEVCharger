@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_CORE_EVSE_STATE_H
-#define OPENBHZD_CORE_EVSE_STATE_H
+#ifndef OPENEVCHARGER_CORE_EVSE_STATE_H
+#define OPENEVCHARGER_CORE_EVSE_STATE_H
 
 #include <stdint.h>
 
@@ -28,4 +28,4 @@ static inline const char *evse_state_name(evse_state_t s)
     }
 }
 
-#endif /* OPENBHZD_CORE_EVSE_STATE_H */
+#endif /* OPENEVCHARGER_CORE_EVSE_STATE_H */

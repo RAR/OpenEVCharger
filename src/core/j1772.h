@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_CORE_J1772_H
-#define OPENBHZD_CORE_J1772_H
+#ifndef OPENEVCHARGER_CORE_J1772_H
+#define OPENEVCHARGER_CORE_J1772_H
 
 #include <stdint.h>
 

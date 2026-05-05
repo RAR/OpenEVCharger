@@ -67,7 +67,7 @@ static void fill_all(uint8_t r, uint8_t g, uint8_t b, uint8_t pct)
     uint8_t rg = scaled_gamma(r, pct);
     uint8_t gg = scaled_gamma(g, pct);
     uint8_t bg = scaled_gamma(b, pct);
-    for (unsigned i = 0; i < OPENBHZD_WS2812_LEDS; ++i) {
+    for (unsigned i = 0; i < OPENEVCHARGER_WS2812_LEDS; ++i) {
         ws2812_set_pixel(i, rg, gg, bg);
     }
 }
@@ -75,20 +75,20 @@ static void fill_all(uint8_t r, uint8_t g, uint8_t b, uint8_t pct)
 static void apply_comms_overlay(unsigned every_n)
 {
     /* Override every n-th LED with magenta to indicate degraded comms. */
-    for (unsigned i = 0; i < OPENBHZD_WS2812_LEDS; i += every_n) {
+    for (unsigned i = 0; i < OPENEVCHARGER_WS2812_LEDS; i += every_n) {
         ws2812_set_pixel(i, 64, 0, 64);
     }
 }
 
 void led_render(const struct led_inputs *in, uint32_t t_ms)
 {
-#if defined(OPENBHZD_LED_FORCE_GREEN) && OPENBHZD_LED_FORCE_GREEN
+#if defined(OPENEVCHARGER_LED_FORCE_GREEN) && OPENEVCHARGER_LED_FORCE_GREEN
     /* Bench debug: pixel 0 = red, pixel 1 = green, pixel 2 = blue,
      * pixel 3..rest = solid dim green.  This both diagnoses byte
      * order (first 3 pixels) and overall protocol health (rest of
      * strip should be uniform dim green). */
     (void)t_ms;
-    for (unsigned i = 3; i < OPENBHZD_WS2812_LEDS; ++i) {
+    for (unsigned i = 3; i < OPENEVCHARGER_WS2812_LEDS; ++i) {
         ws2812_set_pixel(i, 0, 64, 0);  /* dim green */
     }
     ws2812_set_pixel(0, 255,   0,   0);  /* red */
@@ -119,8 +119,8 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
     case EVSE_BOOT:
     case EVSE_SELF_TEST: {
         /* white sweep — 1 LED on, advancing 1×/s */
-        unsigned pos = (unsigned)((t_ms / (1000u / OPENBHZD_WS2812_LEDS)) %
-                                  OPENBHZD_WS2812_LEDS);
+        unsigned pos = (unsigned)((t_ms / (1000u / OPENEVCHARGER_WS2812_LEDS)) %
+                                  OPENEVCHARGER_WS2812_LEDS);
         ws2812_clear();
         ws2812_set_pixel(pos,
                          scaled_gamma(255, in->brightness_pct),

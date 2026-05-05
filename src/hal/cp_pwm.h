@@ -1,5 +1,5 @@
-#ifndef OPENBHZD_HAL_CP_PWM_H
-#define OPENBHZD_HAL_CP_PWM_H
+#ifndef OPENEVCHARGER_HAL_CP_PWM_H
+#define OPENEVCHARGER_HAL_CP_PWM_H
 
 #include <stdint.h>
 
