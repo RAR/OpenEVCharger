@@ -286,13 +286,17 @@ static void publish_rfid_config(void);
  * is 1500 mV. */
 #define ST_CP_PILOT_PRESENT_MV  1500
 
-/* Hardware advertise caps. Spec § 3:
- *   - DIP1 closed → 40 A; DIP1 open → 48 A
+/* Hardware advertise caps. Polarity inverted 2026-05-05 vs the
+ * stock spec § 3 — bench-observed (dip=0011 from straps) maps to
+ * DIP1=closed but the operator wanted the higher 48 A cap. The
+ * physical switch is now treated as "set when closed = full 48 A,
+ * cleared when open = limit 40 A":
+ *   - DIP1 closed → 48 A; DIP1 open → 40 A
  *   - Hardware contactor rating: 48 A
  *   - FC41D-requested amps clamps to min(DIP1, hw cap, fc41d). */
 #define HW_AMPS_MAX        48U
-#define DIP1_AMPS_CLOSED   40U
-#define DIP1_AMPS_OPEN     48U
+#define DIP1_AMPS_CLOSED   48U
+#define DIP1_AMPS_OPEN     40U
 
 /* Relay actuate-and-readback self-test: spec § 4.1.4 step 4. Total
  * budget 50 ms with CP held in state A. Close, poll PB12 every 5 ms
