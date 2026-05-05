@@ -7,6 +7,11 @@
  * marked load-bearing in that table appears here. Reverse direction is
  * also true — if you add an entry here, update pinout.md to match.
  *
+ * BOARD-SPECIFIC. Future ports to other STM32F2 / GD32F2-compatible
+ * EVSE PCBs replace this file (likely via pin_map_<board>.h chosen by
+ * a CMake -DOPENEVCHARGER_BOARD=<name> flag). See BOARDS.md for the
+ * porting outline.
+ *
  * Layout convention per pin:
  *   PIN_<role>_PORT  -> GPIOx peripheral handle
  *   PIN_<role>_PIN   -> GPIO_PIN_n
