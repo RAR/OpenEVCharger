@@ -35,7 +35,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── tasks/
 │   │   ├── persist_task.c          # MODIFIED — real body

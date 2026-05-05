@@ -1,9 +1,9 @@
-# OpenBHZD
+# OpenEVCharger
 
 Replacement firmware for the **Rippleon ROC001** / **NewEnergyCS ROC-family**
 J1772 EV charger, targeting the GigaDevice **GD32F205V** main MCU.
 
-OpenBHZD is a clean-room reimplementation of OpenEVSE-style EVSE firmware.
+OpenEVCharger is a clean-room reimplementation of OpenEVSE-style EVSE firmware.
 The behavior of the J1772 state machine, fault model, and self-test sequence
 is modeled on [OpenEVSE](https://github.com/OpenEVSE/open_evse) but no source
 is copied. Wi-Fi/BLE/cloud features run on the FC41D Wi-Fi module, off the

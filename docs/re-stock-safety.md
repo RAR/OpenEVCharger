@@ -1,9 +1,9 @@
 # Stock-firmware safety lift report (V1.0.066, GD32F205VG)
 
-Mining target: `/home/rar/device-configs/esphome/rippleon/OpenBHZD/recovery/stock-mcu-V1.0.066.bin`
+Mining target: `/home/rar/device-configs/esphome/rippleon/OpenEVCharger/recovery/stock-mcu-V1.0.066.bin`
 (SHA256 `d61a0ed1...3fc814fb`, 512 KB, base `0x08000000`).
 
-Goal: lift gating on three OpenBHZD detectors —
+Goal: lift gating on three OpenEVCharger detectors —
 NTC over-temp, GFCI sense, relay closed-feedback — by recovering the
 stock firmware's calibration constants and runtime polling sites.
 
@@ -44,7 +44,7 @@ The stock firmware does **not** use a β / R0 formula. It uses a
   as a plain `int16` at config offset `0x360`. Raw equivalent:
   **lut[125] = 300 counts**. Detector should fire when
   `ntc_raw <= 300`.
-- **Clear / hysteresis:** the OpenBHZD spec uses 10 °C hysteresis; the
+- **Clear / hysteresis:** the OpenEVCharger spec uses 10 °C hysteresis; the
   stock firmware does not appear to implement explicit hysteresis at
   this site. Use 85 °C clear → **lut[115] = 396 counts**.
 - **Out-of-range guards** (function `0x0800bba0`, around `0x0800bc0a`):
@@ -127,7 +127,7 @@ clamped or just warned wasn't pinned down (the fall-through path is
 intricate); treating ≥ 121 as out-of-range is the safe stock
 interpretation.
 
-### What to do in OpenBHZD code
+### What to do in OpenEVCharger code
 
 1. Replace the β=3380 / R0=10k Steinhart-Hart approximation with the
    stock LUT.
@@ -141,8 +141,8 @@ interpretation.
    4.7 kΩ. If any code uses the pull-up for sanity calculations, fix
    it. (`pinout.md` line 320 also needs correcting.)
 3. **Trip / clear thresholds:** trip at raw ≤ 300 (= 95 °C),
-   clear at raw ≤ 396 (= 85 °C, applying OpenBHZD's 10 °C hysteresis).
-4. **Build flag:** OpenBHZD presumably already has `OPENBHZD_NTC1_PRESENT`
+   clear at raw ≤ 396 (= 85 °C, applying OpenEVCharger's 10 °C hysteresis).
+4. **Build flag:** OpenEVCharger presumably already has `OPENBHZD_NTC1_PRESENT`
    etc. (per `safety.md` row). Once the LUT is wired in, no flag flip
    is needed for NTC1 — it's already active. NTC2 toggle still
    bench-gated by gun-thermistor presence (separately tracked).
@@ -154,7 +154,7 @@ flash, and the LUT origin is corroborated by the live PA3 reading
 (1.19 V → 1477 counts → LUT index 67 → 37 °C, plausible bench-room
 gun temperature on a powered unit). A bench cross-check (heat NTC,
 log raw + reported °C) is still recommended as defence-in-depth, but
-the OpenBHZD flag flip from the legacy β formula to the stock LUT is
+the OpenEVCharger flag flip from the legacy β formula to the stock LUT is
 **safe even before that cross-check** because the lookup is
 empirically grounded.
 
@@ -209,7 +209,7 @@ TBB jump table at `0x0801285c..0801285c+8`:
 Cases 6 and 7 also `str r6, [r5, 0x10]` with r6=0 to **reset the state
 machine to state 0**, completing a polling cycle.
 
-### What to do in OpenBHZD code
+### What to do in OpenEVCharger code
 
 1. Add **PE2** to the pin map as `GFCI_FAULT_SENSE`, active-high,
    polled (no EXTI). Update `pinout.md`'s "Watched inputs" / "Confirmed
@@ -251,7 +251,7 @@ the GFCI state machine, and the fault-bit-set semantics line up with
 
 **Bench validation is required**: scope PE2 while the unit runs its
 GFCI self-test on AC. If PE2 toggles HIGH during the PE3 CAL pulse,
-the active-high interpretation is correct and OpenBHZD can flip the
+the active-high interpretation is correct and OpenEVCharger can flip the
 flag. If PE2 stays high constantly, this is the wrong pin (or
 inverted polarity on the board).
 
@@ -322,7 +322,7 @@ These two paths are reached when `[r4, 0x10]` (a halfword fault
 sub-code at `0x200026b0`) takes specific values; tracing the writers
 of that halfword is the next step.
 
-### What to do in OpenBHZD code
+### What to do in OpenEVCharger code
 
 **Do not flip the relay-feedback flag.** Status of
 `OPENBHZD_RELAY_FEEDBACK_KNOWN` should stay 0.
@@ -358,7 +358,7 @@ The two recommended next bench steps, in priority order:
 
 1. **GFCI:** scope PE2 while the unit is running stock firmware on AC.
    Look for PE2 going HIGH inside the PE3 CAL pulse window. If yes,
-   PE2 is confirmed and OpenBHZD can flip the GFCI gate. (1 hour
+   PE2 is confirmed and OpenEVCharger can flip the GFCI gate. (1 hour
    bench.)
 2. **Relay feedback:** snapshot all MCU inputs across PE12 off → on
    → off transitions under AC. Find the one that mirrors PE12 with

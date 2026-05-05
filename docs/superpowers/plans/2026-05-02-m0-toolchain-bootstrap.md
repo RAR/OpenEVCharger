@@ -4,7 +4,7 @@
 
 **Goal:** Get a CMake + arm-none-eabi-gcc + GD32F20x vendor library project building, flashing via SWD, and blinking the heartbeat LED on PD4 at 1 Hz with the GD32F205V running at 120 MHz.
 
-**Architecture:** Bare-metal main loop (no FreeRTOS yet — that's M1). Vendor's `startup_gd32f20x_cl.s` and `system_gd32f20x.c` provide reset vector, vector table, and clock-tree init at 120 MHz from an 8 MHz HSE crystal. CMake drives an out-of-source build producing `openbhzd.elf` and `openbhzd.bin`. Stock MCU firmware is dumped via SWD before any flash so the bench unit is always recoverable.
+**Architecture:** Bare-metal main loop (no FreeRTOS yet — that's M1). Vendor's `startup_gd32f20x_cl.s` and `system_gd32f20x.c` provide reset vector, vector table, and clock-tree init at 120 MHz from an 8 MHz HSE crystal. CMake drives an out-of-source build producing `openevcharger.elf` and `openevcharger.bin`. Stock MCU firmware is dumped via SWD before any flash so the bench unit is always recoverable.
 
 **Tech Stack:** CMake 3.20+, arm-none-eabi-gcc 12+, OpenOCD 0.12+, ST-Link v2/v3 (or compatible CMSIS-DAP), GigaDevice GD32F20x_Firmware_Library V2.5.x, GPL-3.0 license.
 
@@ -19,14 +19,14 @@
 
 ## File Structure
 
-This plan creates exactly these files in `OpenBHZD/`:
+This plan creates exactly these files in `OpenEVCharger/`:
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── README.md                     # short project description + build/flash quickstart
 ├── LICENSE                       # full GPL-3.0 text (fetched verbatim from gnu.org)
 ├── .gitignore                    # build/, recovery/*.bin, third_party/GD32F20x_*
-├── CMakeLists.txt                # top-level build, names openbhzd target
+├── CMakeLists.txt                # top-level build, names openevcharger target
 ├── cmake/
 │   └── arm-none-eabi-toolchain.cmake   # toolchain selection + CFLAGS
 ├── linker/
@@ -35,7 +35,7 @@ OpenBHZD/
 │   └── main.c                    # PD4 blink loop using vendor GPIO + SysTick
 ├── tools/
 │   ├── openocd-gd32f205.cfg      # ST-Link target = STM32F2x (GD is register-compat)
-│   ├── flash.sh                  # build + flash openbhzd.elf
+│   ├── flash.sh                  # build + flash openevcharger.elf
 │   ├── flash_stock.sh            # restore recovery/stock-mcu-V1.0.066.bin
 │   └── stock_backup.sh           # SWD dump main flash → recovery/stock-mcu-*.bin
 ├── recovery/
@@ -66,19 +66,19 @@ Pure-logic TDD does not apply to M0 — there is no logic, only hardware initial
 ### Task 1: Project skeleton — README, LICENSE, .gitignore
 
 **Files:**
-- Create: `OpenBHZD/README.md`
-- Create: `OpenBHZD/LICENSE`
-- Create: `OpenBHZD/.gitignore`
+- Create: `OpenEVCharger/README.md`
+- Create: `OpenEVCharger/LICENSE`
+- Create: `OpenEVCharger/.gitignore`
 
 - [ ] **Step 1: Write `README.md`**
 
 ```markdown
-# OpenBHZD
+# OpenEVCharger
 
 Replacement firmware for the **Rippleon ROC001** / **NewEnergyCS ROC-family**
 J1772 EV charger, targeting the GigaDevice **GD32F205V** main MCU.
 
-OpenBHZD is a clean-room reimplementation of OpenEVSE-style EVSE firmware.
+OpenEVCharger is a clean-room reimplementation of OpenEVSE-style EVSE firmware.
 The behavior of the J1772 state machine, fault model, and self-test sequence
 is modeled on [OpenEVSE](https://github.com/OpenEVSE/open_evse) but no source
 is copied. Wi-Fi/BLE/cloud features run on the FC41D Wi-Fi module, off the
@@ -116,19 +116,19 @@ cmake --build build
 
 Run:
 ```sh
-curl -fsSL https://www.gnu.org/licenses/gpl-3.0.txt -o /home/rar/device-configs/esphome/rippleon/OpenBHZD/LICENSE
+curl -fsSL https://www.gnu.org/licenses/gpl-3.0.txt -o /home/rar/device-configs/esphome/rippleon/OpenEVCharger/LICENSE
 ```
 
 Expected: `LICENSE` is the full GPL-3.0 text, ~35 KB.
 
 If `curl` fails (network), fall back to:
 ```sh
-cp /usr/share/common-licenses/GPL-3 /home/rar/device-configs/esphome/rippleon/OpenBHZD/LICENSE
+cp /usr/share/common-licenses/GPL-3 /home/rar/device-configs/esphome/rippleon/OpenEVCharger/LICENSE
 ```
 
 Verify:
 ```sh
-head -1 /home/rar/device-configs/esphome/rippleon/OpenBHZD/LICENSE
+head -1 /home/rar/device-configs/esphome/rippleon/OpenEVCharger/LICENSE
 ```
 Expected output starts with: `                    GNU GENERAL PUBLIC LICENSE`
 
@@ -166,7 +166,7 @@ Thumbs.db
 - [ ] **Step 4: Verify and commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 ls -la README.md LICENSE .gitignore
 wc -c LICENSE
 ```
@@ -184,10 +184,10 @@ git commit -m "M0.1: project skeleton (README, GPL-3.0, gitignore)"
 **Why first:** The bench unit is unique. We back up before installing anything that could brick. If the OpenOCD config is wrong, this is where we'll discover it — safely, without writing.
 
 **Files:**
-- Create: `OpenBHZD/tools/openocd-gd32f205.cfg`
-- Create: `OpenBHZD/tools/stock_backup.sh`
-- Create: `OpenBHZD/recovery/README.md`
-- Create: `OpenBHZD/recovery/.gitkeep`
+- Create: `OpenEVCharger/tools/openocd-gd32f205.cfg`
+- Create: `OpenEVCharger/tools/stock_backup.sh`
+- Create: `OpenEVCharger/recovery/README.md`
+- Create: `OpenEVCharger/recovery/.gitkeep`
 
 - [ ] **Step 1: Write `tools/openocd-gd32f205.cfg`**
 
@@ -255,7 +255,7 @@ sha256sum "$OUT"
 - [ ] **Step 3: Make script executable**
 
 ```sh
-chmod +x /home/rar/device-configs/esphome/rippleon/OpenBHZD/tools/stock_backup.sh
+chmod +x /home/rar/device-configs/esphome/rippleon/OpenEVCharger/tools/stock_backup.sh
 ```
 
 - [ ] **Step 4: Write `recovery/README.md`**
@@ -288,7 +288,7 @@ This writes `recovery/stock-mcu-V1.0.066.bin` back to flash starting at
 
 Create empty file:
 ```sh
-touch /home/rar/device-configs/esphome/rippleon/OpenBHZD/recovery/.gitkeep
+touch /home/rar/device-configs/esphome/rippleon/OpenEVCharger/recovery/.gitkeep
 ```
 
 - [ ] **Step 6: RUN THE BACKUP**
@@ -296,14 +296,14 @@ touch /home/rar/device-configs/esphome/rippleon/OpenBHZD/recovery/.gitkeep
 This is the single most important command in M0. Connect the SWD probe to the bench unit (probe powered, target powered via USB-5V). Then:
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 ./tools/stock_backup.sh
 ```
 
 Expected output ends with:
 ```
-OK: /home/rar/device-configs/esphome/rippleon/OpenBHZD/recovery/stock-mcu-V1.0.066.bin (262144 bytes)
-<64-hex-char sha256>  /home/rar/device-configs/esphome/rippleon/OpenBHZD/recovery/stock-mcu-V1.0.066.bin
+OK: /home/rar/device-configs/esphome/rippleon/OpenEVCharger/recovery/stock-mcu-V1.0.066.bin (262144 bytes)
+<64-hex-char sha256>  /home/rar/device-configs/esphome/rippleon/OpenEVCharger/recovery/stock-mcu-V1.0.066.bin
 ```
 
 If the dump fails (target not detected, wrong CPU ID), STOP. Do not continue M0 until backup succeeds. Diagnostic command:
@@ -327,7 +327,7 @@ If hashes differ, investigate before proceeding — the backup may have captured
 - [ ] **Step 8: Commit tooling (NOT the .bin)**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add tools/openocd-gd32f205.cfg tools/stock_backup.sh recovery/README.md recovery/.gitkeep
 git commit -m "M0.2: stock-firmware SWD backup tooling + run initial backup"
 ```
@@ -343,8 +343,8 @@ Expected: `recovery/stock-mcu-V1.0.066.bin` listed under "Untracked files" (it's
 ### Task 3: Fetch and vendor the GD32F20x firmware library
 
 **Files:**
-- Create: `OpenBHZD/third_party/GD32F20x_Firmware_Library/README.md`
-- Create: `OpenBHZD/third_party/GD32F20x_Firmware_Library/Firmware/...` (vendored from upstream zip)
+- Create: `OpenEVCharger/third_party/GD32F20x_Firmware_Library/README.md`
+- Create: `OpenEVCharger/third_party/GD32F20x_Firmware_Library/Firmware/...` (vendored from upstream zip)
 
 **Background.** GigaDevice ships the firmware library as a zip from gd32mcu.com. As of writing, V2.5.1 is current. The license bundled with the zip permits redistribution alongside firmware that targets a GD32 chip. We vendor the relevant subdirectories into `third_party/` (gitignored body, README explaining provenance).
 
@@ -379,7 +379,7 @@ Expected: directory `GD32F20x_Firmware_Library_V2.5.1/` containing `Firmware/` a
 
 Vendor only the `Firmware/` subtree (we don't need their Keil/IAR examples):
 ```sh
-DEST=/home/rar/device-configs/esphome/rippleon/OpenBHZD/third_party/GD32F20x_Firmware_Library
+DEST=/home/rar/device-configs/esphome/rippleon/OpenEVCharger/third_party/GD32F20x_Firmware_Library
 mkdir -p "$DEST"
 cp -r GD32F20x_Firmware_Library_V2.5.1/Firmware "$DEST/"
 ls "$DEST/Firmware"
@@ -389,7 +389,7 @@ Expected: subdirs `CMSIS/` and `GD32F20x_standard_peripheral/`.
 - [ ] **Step 3: Verify the GCC startup file is present**
 
 ```sh
-DEST=/home/rar/device-configs/esphome/rippleon/OpenBHZD/third_party/GD32F20x_Firmware_Library
+DEST=/home/rar/device-configs/esphome/rippleon/OpenEVCharger/third_party/GD32F20x_Firmware_Library
 ls "$DEST/Firmware/CMSIS/GD/GD32F20x/Source/GCC/"
 ```
 Expected: `startup_gd32f20x_cl.s` (cl = "connectivity line", which is the family GD32F205 belongs to).
@@ -398,7 +398,7 @@ If only ARM/IAR variants exist and no GCC dir, stop and adapt the ARM startup to
 
 - [ ] **Step 4: Write provenance README**
 
-Create `OpenBHZD/third_party/GD32F20x_Firmware_Library/README.md`:
+Create `OpenEVCharger/third_party/GD32F20x_Firmware_Library/README.md`:
 
 ```markdown
 # GD32F20x Firmware Library
@@ -448,7 +448,7 @@ The vendor library is large (~10 MB unpacked). Two options:
 
 We pick **Option A** — track in git. The library is small relative to a GitHub repo limit (50 MB soft cap), updates are infrequent (vendor releases once a year), and "clone-and-build" is a strong UX. Update `.gitignore` to NOT ignore the third_party tree:
 
-Edit `OpenBHZD/.gitignore`. Locate the line:
+Edit `OpenEVCharger/.gitignore`. Locate the line:
 ```
 !recovery/.gitkeep
 !third_party/**/.gitkeep
@@ -456,7 +456,7 @@ Edit `OpenBHZD/.gitignore`. Locate the line:
 
 The current `.gitignore` doesn't actually ignore the vendor tree (we only blocked `recovery/*.bin`). Verify:
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git check-ignore -v third_party/GD32F20x_Firmware_Library/README.md
 ```
 Expected output: empty (file is NOT ignored). If it IS ignored, fix `.gitignore`.
@@ -464,7 +464,7 @@ Expected output: empty (file is NOT ignored). If it IS ignored, fix `.gitignore`
 - [ ] **Step 6: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add third_party/
 git commit -m "M0.3: vendor GD32F20x_Firmware_Library V2.5.1"
 ```
@@ -476,7 +476,7 @@ Expected commit size: ~10 MB (~1500 files). This is a one-time hit.
 ### Task 4: arm-none-eabi toolchain CMake config
 
 **Files:**
-- Create: `OpenBHZD/cmake/arm-none-eabi-toolchain.cmake`
+- Create: `OpenEVCharger/cmake/arm-none-eabi-toolchain.cmake`
 
 - [ ] **Step 1: Verify toolchain on host**
 
@@ -492,7 +492,7 @@ sudo apt install gcc-arm-none-eabi cmake
 
 - [ ] **Step 2: Write the toolchain file**
 
-`OpenBHZD/cmake/arm-none-eabi-toolchain.cmake`:
+`OpenEVCharger/cmake/arm-none-eabi-toolchain.cmake`:
 
 ```cmake
 # arm-none-eabi cross-compile toolchain for GD32F205VC (Cortex-M3).
@@ -547,7 +547,7 @@ project(tc_smoke C)
 add_library(empty STATIC empty.c)
 EOF
 echo "void noop(void) {}" > empty.c
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=/home/rar/device-configs/esphome/rippleon/OpenBHZD/cmake/arm-none-eabi-toolchain.cmake
+cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=/home/rar/device-configs/esphome/rippleon/OpenEVCharger/cmake/arm-none-eabi-toolchain.cmake
 cmake --build build
 ```
 Expected: builds `libempty.a` for cortex-m3. Last lines look like:
@@ -563,7 +563,7 @@ rm -rf /tmp/tc_smoke
 - [ ] **Step 4: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add cmake/arm-none-eabi-toolchain.cmake
 git commit -m "M0.4: arm-none-eabi cmake toolchain for cortex-m3"
 ```
@@ -573,13 +573,13 @@ git commit -m "M0.4: arm-none-eabi cmake toolchain for cortex-m3"
 ### Task 5: Linker script for GD32F205VC
 
 **Files:**
-- Create: `OpenBHZD/linker/gd32f205vc.ld`
+- Create: `OpenEVCharger/linker/gd32f205vc.ld`
 
 GD32F205VC: 256 KB flash at `0x08000000`, 128 KB main RAM at `0x20000000`. Stack at top of RAM, heap minimal (FreeRTOS will own its own heap in M1; for M0 we just need ≥ 256 B for printf-style ops if used).
 
 - [ ] **Step 1: Write the linker script**
 
-`OpenBHZD/linker/gd32f205vc.ld`:
+`OpenEVCharger/linker/gd32f205vc.ld`:
 
 ```ld
 /* GD32F205VC linker script
@@ -700,7 +700,7 @@ SECTIONS
 - [ ] **Step 2: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add linker/gd32f205vc.ld
 git commit -m "M0.5: linker script for GD32F205VC (256K flash, 128K RAM)"
 ```
@@ -710,14 +710,14 @@ git commit -m "M0.5: linker script for GD32F205VC (256K flash, 128K RAM)"
 ### Task 6: Minimal `src/main.c` — PD4 blink at 1 Hz
 
 **Files:**
-- Create: `OpenBHZD/src/main.c`
+- Create: `OpenEVCharger/src/main.c`
 
 Uses GD32 standard peripheral library calls — no register-bashing in M0 (we'll layer our own HAL on top in later milestones). PD4 is the heartbeat LED per the canonical pin map.
 
 - [ ] **Step 1: Write `src/main.c`**
 
 ```c
-/* OpenBHZD M0 — heartbeat LED on PD4.
+/* OpenEVCharger M0 — heartbeat LED on PD4.
  *
  * Sets up the system clock at 120 MHz (handled by the vendor's SystemInit
  * called from startup_gd32f20x_cl.s) and toggles PD4 once per second using
@@ -781,7 +781,7 @@ int main(void)
 - [ ] **Step 2: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add src/main.c
 git commit -m "M0.6: minimal main.c — 1 Hz heartbeat blink on PD4"
 ```
@@ -791,9 +791,9 @@ git commit -m "M0.6: minimal main.c — 1 Hz heartbeat blink on PD4"
 ### Task 7: Top-level `CMakeLists.txt`
 
 **Files:**
-- Create: `OpenBHZD/CMakeLists.txt`
+- Create: `OpenEVCharger/CMakeLists.txt`
 
-This wires the vendor library, our linker script, our `main.c`, and the toolchain file into a single `openbhzd.elf` target.
+This wires the vendor library, our linker script, our `main.c`, and the toolchain file into a single `openevcharger.elf` target.
 
 - [ ] **Step 1: Write `CMakeLists.txt`**
 
@@ -802,7 +802,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # The toolchain file MUST be set on the cmake command line via
 # -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
-project(openbhzd C ASM)
+project(openevcharger C ASM)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
@@ -879,7 +879,7 @@ add_custom_command(TARGET ${TARGET} POST_BUILD
 - [ ] **Step 2: Configure the build**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
 ```
 Expected: ends with `-- Generating done` and `-- Build files have been written to: .../build`. No errors.
@@ -898,7 +898,7 @@ cmake --build build
 Expected: ends with a `arm-none-eabi-size` line showing something like:
 ```
    text    data     bss     dec     hex filename
-   2548      12     288    2848     b20 .../openbhzd.elf
+   2548      12     288    2848     b20 .../openevcharger.elf
 Memory region         Used Size  Region Size  %age Used
            FLASH:        2560 B       256 KB      0.98%
              RAM:         300 B       128 KB      0.23%
@@ -911,17 +911,17 @@ If link errors mention undefined `_close`, `_read`, `_write` etc., they're satis
 - [ ] **Step 4: Verify outputs**
 
 ```sh
-ls -la build/openbhzd.elf build/openbhzd.bin build/openbhzd.hex build/openbhzd.map
-arm-none-eabi-size build/openbhzd.elf
+ls -la build/openevcharger.elf build/openevcharger.bin build/openevcharger.hex build/openevcharger.map
+arm-none-eabi-size build/openevcharger.elf
 ```
 Expected: all four files exist. ELF is non-empty.
 
 - [ ] **Step 5: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add CMakeLists.txt
-git commit -m "M0.7: top-level CMake build — produces openbhzd.elf/.bin/.hex"
+git commit -m "M0.7: top-level CMake build — produces openevcharger.elf/.bin/.hex"
 ```
 
 ---
@@ -929,20 +929,20 @@ git commit -m "M0.7: top-level CMake build — produces openbhzd.elf/.bin/.hex"
 ### Task 8: Flashing scripts
 
 **Files:**
-- Create: `OpenBHZD/tools/flash.sh`
-- Create: `OpenBHZD/tools/flash_stock.sh`
+- Create: `OpenEVCharger/tools/flash.sh`
+- Create: `OpenEVCharger/tools/flash_stock.sh`
 
 - [ ] **Step 1: Write `tools/flash.sh`**
 
 ```sh
 #!/usr/bin/env bash
-# Build (if needed) and flash openbhzd.elf to the connected GD32F205 via SWD.
+# Build (if needed) and flash openevcharger.elf to the connected GD32F205 via SWD.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="$REPO_ROOT/tools/openocd-gd32f205.cfg"
-ELF="$REPO_ROOT/build/openbhzd.elf"
+ELF="$REPO_ROOT/build/openevcharger.elf"
 
 # Refuse to flash without a stock backup on disk
 if [[ ! -e "$REPO_ROOT/recovery/stock-mcu-V1.0.066.bin" ]]; then
@@ -1007,14 +1007,14 @@ echo "Stock V1.0.066 restored."
 - [ ] **Step 3: Make executable**
 
 ```sh
-chmod +x /home/rar/device-configs/esphome/rippleon/OpenBHZD/tools/flash.sh \
-         /home/rar/device-configs/esphome/rippleon/OpenBHZD/tools/flash_stock.sh
+chmod +x /home/rar/device-configs/esphome/rippleon/OpenEVCharger/tools/flash.sh \
+         /home/rar/device-configs/esphome/rippleon/OpenEVCharger/tools/flash_stock.sh
 ```
 
 - [ ] **Step 4: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add tools/flash.sh tools/flash_stock.sh
 git commit -m "M0.8: flash.sh + flash_stock.sh wrapper scripts"
 ```
@@ -1028,7 +1028,7 @@ git commit -m "M0.8: flash.sh + flash_stock.sh wrapper scripts"
 - [ ] **Step 1: Confirm SWD connection**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 openocd -f tools/openocd-gd32f205.cfg -c "init; targets; shutdown"
 ```
 Expected: `targets` prints a Cortex-M3 line with state `halted` or `running`. If "Error: open failed", check the probe USB connection / udev rules.
@@ -1090,19 +1090,19 @@ Common failure modes and fixes:
 2. **No blink, chip in fault.** `pc` stuck in vendor ROM or hard-fault handler. Check linker script and startup file are linked in.
 3. **Blink at wrong rate.** HSE_VALUE wrong, or PLL config wrong. Verify the crystal frequency (should be 8 MHz — visible on the board near the MCU). If different, update `HXTAL_VALUE` in CMakeLists.txt.
 
-If stuck after 30 minutes of debugging, restore stock with `./tools/flash_stock.sh` and review the failure mode before reflashing OpenBHZD.
+If stuck after 30 minutes of debugging, restore stock with `./tools/flash_stock.sh` and review the failure mode before reflashing OpenEVCharger.
 
 ---
 
 ### Task 10: Document M0 milestone in `docs/bring-up.md`
 
 **Files:**
-- Create: `OpenBHZD/docs/bring-up.md`
+- Create: `OpenEVCharger/docs/bring-up.md`
 
 - [ ] **Step 1: Write the bring-up log**
 
 ```markdown
-# OpenBHZD bring-up log
+# OpenEVCharger bring-up log
 
 Per-milestone hardware validation notes. Every milestone gets an entry with
 date, success criterion, observed result, and any deviations from spec.
@@ -1115,7 +1115,7 @@ date, success criterion, observed result, and any deviations from spec.
 
 ### Success criterion (from spec)
 PD4 heartbeat LED blinks at 1 Hz with the GD32F205V running at 120 MHz, after
-SWD-flashing `openbhzd.elf` produced by CMake + arm-none-eabi-gcc + GD32F20x
+SWD-flashing `openevcharger.elf` produced by CMake + arm-none-eabi-gcc + GD32F20x
 vendor library.
 
 ### Observed result
@@ -1142,8 +1142,8 @@ M1: FreeRTOS + idle/safety tasks. Plan to be written after this milestone valida
 After Task 9 step 5 confirmed blink, edit this file and replace `YYYY-MM-DD` with today's date and populate the checkboxes with actual results.
 
 ```sh
-sha256sum /home/rar/device-configs/esphome/rippleon/OpenBHZD/recovery/stock-mcu-V1.0.066.bin
-arm-none-eabi-size /home/rar/device-configs/esphome/rippleon/OpenBHZD/build/openbhzd.elf
+sha256sum /home/rar/device-configs/esphome/rippleon/OpenEVCharger/recovery/stock-mcu-V1.0.066.bin
+arm-none-eabi-size /home/rar/device-configs/esphome/rippleon/OpenEVCharger/build/openevcharger.elf
 ```
 
 Record those numbers in the log.
@@ -1151,7 +1151,7 @@ Record those numbers in the log.
 - [ ] **Step 3: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add docs/bring-up.md
 git commit -m "M0.9: bring-up log — M0 validated on bench"
 ```
@@ -1163,13 +1163,13 @@ git commit -m "M0.9: bring-up log — M0 validated on bench"
 - [ ] **Step 1: Tag the milestone commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git tag -a m0-toolchain-bootstrap -m "M0 complete: toolchain + 1 Hz PD4 blink validated on bench"
 ```
 
 - [ ] **Step 2: (Optional) push to origin**
 
-User confirms before push. The repo has a remote at `git@github.com:RAR/OpenBHZD.git`. To push:
+User confirms before push. The repo has a remote at `git@github.com:RAR/OpenEVCharger.git`. To push:
 ```sh
 git push origin main
 git push origin m0-toolchain-bootstrap
@@ -1214,6 +1214,6 @@ All M0 spec requirements have corresponding tasks. Tasks 1, 10, 11 are infrastru
 
 **Placeholder scan.** No "TODO", "TBD", or "implement later" tokens. All file contents written out in full. All commands have expected outputs.
 
-**Type/name consistency.** `HEARTBEAT_PORT/PIN/RCU` macro names consistent in `main.c`. `TARGET = openbhzd` consistent across CMakeLists.txt and tools/flash.sh (both reference `openbhzd.elf`). `recovery/stock-mcu-V1.0.066.bin` filename consistent across stock_backup.sh, flash_stock.sh, and recovery/README.md. `HXTAL_VALUE=8000000` matches the vendor's expected `HXTAL_VALUE` macro (defined in `system_gd32f20x.c`).
+**Type/name consistency.** `HEARTBEAT_PORT/PIN/RCU` macro names consistent in `main.c`. `TARGET = openevcharger` consistent across CMakeLists.txt and tools/flash.sh (both reference `openevcharger.elf`). `recovery/stock-mcu-V1.0.066.bin` filename consistent across stock_backup.sh, flash_stock.sh, and recovery/README.md. `HXTAL_VALUE=8000000` matches the vendor's expected `HXTAL_VALUE` macro (defined in `system_gd32f20x.c`).
 
 **Gaps.** None for M0. M1+ deferred to subsequent plans by design.

@@ -33,7 +33,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── persist/
 │   │   ├── crash_state.c           # NEW

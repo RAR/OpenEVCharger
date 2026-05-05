@@ -32,7 +32,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── persist/
 │   │   ├── calibration.c           # NEW

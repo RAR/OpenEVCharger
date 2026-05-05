@@ -1,4 +1,4 @@
-# OpenBHZD FC41D firmware
+# OpenEVCharger FC41D firmware
 
 ESPHome firmware for the FC41D Wi-Fi/BLE module on a Rippleon ROC001 (or
 rebadge running the same hardware family). Pairs with the safety-core
@@ -17,19 +17,19 @@ MCU keeps charging or faults safely on its own.
 ```
 fc41d/
 ├── README.md                         # this file
-├── openbhzd.yaml                     # ESPHome config (BK7231N target)
+├── openevcharger.yaml                     # ESPHome config (BK7231N target)
 ├── secrets.yaml.example              # template for wifi creds
 ├── boards/
 │   ├── generic-bk7231n-qfn32-quectel.json   # partition-shifted variant
 │   └── README.md                            # rationale + symlink step
 └── components/
-    └── openbhzd_tlv/                 # ESPHome external component
+    └── openevcharger_tlv/                 # ESPHome external component
         ├── __init__.py               # main schema (poll_interval, uart)
         ├── sensor.py / binary_sensor.py / text_sensor.py
         ├── number.py                 # advertised_amps writable
         ├── button.py                 # stop / start / clear-fault / diagnostics
-        ├── openbhzd_tlv.h            # transport + state cache
-        └── openbhzd_tlv.cpp          # TLV parser/builder + entity publish
+        ├── openevcharger_tlv.h            # transport + state cache
+        └── openevcharger_tlv.cpp          # TLV parser/builder + entity publish
 ```
 
 ## Wiring
@@ -41,7 +41,7 @@ fc41d/
 | GND              | GND             | bonded           |
 
 The same UART that previously carried Quectel AT traffic between the
-stock Rippleon firmware and FC41D now carries OpenBHZD TLV. Same wires,
+stock Rippleon firmware and FC41D now carries OpenEVCharger TLV. Same wires,
 same baud (115200 8N1), different protocol.
 
 ## Build + flash
@@ -58,7 +58,7 @@ cp secrets.yaml.example secrets.yaml && $EDITOR secrets.yaml
 
 The MCU's UART4 (PC12 TX / PD2 RX) shares wires with the BK7231N's UART1
 (P10 / P11), the same UART that ltchiptool drives during a serial flash.
-With OpenBHZD running, the MCU pushes a STATE_REPORT every 5 s plus
+With OpenEVCharger running, the MCU pushes a STATE_REPORT every 5 s plus
 event traffic — that collides with the BK's bootloader handshake and
 flashes hang or corrupt.
 
@@ -77,7 +77,7 @@ then tap PC9 to drop CEN — that lands the FC41D in bootloader-
 handshake territory while ltchiptool is already listening:
 
 ```sh
-esphome run openbhzd.yaml          # ltchiptool starts and waits for the chip
+esphome run openevcharger.yaml          # ltchiptool starts and waits for the chip
 # in another window or after the prompt: tap PC9 once
 ```
 
@@ -106,7 +106,7 @@ optimistic and refreshed by the next `STATE_REPORT`.
 
 ## Component design
 
-`openbhzd_tlv` is a single ESPHome component with sub-platforms. The
+`openevcharger_tlv` is a single ESPHome component with sub-platforms. The
 parent class owns the UART, TLV stream parser, transmit framer, state
 cache, and a 5-second `GET_STATE` poll. STATE_CHANGED, FAULT_RAISED,
 SESSION_BEGAN/ENDED, BOOT_COMPLETE arrive unsolicited and trigger
@@ -114,6 +114,6 @@ re-publish or follow-up requests as appropriate. Sub-platform classes
 register themselves with the parent and either receive setter calls
 (sensors) or call back into the parent (number/button).
 
-Frame layout matches `../src/proto/tlv.h` and the `openbhzd_state`
+Frame layout matches `../src/proto/tlv.h` and the `openevcharger_state`
 struct layout matches `../src/core/system_state.h` — keep the two in
 sync if either changes.

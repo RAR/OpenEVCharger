@@ -37,7 +37,7 @@ The helper is record-agnostic: caller supplies a buffer + size; counter sits at 
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── persist/
 │   │   ├── pingpong.c              # NEW — generic 2-slot helper

@@ -20,7 +20,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── third_party/
 │   └── FreeRTOS-Kernel/                # NEW — git submodule, V11.x LTS
 ├── src/
@@ -72,13 +72,13 @@ OpenBHZD/
 ### Task 1: Add FreeRTOS-Kernel as a submodule
 
 **Files:**
-- New: `OpenBHZD/third_party/FreeRTOS-Kernel/` (submodule contents — many files)
-- Modify: `OpenBHZD/.gitmodules` (auto-created by `git submodule add`)
+- New: `OpenEVCharger/third_party/FreeRTOS-Kernel/` (submodule contents — many files)
+- Modify: `OpenEVCharger/.gitmodules` (auto-created by `git submodule add`)
 
 - [ ] **Step 1: Add the submodule pinned to a current LTS tag**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git submodule add https://github.com/FreeRTOS/FreeRTOS-Kernel.git third_party/FreeRTOS-Kernel
 cd third_party/FreeRTOS-Kernel
 # Check what tags exist
@@ -88,7 +88,7 @@ git tag --sort=-v:refname | head -10
 - [ ] **Step 2: Pin to V11.1.0 (LTS)**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD/third_party/FreeRTOS-Kernel
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger/third_party/FreeRTOS-Kernel
 git checkout V11.1.0
 cd ../..
 ```
@@ -98,9 +98,9 @@ If `V11.1.0` isn't a tag (FreeRTOS may have moved on), use the most recent `V11.
 - [ ] **Step 3: Verify the Cortex-M3 GCC port files exist**
 
 ```sh
-ls /home/rar/device-configs/esphome/rippleon/OpenBHZD/third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM3/
-ls /home/rar/device-configs/esphome/rippleon/OpenBHZD/third_party/FreeRTOS-Kernel/portable/MemMang/
-ls /home/rar/device-configs/esphome/rippleon/OpenBHZD/third_party/FreeRTOS-Kernel/include/FreeRTOS.h
+ls /home/rar/device-configs/esphome/rippleon/OpenEVCharger/third_party/FreeRTOS-Kernel/portable/GCC/ARM_CM3/
+ls /home/rar/device-configs/esphome/rippleon/OpenEVCharger/third_party/FreeRTOS-Kernel/portable/MemMang/
+ls /home/rar/device-configs/esphome/rippleon/OpenEVCharger/third_party/FreeRTOS-Kernel/include/FreeRTOS.h
 ```
 
 Expected:
@@ -113,7 +113,7 @@ If the layout has changed in V11, adapt the include paths in Task 5's CMakeLists
 - [ ] **Step 4: Commit submodule addition**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add .gitmodules third_party/FreeRTOS-Kernel
 git commit -m "M1.1: add FreeRTOS-Kernel V11.1.0 as submodule"
 ```
@@ -123,12 +123,12 @@ git commit -m "M1.1: add FreeRTOS-Kernel V11.1.0 as submodule"
 ### Task 2: Write `FreeRTOSConfig.h`
 
 **Files:**
-- New: `OpenBHZD/src/FreeRTOSConfig.h`
+- New: `OpenEVCharger/src/FreeRTOSConfig.h`
 
 - [ ] **Step 1: Write the config header**
 
 ```c
-/* FreeRTOSConfig.h for OpenBHZD on GD32F205VG (Cortex-M3 @ 120 MHz).
+/* FreeRTOSConfig.h for OpenEVCharger on GD32F205VG (Cortex-M3 @ 120 MHz).
  *
  * Tuned for safety-core scope: 4 tasks (idle + safety + io + comms + persist),
  * heap_4, mutexes for state-snapshot guarding, no software timers in M1
@@ -235,7 +235,7 @@ extern uint32_t SystemCoreClock;
 - [ ] **Step 2: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add src/FreeRTOSConfig.h
 git commit -m "M1.2: FreeRTOSConfig.h tuned for Cortex-M3 + safety-core scope"
 ```
@@ -245,8 +245,8 @@ git commit -m "M1.2: FreeRTOSConfig.h tuned for Cortex-M3 + safety-core scope"
 ### Task 3: Watchdog HAL (`src/hal/wdg.{c,h}`)
 
 **Files:**
-- New: `OpenBHZD/src/hal/wdg.c`
-- New: `OpenBHZD/src/hal/wdg.h`
+- New: `OpenEVCharger/src/hal/wdg.c`
+- New: `OpenEVCharger/src/hal/wdg.h`
 
 GD32F205 FWDGT (free watchdog timer = STM32-equivalent IWDG). LSI clock is ~40 kHz nominal. With prescaler /32 and reload = 1250, timeout = 1250 × 32 / 40000 ≈ 1 s.
 
@@ -338,7 +338,7 @@ The wdg module isn't called yet, but adding it to the build catches any header i
 - [ ] **Step 4: Commit (if compiles cleanly after Task 5 lands)**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add src/hal/wdg.c src/hal/wdg.h
 git commit -m "M1.3: FWDGT (independent watchdog) HAL — 1 s timeout, halt-safe"
 ```
@@ -350,10 +350,10 @@ If compilation reveals that `DBG_CTL_FWDGT_HOLD` isn't defined in the vendor hea
 ### Task 4: Task scaffolds
 
 **Files:**
-- New: `OpenBHZD/src/tasks/safety_task.{c,h}`
-- New: `OpenBHZD/src/tasks/io_task.{c,h}`
-- New: `OpenBHZD/src/tasks/comms_task.{c,h}`
-- New: `OpenBHZD/src/tasks/persist_task.{c,h}`
+- New: `OpenEVCharger/src/tasks/safety_task.{c,h}`
+- New: `OpenEVCharger/src/tasks/io_task.{c,h}`
+- New: `OpenEVCharger/src/tasks/comms_task.{c,h}`
+- New: `OpenEVCharger/src/tasks/persist_task.{c,h}`
 
 - [ ] **Step 1: `src/tasks/safety_task.h`**
 
@@ -559,15 +559,15 @@ void persist_task_create(void)
 ### Task 5: Update `main.c` and `CMakeLists.txt`
 
 **Files:**
-- Modify: `OpenBHZD/src/main.c`
-- Modify: `OpenBHZD/CMakeLists.txt`
+- Modify: `OpenEVCharger/src/main.c`
+- Modify: `OpenEVCharger/CMakeLists.txt`
 
 - [ ] **Step 1: Rewrite `src/main.c` to start FreeRTOS**
 
 Replace the entire file with:
 
 ```c
-/* OpenBHZD M1 — FreeRTOS scaffold + 4-task skeleton.
+/* OpenEVCharger M1 — FreeRTOS scaffold + 4-task skeleton.
  *
  * main() does no real work: it creates the four safety-core tasks then
  * starts the scheduler. PD4 heartbeat moves into io_task. safety_task
@@ -631,7 +631,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # The toolchain file MUST be set on the cmake command line via
 # -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
-project(openbhzd C ASM)
+project(openevcharger C ASM)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
@@ -731,7 +731,7 @@ add_custom_command(TARGET ${TARGET} POST_BUILD
 - [ ] **Step 3: Build**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 rm -rf build
 cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
 cmake --build build 2>&1 | tail -20
@@ -750,7 +750,7 @@ Common issues and fixes:
 - [ ] **Step 5: Commit M1.3+M1.4+M1.5 together once it compiles**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add src/hal/ src/tasks/ src/main.c src/FreeRTOSConfig.h CMakeLists.txt
 git status
 git commit -m "M1.3-5: FreeRTOS scaffold — wdg HAL, 4 tasks, scheduler bootstrap"
@@ -765,7 +765,7 @@ git commit -m "M1.3-5: FreeRTOS scaffold — wdg HAL, 4 tasks, scheduler bootstr
 - [ ] **Step 1: Flash**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 ./tools/flash.sh
 ```
 
@@ -784,14 +784,14 @@ Watch the LED for 60 seconds. It must not stutter, freeze, or restart. A reset w
 Halt the chip and confirm the kernel is running (PC inside FreeRTOS code or our task code, NOT inside the default infinite-loop hard-fault handler):
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 openocd -f tools/openocd-gd32f205.cfg -c "init; halt; reg pc; reg lr; targets; shutdown" 2>&1 | tail -10
 ```
 
 Expected: `pc` somewhere in `0x080xxxxx` (our flash region), state `halted`. Reading `lr` gives a hint about who called the current function. If you load the ELF in `arm-none-eabi-addr2line` or `objdump`, you can resolve the PC to a function name:
 
 ```sh
-arm-none-eabi-addr2line -e build/openbhzd.elf <pc-value>
+arm-none-eabi-addr2line -e build/openevcharger.elf <pc-value>
 ```
 
 Likely results: PC inside `prvIdleTask`, `xTaskGetTickCount`, or `vPortSuppressTicksAndSleep` (idle task code). Any of those proves the kernel is alive.
@@ -812,7 +812,7 @@ If you skip this test, you save 5 minutes but don't have positive proof the watc
 ### Task 7: Update `docs/bring-up.md` with M1 entry
 
 **Files:**
-- Modify: `OpenBHZD/docs/bring-up.md`
+- Modify: `OpenEVCharger/docs/bring-up.md`
 
 - [ ] **Step 1: Append the M1 entry**
 
@@ -856,7 +856,7 @@ After Task 6 validates, populate the checkboxes and numbers.
 - [ ] **Step 3: Commit**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git add docs/bring-up.md
 git commit -m "M1.6: bring-up log — M1 validated on bench"
 ```
@@ -868,7 +868,7 @@ git commit -m "M1.6: bring-up log — M1 validated on bench"
 - [ ] **Step 1: Tag**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 git tag -a m1-freertos-scaffold -m "M1 complete: FreeRTOS scaffold + IWDG, validated on bench"
 ```
 

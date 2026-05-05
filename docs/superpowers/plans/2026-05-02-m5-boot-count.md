@@ -26,7 +26,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── persist/
 │   │   ├── crc.c                  # NEW — crc32

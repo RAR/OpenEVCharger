@@ -1,4 +1,4 @@
-# OpenBHZD bring-up log
+# OpenEVCharger bring-up log
 
 Per-milestone hardware validation notes. Every milestone gets an entry with
 date, success criterion, observed result, and any deviations from spec.
@@ -11,7 +11,7 @@ date, success criterion, observed result, and any deviations from spec.
 
 ### Success criterion (from spec)
 PD4 heartbeat LED blinks at 1 Hz with the GD32F205V running at 120 MHz, after
-SWD-flashing `openbhzd.elf` produced by CMake + arm-none-eabi-gcc + GD32F20x
+SWD-flashing `openevcharger.elf` produced by CMake + arm-none-eabi-gcc + GD32F20x
 vendor library.
 
 ### Observed result
@@ -118,7 +118,7 @@ DMA scan running and all GPIOs configured per pin map.
 
 ### UART output (sample)
 ```
---- OpenBHZD M2 boot, SystemCoreClock=120000000 Hz ---
+--- OpenEVCharger M2 boot, SystemCoreClock=120000000 Hz ---
 STRAPS: dip=0011 pb7=1 pb8=0 pe2=1 pb14=1
 ADC scan armed: 11 ranks @ ~3.6 kHz
 scheduler starting
@@ -985,7 +985,7 @@ Built:
 
 - `relay_sense_closed()`: reads PB12 (HIGH = sensed-closed; pinout doc
   confirms HIGH means "contactor closed-feedback").
-- `relay_commanded_closed()`: function stub returning 0. OpenBHZD does
+- `relay_commanded_closed()`: function stub returning 0. OpenEVCharger does
   not yet drive PE12 — `gpio_init_all()` configures it as output PP and
   drives it LOW. The function exists so M7's actuation work plugs in
   here cleanly.
@@ -1669,7 +1669,7 @@ Build size: text 23388 / data 20 / bss 27620 — flash 4.47%, RAM 21.09%.
 
 ## M8 — FC41D TLV protocol over UART4 (2026-05-03)
 
-OpenBHZD now speaks the binary TLV protocol from spec § 5 over the
+OpenEVCharger now speaks the binary TLV protocol from spec § 5 over the
 UART4 link to the (currently powered-off) FC41D Wi-Fi/BLE module.
 Bench-safe — no contactor or relay traffic involved. Six-piece
 landing:
@@ -1716,7 +1716,7 @@ Three commands handled this milestone:
 | CMD                | Response             | Payload                                |
 |--------------------|----------------------|----------------------------------------|
 | `0x01 PING`        | `0x81 PING_ACK`      | none                                   |
-| `0x02 GET_STATE`   | `0x82 STATE_REPORT`  | `struct openbhzd_state` (28 B)         |
+| `0x02 GET_STATE`   | `0x82 STATE_REPORT`  | `struct openevcharger_state` (28 B)         |
 | `0x0C GET_BUILD_INFO` | `0x8C BUILD_INFO` | ASCII `"<version>|<git_sha>"` + null   |
 
 Unhandled commands log an `unhandled cmd` line and don't reply.
@@ -1855,7 +1855,7 @@ tester delivery, ~1 month).
 Implements the binary frame parser/builder, command dispatch, async
 event publish per spec § 5. Once M8 lands, FC41D can `SET_ADVERTISED_AMPS`,
 `CLEAR_FAULT` (anything except GFCI), `REQUEST_STOP`/`REQUEST_START_RESUME`,
-`GET_STATE`, etc., and OpenBHZD can publish state changes / fault
+`GET_STATE`, etc., and OpenEVCharger can publish state changes / fault
 events / session events back. Closes the protocol surface that
 WiFi/BLE/cloud features (run on FC41D) need to interact with the
 safety core.
@@ -1911,9 +1911,9 @@ A running log of everything that landed after `m9-led-real`. Each
 bullet links to the commit; consult the commit body for full
 context. Bench-validated entries are marked ✅.
 
-### FC41D ESPHome integration (in-tree at `OpenBHZD/fc41d/`)
+### FC41D ESPHome integration (in-tree at `OpenEVCharger/fc41d/`)
 
-- ESPHome external component `openbhzd_tlv` speaks the binary TLV
+- ESPHome external component `openevcharger_tlv` speaks the binary TLV
   protocol over UART. Surfaces full state to Home Assistant
   (CP voltages, advertised + active amps, lifetime / session kWh,
   EVSE + J1772 state, fault status, contactor command). Writable

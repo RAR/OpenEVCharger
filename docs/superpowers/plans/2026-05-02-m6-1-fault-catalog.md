@@ -380,7 +380,7 @@ Add `src/core/fault.c` next to `src/core/j1772.c`.
 - [ ] **Expected output (normal boot, fast_restart < 5):**
 
 ```
---- OpenBHZD M2 boot, ...
+--- OpenEVCharger M2 boot, ...
 boot_count = N
 crash_state: fast_restart=K (slot ...) [K < 5]
 EVSE state BOOT -> SELF_TEST

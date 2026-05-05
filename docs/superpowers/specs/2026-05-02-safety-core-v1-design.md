@@ -1,4 +1,4 @@
-# OpenBHZD v1 — Safety-Core Firmware Design
+# OpenEVCharger v1 — Safety-Core Firmware Design
 
 **Date:** 2026-05-02
 **Status:** Design approved, pending implementation plan
@@ -8,7 +8,7 @@
 
 ## 1. Overview & scope
 
-OpenBHZD v1 replaces the stock Rippleon MCU firmware with a tightly-focused safety-and-charging core, modeled on OpenEVSE (https://github.com/OpenEVSE/open_evse) but written fresh in C against the GD32F20x vendor library and FreeRTOS. The MCU owns all safety-critical control: J1772 control-pilot generation and classification, contactor actuation, GFCI/RCD monitoring, ground-continuity check, NTC over-temperature, current limiting, and the relay-state-vs-commanded weld detector.
+OpenEVCharger v1 replaces the stock Rippleon MCU firmware with a tightly-focused safety-and-charging core, modeled on OpenEVSE (https://github.com/OpenEVSE/open_evse) but written fresh in C against the GD32F20x vendor library and FreeRTOS. The MCU owns all safety-critical control: J1772 control-pilot generation and classification, contactor actuation, GFCI/RCD monitoring, ground-continuity check, NTC over-temperature, current limiting, and the relay-state-vs-commanded weld detector.
 
 Non-safety features (Wi-Fi, BLE, cloud, OCPP, HA integration, RFID, LCD UI, scheduling) live on the FC41D Wi-Fi/BLE module, which drives the MCU through a binary TLV protocol over UART5. The MCU treats FC41D requests as advisory: it caps any requested current at the DIP1-configured hardware maximum and refuses to close the contactor without valid CP/CC/GFCI state regardless of what the FC41D asks.
 
@@ -510,7 +510,7 @@ M10: Bench charging session        [target: full real-world EV charging cycle]
 ## 10. Repo layout
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── README.md
 ├── LICENSE                     # GPLv3
 ├── CMakeLists.txt
@@ -596,7 +596,7 @@ Weld/over-current/GFCI fault tests use the HIL setup or contrived bench loads on
 ## 12. Attribution & licensing
 
 - `LICENSE`: full GPL-3.0-only text.
-- `README.md`: "OpenBHZD is a clean-room reimplementation of OpenEVSE-style EVSE firmware, targeted at the GigaDevice GD32F205V used in the Rippleon ROC001 / NewEnergyCS ROC-family hardware. The behavior of the J1772 state machine, fault model, and self-test sequence is modeled on OpenEVSE (https://github.com/OpenEVSE/open_evse) but no source is copied."
+- `README.md`: "OpenEVCharger is a clean-room reimplementation of OpenEVSE-style EVSE firmware, targeted at the GigaDevice GD32F205V used in the Rippleon ROC001 / NewEnergyCS ROC-family hardware. The behavior of the J1772 state machine, fault model, and self-test sequence is modeled on OpenEVSE (https://github.com/OpenEVSE/open_evse) but no source is copied."
 - `docs/attribution.md`: per-module "what we learned from upstream" notes (e.g. "j1772 state-band hysteresis values from `J1772EVSEController.cpp`").
 
 ## 13. Open items at v1 ship

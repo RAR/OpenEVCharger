@@ -30,7 +30,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── persist/
 │   │   ├── session_log.c           # NEW

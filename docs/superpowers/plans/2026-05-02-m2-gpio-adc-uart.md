@@ -18,7 +18,7 @@
 - A terminal program (e.g. `tio /dev/ttyUSB0 -b 115200`) ready before flashing.
 
 **Success criterion:**
-1. After reset, host terminal sees a boot banner (`"OpenBHZD M2 build <git-sha> @ 120 MHz, %d ms uptime"`) within 250 ms.
+1. After reset, host terminal sees a boot banner (`"OpenEVCharger M2 build <git-sha> @ 120 MHz, %d ms uptime"`) within 250 ms.
 2. PD4 still blinks at 1 Hz (M1 regression).
 3. Pressing each of the 3 ladder buttons on PC3 prints a unique line (`BTN top`, `BTN mid`, `BTN bot`); pressing the on-board PC9 button prints `BTN pc9`. Releasing prints `BTN release`.
 4. Every 5 s `io_task` dumps the 11 ADC ranks as raw 12-bit values + roles, e.g.:
@@ -33,7 +33,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── core/
 │   │   └── pin_map.h                # NEW — canonical pin assignments + idle states
@@ -156,7 +156,7 @@ PC9 is read straight via `gpio_input_bit_get()`; identical 3-poll debounce. PC9 
 #ifndef OPENBHZD_CORE_PIN_MAP_H
 #define OPENBHZD_CORE_PIN_MAP_H
 
-/* Canonical pin assignments for OpenBHZD on the Rippleon ROC001 board.
+/* Canonical pin assignments for OpenEVCharger on the Rippleon ROC001 board.
  *
  * Source: rippleon/docs/mcu-re/pinout.md (canonical table). Every pin
  * marked load-bearing in that table appears here. Reverse direction is
@@ -307,7 +307,7 @@ target_include_directories(${TARGET} PRIVATE
 - [ ] **Step 3: Verify build still passes (no new .c yet)**
 
 ```sh
-cd /home/rar/device-configs/esphome/rippleon/OpenBHZD
+cd /home/rar/device-configs/esphome/rippleon/OpenEVCharger
 cmake --build build
 ```
 
@@ -524,7 +524,7 @@ extern uint32_t SystemCoreClock;
 int main(void)
 {
     uart_init();
-    printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n", SystemCoreClock);
+    printk("\n--- OpenEVCharger M2 boot, SystemCoreClock=%u Hz ---\n", SystemCoreClock);
 
     safety_task_create();
     io_task_create();
@@ -557,7 +557,7 @@ Flash:
 
 Expected on terminal within 250 ms of reset:
 ```
---- OpenBHZD M2 boot, SystemCoreClock=120000000 Hz ---
+--- OpenEVCharger M2 boot, SystemCoreClock=120000000 Hz ---
 scheduler starting
 ```
 
@@ -766,7 +766,7 @@ Edit `src/main.c` — insert two lines after the existing `uart_init()` call:
 
 ```c
     uart_init();
-    printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n", SystemCoreClock);
+    printk("\n--- OpenEVCharger M2 boot, SystemCoreClock=%u Hz ---\n", SystemCoreClock);
 
     gpio_init_all();           /* NEW */
     gpio_log_straps();         /* NEW */
@@ -831,7 +831,7 @@ Flash and reset:
 
 On terminal expect:
 ```
---- OpenBHZD M2 boot, SystemCoreClock=120000000 Hz ---
+--- OpenEVCharger M2 boot, SystemCoreClock=120000000 Hz ---
 STRAPS: dip=???? pb7=? pb8=0 pe2=1 pb14=?
 scheduler starting
 ```
@@ -1034,7 +1034,7 @@ Edit `src/main.c`:
 #include "hal/adc_scan.h"   /* NEW */
 ...
     uart_init();
-    printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n", SystemCoreClock);
+    printk("\n--- OpenEVCharger M2 boot, SystemCoreClock=%u Hz ---\n", SystemCoreClock);
     gpio_init_all();
     gpio_log_straps();
     adc_scan_init();        /* NEW */
@@ -1062,7 +1062,7 @@ Halt-and-peek via openocd (don't reset; just halt):
 openocd -f tools/openocd-gd32f205.cfg -c "init; halt; mdw 0x20000400 16; resume; exit"
 ```
 
-(The actual address of `s_adc_buf` will appear in `build/openbhzd.map` — grep for `s_adc_buf`. The address shown above is illustrative; substitute the map-file value.)
+(The actual address of `s_adc_buf` will appear in `build/openevcharger.map` — grep for `s_adc_buf`. The address shown above is illustrative; substitute the map-file value.)
 
 Expected: 11 different non-zero u16 values matching live voltages on each pin (e.g. 0xFFx for AC presence on PA2 if AC connected, else ~0; ~0x500 for NTC1 at room temp; 0x000 for PB1 unused).
 
@@ -1314,7 +1314,7 @@ Wire host RX ← chip PA9 again, terminal at 115200. Flash:
 
 Expected terminal output within 250 ms of reset:
 ```
---- OpenBHZD M2 boot, SystemCoreClock=120000000 Hz ---
+--- OpenEVCharger M2 boot, SystemCoreClock=120000000 Hz ---
 STRAPS: dip=???? pb7=? pb8=0 pe2=1 pb14=?
 ADC scan armed: 11 ranks @ ~3.6 kHz
 scheduler starting

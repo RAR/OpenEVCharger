@@ -1,6 +1,6 @@
 # Safety system status
 
-Canonical inventory of OpenBHZD safety detectors: what is active, what
+Canonical inventory of OpenEVCharger safety detectors: what is active, what
 is gated, and what each gated detector needs before it can be safely
 enabled. Source of truth — `projectstate.txt` summarises this; code
 comments cross-reference it.

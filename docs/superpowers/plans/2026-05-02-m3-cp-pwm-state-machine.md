@@ -27,7 +27,7 @@
 ## File Structure
 
 ```
-OpenBHZD/
+OpenEVCharger/
 ├── src/
 │   ├── core/
 │   │   ├── pin_map.h              # unchanged
@@ -628,7 +628,7 @@ Power up the unit (USB or 12 V — for first verification scope of PE13 itself, 
 
 Expected output during boot:
 ```
---- OpenBHZD M2 boot, ... ---
+--- OpenEVCharger M2 boot, ... ---
 STRAPS: ...
 ADC scan armed: 11 ranks @ ~3.6 kHz
 CP PWM armed: TIMER0 1 kHz, PE13 idle HIGH
