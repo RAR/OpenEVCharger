@@ -43,6 +43,21 @@
 #define CMD_SET_REQUIRE_RFID_AUTH 0x13u
 #define CMD_GET_RFID_CONFIG       0x14u
 
+/* OTA — FC41D-mediated firmware push. The FC41D fetches a new image
+ * (HA upload / HTTPS / etc.) and chunks it to the MCU over TLV. The
+ * MCU stages to W25Q (upper-half region, see ota_stage.h), verifies a
+ * caller-supplied CRC32 on COMMIT, and arms a "pending OTA" flag in
+ * boot_config so main()'s pre-FreeRTOS first stage copies the staged
+ * image over internal flash on the next reboot.
+ *
+ * Session model: BEGIN allocates a session_id (FC41D-chosen u32 random
+ * token); every subsequent CHUNK / COMMIT / ABORT echoes it. A second
+ * BEGIN with a different token aborts any in-flight session. */
+#define CMD_OTA_BEGIN             0x15u   /* payload (12 B): u32 size, u32 crc32, u32 session_id */
+#define CMD_OTA_CHUNK             0x16u   /* payload (8..56 B): u32 session_id, u32 offset, u8 data[..48] */
+#define CMD_OTA_COMMIT            0x17u   /* payload (4 B): u32 session_id */
+#define CMD_OTA_ABORT             0x18u   /* payload (4 B): u32 session_id */
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */
@@ -88,6 +103,16 @@
  *   u8 session_authorized  — runtime "this session has been authorized" */
 #define EVT_RFID_CONFIG           0x92u
 
+/* OTA event responses (response seq matches the originating request).
+ *   EVT_OTA_BEGIN_ACK   payload (8 B): u32 session_id, u8 status, u8 chunk_size_max, u16 reserved
+ *   EVT_OTA_CHUNK_ACK   payload (13 B): u32 session_id, u32 next_offset, u32 running_crc32, u8 status
+ *   EVT_OTA_COMMITTED   payload (5 B):  u32 session_id, u8 status
+ *   EVT_OTA_ABORTED     payload (4 B):  u32 session_id */
+#define EVT_OTA_BEGIN_ACK         0x93u
+#define EVT_OTA_CHUNK_ACK         0x94u
+#define EVT_OTA_COMMITTED         0x95u
+#define EVT_OTA_ABORTED           0x96u
+
 /* Result codes carried in EVT_RFID_AUTH_RESULT.result. */
 #define RFID_AUTH_RESULT_LEARNED       0u   /* UID added to list */
 #define RFID_AUTH_RESULT_START         1u   /* matched, drove pause→resume */
@@ -95,5 +120,18 @@
 #define RFID_AUTH_RESULT_MATCHED_NOOP  3u   /* matched, but no state change applicable */
 #define RFID_AUTH_RESULT_REJECTED      4u   /* not on list */
 #define RFID_AUTH_RESULT_LIST_FULL     5u   /* learn-mode but list is full */
+
+/* OTA status codes — carried in EVT_OTA_BEGIN_ACK / CHUNK_ACK / COMMITTED. */
+#define OTA_STATUS_OK                  0u
+#define OTA_STATUS_SESSION_INVALID     1u   /* session_id mismatch */
+#define OTA_STATUS_OFFSET_MISMATCH     2u   /* chunk arrived out of order */
+#define OTA_STATUS_WRITE_ERROR         3u   /* W25Q stage write failed */
+#define OTA_STATUS_OVERSIZE            4u   /* chunk extends past expected size */
+#define OTA_STATUS_TOO_LARGE           5u   /* BEGIN: image_size exceeds region */
+#define OTA_STATUS_ERASE_FAIL          6u   /* BEGIN: stage erase failed */
+#define OTA_STATUS_INVALID_PAYLOAD     7u   /* BEGIN/COMMIT/ABORT: malformed */
+#define OTA_STATUS_NO_SESSION          8u   /* CHUNK/COMMIT: no BEGIN sent */
+#define OTA_STATUS_CRC_MISMATCH        9u   /* COMMIT: staged CRC != expected */
+#define OTA_STATUS_PERSIST_FAIL       10u   /* COMMIT: pending-flag write failed */
 
 #endif /* OPENBHZD_PROTO_COMMANDS_H */

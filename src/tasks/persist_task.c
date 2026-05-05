@@ -6,10 +6,17 @@
 #include "../persist/boot_config.h"
 #include "../persist/calibration.h"
 #include "../persist/rfid_authlist.h"
+#include "../persist/ota_stage.h"
 #include "safety_task.h"
 #include "../proto/commands.h"
+#include "../proto/tlv.h"
 #include "../diag/stack_watch.h"
 #include <string.h>
+
+/* OTA chunk frames carry up to TLV_PAYLOAD_MAX - (session_id+offset) =
+ * 56 - 8 = 48 B of data. The CHUNK queue slot inlines the bytes so the
+ * persist_task drains them strictly in order, single-owner of SPI3. */
+#define OTA_CHUNK_MAX_DATA   48u
 
 typedef enum {
     PERSIST_REQ_EVENT,
@@ -25,6 +32,9 @@ typedef enum {
     PERSIST_REQ_RFID_AUTHLIST_CLEAR,
     PERSIST_REQ_RFID_AUTHLIST_GET_LIST,
     PERSIST_REQ_REQUIRE_RFID_AUTH,
+    PERSIST_REQ_OTA_BEGIN,
+    PERSIST_REQ_OTA_CHUNK,
+    PERSIST_REQ_OTA_ABORT,
 } persist_req_type_t;
 
 struct __attribute__((packed)) cal_args {
@@ -45,6 +55,26 @@ struct __attribute__((packed)) get_fault_log_args {
     uint8_t seq;
 };
 
+struct __attribute__((packed)) ota_begin_args {
+    uint32_t image_size;
+    uint32_t image_crc32;
+    uint32_t session_id;
+    uint8_t  seq;
+};
+
+struct __attribute__((packed)) ota_chunk_args {
+    uint32_t session_id;
+    uint32_t offset;
+    uint8_t  seq;
+    uint8_t  data_len;
+    uint8_t  data[OTA_CHUNK_MAX_DATA];
+};
+
+struct __attribute__((packed)) ota_abort_args {
+    uint32_t session_id;
+    uint8_t  seq;
+};
+
 struct persist_req {
     persist_req_type_t type;
     union {
@@ -56,11 +86,35 @@ struct persist_req {
         struct get_fault_log_args fault_log;
         uint8_t               seq;        /* for GET_LIFETIME_KWH / GET_LIST */
         uint32_t              rfid_uid;   /* for AUTHLIST_ADD / REMOVE */
+        struct ota_begin_args ota_begin;
+        struct ota_chunk_args ota_chunk;
+        struct ota_abort_args ota_abort;
     } payload;
 };
 
 static QueueHandle_t   s_queue;
 static volatile uint8_t s_overflow_warned = 0;
+
+/* OTA session state — owned by persist_task. session_id == 0 means
+ * "no session active"; FC41D MUST pick a non-zero token. */
+static struct {
+    uint32_t session_id;
+    uint32_t expected_size;
+    uint32_t expected_crc32;
+    uint32_t next_offset;
+    struct ota_crc_ctx running_crc;
+} s_ota = { 0 };
+
+static inline int ota_in_session(void) { return s_ota.session_id != 0u; }
+
+static void ota_session_reset(void)
+{
+    s_ota.session_id     = 0u;
+    s_ota.expected_size  = 0u;
+    s_ota.expected_crc32 = 0u;
+    s_ota.next_offset    = 0u;
+    ota_crc_init(&s_ota.running_crc);
+}
 
 static int post(const struct persist_req *req)
 {
@@ -190,6 +244,53 @@ int persist_post_rfid_authlist_get_list(uint8_t seq)
     return post(&req);
 }
 
+int persist_post_ota_begin(uint32_t image_size,
+                           uint32_t image_crc32,
+                           uint32_t session_id,
+                           uint8_t  seq)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_OTA_BEGIN;
+    req.payload.ota_begin.image_size  = image_size;
+    req.payload.ota_begin.image_crc32 = image_crc32;
+    req.payload.ota_begin.session_id  = session_id;
+    req.payload.ota_begin.seq         = seq;
+    return post(&req);
+}
+
+int persist_post_ota_chunk(uint32_t session_id,
+                           uint32_t offset,
+                           const uint8_t *data,
+                           uint8_t  data_len,
+                           uint8_t  seq)
+{
+    if (data == NULL || data_len == 0 || data_len > OTA_CHUNK_MAX_DATA) {
+        return -1;
+    }
+    struct persist_req req;
+    req.type = PERSIST_REQ_OTA_CHUNK;
+    req.payload.ota_chunk.session_id = session_id;
+    req.payload.ota_chunk.offset     = offset;
+    req.payload.ota_chunk.seq        = seq;
+    req.payload.ota_chunk.data_len   = data_len;
+    memcpy(req.payload.ota_chunk.data, data, data_len);
+    /* Zero the tail so memcmp-able regardless of caller's slack. */
+    if (data_len < OTA_CHUNK_MAX_DATA) {
+        memset(req.payload.ota_chunk.data + data_len, 0,
+               OTA_CHUNK_MAX_DATA - data_len);
+    }
+    return post(&req);
+}
+
+int persist_post_ota_abort(uint32_t session_id, uint8_t seq)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_OTA_ABORT;
+    req.payload.ota_abort.session_id = session_id;
+    req.payload.ota_abort.seq        = seq;
+    return post(&req);
+}
+
 /* Walk the cached UID list and emit one EVT_RFID_LIST_ENTRY frame per
  * UID, then a single EVT_RFID_LIST_END terminator. SPI3 isn't actually
  * touched here (the list lives in RAM after rfid_authlist_load), but
@@ -259,6 +360,130 @@ static void handle_get_lifetime_kwh(uint8_t seq)
     uint32_t mwh32 = (uint32_t)total_mwh;
     (void)comms_publish_event_seq(EVT_LIFETIME_KWH, seq,
                                   &mwh32, sizeof mwh32);
+}
+
+static void handle_ota_begin(const struct ota_begin_args *a)
+{
+    struct __attribute__((packed)) {
+        uint32_t session_id;
+        uint8_t  status;
+        uint8_t  chunk_size_max;
+        uint16_t reserved;
+    } ack = {
+        .session_id     = a->session_id,
+        .chunk_size_max = OTA_CHUNK_MAX_DATA,
+        .reserved       = 0,
+    };
+
+    if (a->session_id == 0u || a->image_size == 0u) {
+        ack.status = OTA_STATUS_INVALID_PAYLOAD;
+        goto reply;
+    }
+    if (a->image_size > OTA_STAGE_MAX_IMAGE_SIZE) {
+        ack.status = OTA_STATUS_TOO_LARGE;
+        goto reply;
+    }
+
+    /* A second BEGIN cancels any in-flight session. We log the override
+     * so the FC41D log makes sense if the previous client died mid-stream. */
+    if (ota_in_session() && s_ota.session_id != a->session_id) {
+        printk("ota: BEGIN preempts session=0x%08x next_off=%u "
+               "(new session=0x%08x size=%u)\n",
+               (unsigned)s_ota.session_id, (unsigned)s_ota.next_offset,
+               (unsigned)a->session_id,    (unsigned)a->image_size);
+    }
+
+    int rc = ota_stage_begin(a->image_size);
+    if (rc != 0) {
+        printk("ota: stage erase FAIL rc=%d size=%u\n",
+               rc, (unsigned)a->image_size);
+        ack.status = OTA_STATUS_ERASE_FAIL;
+        ota_session_reset();
+        goto reply;
+    }
+
+    ota_session_reset();
+    s_ota.session_id     = a->session_id;
+    s_ota.expected_size  = a->image_size;
+    s_ota.expected_crc32 = a->image_crc32;
+    ack.status = OTA_STATUS_OK;
+    printk("ota: BEGIN session=0x%08x size=%u crc32=0x%08x\n",
+           (unsigned)a->session_id, (unsigned)a->image_size,
+           (unsigned)a->image_crc32);
+
+reply:
+    (void)comms_publish_event_seq(EVT_OTA_BEGIN_ACK, a->seq,
+                                  &ack, sizeof ack);
+}
+
+static void handle_ota_chunk(const struct ota_chunk_args *c)
+{
+    struct __attribute__((packed)) {
+        uint32_t session_id;
+        uint32_t next_offset;
+        uint32_t running_crc32;
+        uint8_t  status;
+    } ack = {
+        .session_id    = c->session_id,
+        .next_offset   = s_ota.next_offset,
+        .running_crc32 = ota_crc_finalize(&s_ota.running_crc),
+        .status        = OTA_STATUS_OK,
+    };
+
+    if (!ota_in_session()) {
+        ack.status = OTA_STATUS_NO_SESSION;
+        goto reply;
+    }
+    if (c->session_id != s_ota.session_id) {
+        ack.status = OTA_STATUS_SESSION_INVALID;
+        goto reply;
+    }
+    if (c->offset != s_ota.next_offset) {
+        /* Out-of-order chunk: client should retry from next_offset.
+         * Don't roll the running CRC. */
+        ack.status = OTA_STATUS_OFFSET_MISMATCH;
+        goto reply;
+    }
+    if ((uint64_t)c->offset + (uint64_t)c->data_len >
+        (uint64_t)s_ota.expected_size) {
+        ack.status = OTA_STATUS_OVERSIZE;
+        goto reply;
+    }
+
+    int rc = ota_stage_write(c->offset, c->data, c->data_len);
+    if (rc != 0) {
+        printk("ota: chunk write FAIL rc=%d off=%u len=%u\n",
+               rc, (unsigned)c->offset, (unsigned)c->data_len);
+        ack.status = OTA_STATUS_WRITE_ERROR;
+        goto reply;
+    }
+
+    ota_crc_update(&s_ota.running_crc, c->data, c->data_len);
+    s_ota.next_offset = c->offset + c->data_len;
+    ack.next_offset   = s_ota.next_offset;
+    ack.running_crc32 = ota_crc_finalize(&s_ota.running_crc);
+
+reply:
+    (void)comms_publish_event_seq(EVT_OTA_CHUNK_ACK, c->seq,
+                                  &ack, sizeof ack);
+}
+
+static void handle_ota_abort(const struct ota_abort_args *a)
+{
+    /* Echo regardless — caller doesn't need to know whether a session
+     * was actually live. Reset state if the token matches; otherwise
+     * leave any in-flight session alone (a stale ABORT shouldn't kill
+     * a fresh BEGIN that arrived before this dispatched). */
+    if (ota_in_session() && a->session_id == s_ota.session_id) {
+        printk("ota: ABORT session=0x%08x at off=%u\n",
+               (unsigned)a->session_id, (unsigned)s_ota.next_offset);
+        ota_session_reset();
+    }
+    struct __attribute__((packed)) {
+        uint32_t session_id;
+    } ack = { .session_id = a->session_id };
+    (void)comms_publish_event_seq(EVT_OTA_ABORTED, a->seq,
+                                  &ack, sizeof ack);
 }
 
 static void persist_task_run(void *arg)
@@ -335,6 +560,15 @@ static void persist_task_run(void *arg)
                 }
                 break;
             }
+            case PERSIST_REQ_OTA_BEGIN:
+                handle_ota_begin(&req.payload.ota_begin);
+                break;
+            case PERSIST_REQ_OTA_CHUNK:
+                handle_ota_chunk(&req.payload.ota_chunk);
+                break;
+            case PERSIST_REQ_OTA_ABORT:
+                handle_ota_abort(&req.payload.ota_abort);
+                break;
             }
             s_overflow_warned = 0;
         }

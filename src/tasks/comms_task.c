@@ -290,6 +290,64 @@ static void handle_get_rfid_config(void)
     }
 }
 
+static uint32_t le32(const uint8_t *p)
+{
+    return (uint32_t)p[0]        |
+          ((uint32_t)p[1] <<  8) |
+          ((uint32_t)p[2] << 16) |
+          ((uint32_t)p[3] << 24);
+}
+
+static void handle_ota_begin(const uint8_t *p, size_t plen, uint8_t seq)
+{
+    if (plen < 12) {
+        printk("comms: OTA_BEGIN plen=%u <12, dropped\n", (unsigned)plen);
+        return;
+    }
+    uint32_t image_size  = le32(p);
+    uint32_t image_crc32 = le32(p + 4);
+    uint32_t session_id  = le32(p + 8);
+    int rc = persist_post_ota_begin(image_size, image_crc32, session_id, seq);
+    if (rc != 0) {
+        printk("comms: OTA_BEGIN post FAIL rc=%d\n", rc);
+    }
+}
+
+static void handle_ota_chunk(const uint8_t *p, size_t plen, uint8_t seq)
+{
+    if (plen < 8 || plen > 8 + 48) {
+        printk("comms: OTA_CHUNK plen=%u out of [8..56], dropped\n",
+               (unsigned)plen);
+        return;
+    }
+    uint32_t session_id = le32(p);
+    uint32_t offset     = le32(p + 4);
+    uint8_t  data_len   = (uint8_t)(plen - 8);
+    if (data_len == 0) {
+        printk("comms: OTA_CHUNK zero-length data, dropped\n");
+        return;
+    }
+    int rc = persist_post_ota_chunk(session_id, offset,
+                                    p + 8, data_len, seq);
+    if (rc != 0) {
+        printk("comms: OTA_CHUNK post FAIL rc=%d off=%u len=%u\n",
+               rc, (unsigned)offset, (unsigned)data_len);
+    }
+}
+
+static void handle_ota_abort(const uint8_t *p, size_t plen, uint8_t seq)
+{
+    if (plen < 4) {
+        printk("comms: OTA_ABORT plen=%u <4, dropped\n", (unsigned)plen);
+        return;
+    }
+    uint32_t session_id = le32(p);
+    int rc = persist_post_ota_abort(session_id, seq);
+    if (rc != 0) {
+        printk("comms: OTA_ABORT post FAIL rc=%d\n", rc);
+    }
+}
+
 static void handle_request_stop(const uint8_t *p, size_t plen)
 {
     uint8_t reason = (plen >= 1) ? p[0] : 0u;
@@ -325,6 +383,9 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_RFID_GET_LIST:         handle_rfid_get_list(seq); break;
     case CMD_SET_REQUIRE_RFID_AUTH: handle_set_require_rfid_auth(payload, plen); break;
     case CMD_GET_RFID_CONFIG:       handle_get_rfid_config(); break;
+    case CMD_OTA_BEGIN:             handle_ota_begin(payload, plen, seq); break;
+    case CMD_OTA_CHUNK:             handle_ota_chunk(payload, plen, seq); break;
+    case CMD_OTA_ABORT:             handle_ota_abort(payload, plen, seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

@@ -75,4 +75,22 @@ int persist_post_rfid_authlist_remove(uint32_t uid);
 int persist_post_rfid_authlist_clear(void);
 int persist_post_rfid_authlist_get_list(uint8_t seq);
 
+/* OTA chunked upload — see commands.h. All three calls are non-blocking;
+ * persist_task owns SPI3 + the OTA session state machine and emits the
+ * matching EVT_OTA_*_ACK on its own thread. seq carries the FC41D's TLV
+ * sequence number so the response pairs with the request.
+ *
+ * persist_post_ota_chunk: data may be up to TLV_PAYLOAD_MAX - 8 = 48 B
+ * (the BEGIN/CHUNK headers already eat 8 B for session_id+offset). */
+int persist_post_ota_begin(uint32_t image_size,
+                           uint32_t image_crc32,
+                           uint32_t session_id,
+                           uint8_t  seq);
+int persist_post_ota_chunk(uint32_t session_id,
+                           uint32_t offset,
+                           const uint8_t *data,
+                           uint8_t  data_len,
+                           uint8_t  seq);
+int persist_post_ota_abort(uint32_t session_id, uint8_t seq);
+
 #endif
