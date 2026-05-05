@@ -414,7 +414,7 @@ git tag -a m5b2-calibration -m "M5.b.2: calibration record (CP anchors parameter
 
 ## After M5.b.2
 
-1. **Memory entry refresh.** `project_openbhzd_cp_calibration` says "calibration constants belong in M5.b's calibration record" — update to "DONE" and point at sector 0x002000.
+1. **Memory entry refresh.** `project_openevcharger_cp_calibration` says "calibration constants belong in M5.b's calibration record" — update to "DONE" and point at sector 0x002000.
 2. **Plan M5.b.3 — CRC16 + event_log scan-on-boot + append.** event_log is the first ring-buffer record type and the trickiest piece of M5.b. Spec § 6: scan-on-boot head discovery, append-at-head, sector-erase-on-boundary. CRC16 (not 32) per spec.
 
 ## Self-review

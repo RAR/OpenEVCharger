@@ -330,7 +330,7 @@ re-investigation:
    A/B/C/D/E) can now be exercised on this bench unit — pending
    user time to do so.
 
-The memory entry `project_openbhzd_bench_cp_buffer_dead` is OBSOLETE;
+The memory entry `project_openevcharger_bench_cp_buffer_dead` is OBSOLETE;
 will be removed/superseded by a calibration-anchors entry.
 
 ### Update 2026-05-02 (final): full A/B/D/E matrix validated
@@ -1051,7 +1051,7 @@ E band) for raw=0, not the expected -11000 mV. Root cause is the M3
 empirical fit in `adc_inject.c`: the slope 3540/459 was derived from
 the 0..+12 V half-range only and extrapolates incorrectly below the
 anchor. Hardware is correct — the read-back calibration is one-sided.
-Documented in NOTES.md and `project_openbhzd_cp_calibration` memory.
+Documented in NOTES.md and `project_openevcharger_cp_calibration` memory.
 M6.5 will gate `FAULT_CP_NO_PILOT` on `evse_state != EVSE_FAULT` to
 avoid a feedback loop where our own state-F output trips the CP=E
 classifier.
@@ -1568,7 +1568,7 @@ still streams printk to openocd. `openocd-monitor.sh` updated with
 a banner explaining the workflow.
 
 Trade-off: with the default off, printk is silent (PA9 UART is
-physically inaccessible per `feedback_openbhzd_pa9_inaccessible`),
+physically inaccessible per `feedback_openevcharger_pa9_inaccessible`),
 so production builds have no debug visibility. Acceptable for
 deployed firmware; for bench iteration we toggle the flag.
 
