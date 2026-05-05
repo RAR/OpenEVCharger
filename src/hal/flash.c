@@ -43,6 +43,22 @@ void flash_copy_ramfunc_to_ram(void)
 
 #define RAMFUNC __attribute__((section(".ramfunc"), noinline))
 
+/* UART3 register addresses for direct-poke logging from RAM-resident
+ * code (see hal/uart.c — UART3 = USART_BASE + 0x800 = 0x40004C00).
+ * STAT0 bit 7 = TBE (transmit buffer empty). The orchestrator can't
+ * call printk() during apply because printk lives in flash; these
+ * tiny inlines put progress markers on the wire so the operator can
+ * watch the apply tick in real time. */
+#define FLASH_UART3_STAT0   (*(volatile uint32_t *)0x40004C00U)
+#define FLASH_UART3_DATA    (*(volatile uint32_t *)0x40004C04U)
+#define FLASH_UART3_TBE     (1u << 7)
+
+static RAMFUNC void uart3_putc_ram(char c)
+{
+    while ((FLASH_UART3_STAT0 & FLASH_UART3_TBE) == 0u) { }
+    FLASH_UART3_DATA = (uint32_t)(uint8_t)c;
+}
+
 /* Spin until BUSY clears or a hard timeout. We don't have a timer in
  * RAM-resident scope — just a deterministic loop count. Sized for
  * ~300 ms at 120 MHz: page erase is typically 30 ms (datasheet
@@ -130,24 +146,38 @@ static RAMFUNC int flash_overwrite_bank0_from_ram(const uint32_t *src,
     rc = flash_wait_idle_ram();
     if (rc != 0) goto out;
 
-    /* Erase covering the full image, page-aligned upward. */
+    /* Erase covering the full image, page-aligned upward.
+     * Marker 'E' opens the erase phase; one '.' per page erased. */
+    uart3_putc_ram('\r'); uart3_putc_ram('\n'); uart3_putc_ram('E');
     uint32_t end = FLASH_BANK0_BASE + size_bytes;
     uint32_t end_aligned = (end + (FLASH_PAGE_SIZE - 1U))
                          & ~(uint32_t)(FLASH_PAGE_SIZE - 1U);
     for (uint32_t page = FLASH_BANK0_BASE; page < end_aligned;
          page += FLASH_PAGE_SIZE) {
         rc = flash_erase_page_ram(page);
-        if (rc != 0) goto out;
+        if (rc != 0) {
+            uart3_putc_ram('!');
+            goto out;
+        }
+        uart3_putc_ram('.');
     }
 
-    /* Word-program. */
+    /* Word-program. Marker 'P' opens the program phase; one '.' per
+     * 256 words written so the operator can gauge per-1KB progress. */
+    uart3_putc_ram('\r'); uart3_putc_ram('\n'); uart3_putc_ram('P');
     uint32_t words = size_bytes >> 2;
     uint32_t addr  = FLASH_BANK0_BASE;
     for (uint32_t i = 0; i < words; ++i) {
         rc = flash_program_word_ram(addr, src[i]);
-        if (rc != 0) goto out;
+        if (rc != 0) {
+            uart3_putc_ram('!');
+            goto out;
+        }
         addr += 4U;
+        if ((i & 0xFFu) == 0xFFu) uart3_putc_ram('.');
     }
+    uart3_putc_ram('\r'); uart3_putc_ram('\n'); uart3_putc_ram('K');
+    uart3_putc_ram('\r'); uart3_putc_ram('\n');
 
 out:
     flash_lock_ram();
