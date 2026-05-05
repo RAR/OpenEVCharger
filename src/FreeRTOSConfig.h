@@ -1,4 +1,4 @@
-/* FreeRTOSConfig.h for OpenBHZD on GD32F205VG (Cortex-M3 @ 120 MHz).
+/* FreeRTOSConfig.h for OpenEVCharger on GD32F205VG (Cortex-M3 @ 120 MHz).
  *
  * Tuned for safety-core scope: 4 tasks (idle + safety + io + comms + persist),
  * heap_4, mutexes for state-snapshot guarding, no software timers in M1

@@ -35,7 +35,7 @@ void flash_copy_ramfunc_to_ram(void)
  *
  * The vendor SPL's bank-aware fmc_page_erase / fmc_word_program reach
  * FMC_BANK0_SIZE and FMC_SIZE in flash, which is exactly what we can't
- * touch — so we re-implement the bank0-only path inline. The OpenBHZD
+ * touch — so we re-implement the bank0-only path inline. The OpenEVCharger
  * image lives entirely in bank0 (lower 512 KB of a 1 MB GD32F205VG). */
 
 #define FLASH_FMC_KEY1   0x45670123U

@@ -1,7 +1,7 @@
 #ifndef OPENEVCHARGER_CORE_PIN_MAP_H
 #define OPENEVCHARGER_CORE_PIN_MAP_H
 
-/* Canonical pin assignments for OpenBHZD on the Rippleon ROC001 board.
+/* Canonical pin assignments for OpenEVCharger on the Rippleon ROC001 board.
  *
  * Source: rippleon/docs/mcu-re/pinout.md (canonical table). Every pin
  * marked load-bearing in that table appears here. Reverse direction is
@@ -126,7 +126,7 @@
  *     dropping PE12 LOW first, then PE12 HIGH again.
  * This is a UL2231-style redundant force-open path: any fault
  * condition that asserts PB12 will hardware-latch the contactor open
- * even if the PE12 driver has stuck HIGH. OpenBHZD currently leaves
+ * even if the PE12 driver has stuck HIGH. OpenEVCharger currently leaves
  * PB12 LOW (don't assert) but configures it as output PP; future
  * fault paths can assert it for redundant open. Stock firmware READS
  * PB12 too (bidirectional / transistor open-collector sense), which
@@ -164,7 +164,7 @@
  * PE3 = GFCI CAL output. Wire-traced 2026-05-02: MCU LOW → external
  * level-shift transistor drives 5 V to the module's CAL input
  * (active asserted); MCU HIGH → CAL idle. Stock fw drives PE3 in
- * its 8-state self-test cycle; OpenBHZD will need to do the same
+ * its 8-state self-test cycle; OpenEVCharger will need to do the same
  * once we wire `hal/gfci.c`.
  *
  * PE4 also driven in the stock state machine (probably "test latch"

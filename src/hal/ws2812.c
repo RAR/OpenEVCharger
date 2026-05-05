@@ -62,7 +62,7 @@
 #define WS_PACK_RGBW       1
 #define WS_BITS_PER_LED   32U
 #else
-/* OEM_GRB_600KHZ — the OpenBHZD bench strip (default).
+/* OEM_GRB_600KHZ — the OpenEVCharger bench strip (default).
  *
  * Stock V1.0.066 PWM config (read via SWD halt 2026-05-03):
  *   TIMER1: PSC=0, CARL=99, CCR=20 ("0") or 60 ("1")

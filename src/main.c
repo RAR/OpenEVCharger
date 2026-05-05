@@ -1,4 +1,4 @@
-/* OpenBHZD M1 — FreeRTOS scaffold + 4-task skeleton.
+/* OpenEVCharger M1 — FreeRTOS scaffold + 4-task skeleton.
  *
  * main() does no real work: it creates the four safety-core tasks then
  * starts the scheduler. PD4 heartbeat moves into io_task. safety_task
@@ -69,7 +69,7 @@ int main(void)
     clock_real_120m_init();
 
     uart_init();
-    printk("\n--- OpenBHZD M2 boot, SystemCoreClock=%u Hz ---\n",
+    printk("\n--- OpenEVCharger M2 boot, SystemCoreClock=%u Hz ---\n",
            (unsigned)SystemCoreClock);
 #if defined(OPENEVCHARGER_OTA_TEST_MARKER) && OPENEVCHARGER_OTA_TEST_MARKER
     printk("*** OTA-APPLIED v%d ***\n", (int)(OPENEVCHARGER_OTA_TEST_MARKER));

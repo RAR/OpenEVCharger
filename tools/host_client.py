@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FC41D-side reference TLV client for OpenBHZD UART4 (PC12 TX / PD2 RX).
+"""FC41D-side reference TLV client for OpenEVCharger UART4 (PC12 TX / PD2 RX).
 
 Connect a USB-UART adapter at 115200 8N1 to:
   PC12 (MCU TX) → adapter RX
@@ -147,7 +147,7 @@ def show_frame(cmd: int, seq: int, payload: bytes) -> str:
     if cmd == EVT_BUILD_INFO:
         extra = f"  build={payload.rstrip(b'\\x00').decode('ascii', errors='replace')!r}"
     elif cmd == EVT_STATE_REPORT and len(payload) >= 30:
-        # See src/core/system_state.h openbhzd_state — 30 B packed.
+        # See src/core/system_state.h openevcharger_state — 30 B packed.
         j, e, amps, ccmd = struct.unpack_from("<BBBB", payload, 0)
         cp_hi = struct.unpack_from("<h", payload, 4)[0]
         ac = payload[16]

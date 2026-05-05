@@ -33,7 +33,7 @@
 #     trace-cut + series resistor to probe further.
 #
 # REQUIRES: stock fw V1.0.066 flashed on the bench unit. Running under
-# OpenBHZD this script is harmless (PE2 is not currently configured)
+# OpenEVCharger this script is harmless (PE2 is not currently configured)
 # but the fault byte at 0x200026a0 has no meaning under our fw.
 #
 # Two complementary tests:
@@ -41,7 +41,7 @@
 #   cal-test:  Drive PE3 in both directions and read PE2 around each
 #              step. Mirrors the prior PE3-destination wiggle that
 #              confirmed PE3 → GFCI CAL line. Works under EITHER
-#              stock fw or OpenBHZD (we drive GPIOs via OpenOCD
+#              stock fw or OpenEVCharger (we drive GPIOs via OpenOCD
 #              directly). AC must be live so the module is powered.
 #              This is the SHORTER, MORE DECISIVE test — start here.
 #
@@ -163,7 +163,7 @@ restore_float() {
 # the GFCI fault-output sense, asserting CAL should make the module
 # self-test trip → fault output asserts → PE2 changes state.
 #
-# Works under EITHER stock fw or OpenBHZD: we manipulate the GPIOs
+# Works under EITHER stock fw or OpenEVCharger: we manipulate the GPIOs
 # directly via OpenOCD halt+poke, so the running fw doesn't need to
 # participate. AC must be live so the GFCI module is powered.
 #

@@ -13,7 +13,7 @@
  * `.ramfunc` linker section so they run entirely out of RAM once
  * flash_copy_ramfunc_to_ram() has executed at boot.
  *
- * Scope: GD32F205VG bank0 only (lower 512 KB). The OpenBHZD image lives
+ * Scope: GD32F205VG bank0 only (lower 512 KB). The OpenEVCharger image lives
  * in this bank at 0x08000000+ and never crosses into bank1, so we don't
  * need bank1 helpers. Page granularity is 2 KB. */
 
@@ -23,7 +23,7 @@
 
 /* Hard cap on the OTA image size we'll attempt to apply. Driven by the
  * RAM buffer the apply path stack-allocates — see flash.c for the
- * arithmetic. Current OpenBHZD image is ~48 KB so 64 KB has plenty of
+ * arithmetic. Current OpenEVCharger image is ~48 KB so 64 KB has plenty of
  * slack; bumping later means re-checking stack headroom. */
 #define FLASH_OTA_APPLY_MAX_SIZE  (64U * 1024U)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build (if needed) and flash an OpenBHZD image to the connected
+# Build (if needed) and flash an OpenEVCharger image to the connected
 # GD32F205 via SWD.
 #
 # Usage:

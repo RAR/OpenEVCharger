@@ -9,7 +9,7 @@
  * PB12 is a HARDWARE FORCE-OPEN LATCH per UL2231-style redundancy:
  * driving PB12 HIGH while PE12 HIGH forces the main contactor open
  * via a latch, ignoring PE12. The latch only resets when PE12 goes
- * LOW. OpenBHZD leaves PB12 LOW (no assert) for now; future fault
+ * LOW. OpenEVCharger leaves PB12 LOW (no assert) for now; future fault
  * paths can call relay_force_open_latch() for redundant open even if
  * PE12 driver fails. See pin_map.h for the full bench logbook.
  *

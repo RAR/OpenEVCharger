@@ -21,7 +21,7 @@
  *
  * Trip / clear thresholds are LUT-derived from the stock fw V1.0.066
  * NTC table extracted at flash 0x08024f28 (commit ffbfc68; mirrored
- * in fc41d/components/openbhzd_tlv/ntc_lut.h):
+ * in fc41d/components/openevcharger_tlv/ntc_lut.h):
  *
  *   85 °C → raw 396 (TRIP)
  *   75 °C → raw 525 (CLEAR — +10 °C hysteresis)
