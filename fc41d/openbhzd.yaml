@@ -335,6 +335,7 @@ text_sensor:
 number:
   - platform: openbhzd_tlv
     advertised_amps:
+      id: advertised_amps_n
       name: "Set Advertised Amps"
       entity_category: config
 
@@ -556,6 +557,13 @@ ocpp:
     current: mains_current_a_sensor
     power: active_power_sensor
     energy: session_kwh_sensor
+    # Bind Set Advertised Amps → Current.Offered. The OCPP component
+    # auto-computes Power.Offered = current_offered × voltage when both
+    # are bound, so MicroOcpp's "could not find metering device for
+    # Current.Offered / Power.Offered" warnings go away. SoC is a
+    # vehicle-side measurand the EVSE has no source for — that warning
+    # is benign and stays.
+    current_offered: advertised_amps_n
   status_from: evse_state_tsensor
   # Map OpenBHZD evse_state strings (see core/evse_state.h evse_state_name)
   # to OCPP 1.6J ChargePointStatus enum.
