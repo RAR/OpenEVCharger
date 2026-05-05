@@ -59,6 +59,44 @@ static RAMFUNC void uart3_putc_ram(char c)
     FLASH_UART3_DATA = (uint32_t)(uint8_t)c;
 }
 
+static RAMFUNC void uart3_puts_ram(const char *s)
+{
+    /* `s` MUST point into RAM (e.g. one of the file-scope ota_str_*
+     * arrays below — non-const so the linker puts them in .data, which
+     * Reset_Handler populates from flash before main() runs). Passing
+     * a string literal here would fetch from .rodata in flash, which
+     * is unsafe once the apply has erased bank0. */
+    while (*s) uart3_putc_ram(*s++);
+}
+
+static RAMFUNC void uart3_putu_ram(uint32_t n)
+{
+    /* Small unsigned decimal printer. Stack-local digit buffer so we
+     * don't need a heap or static scratch — uint32_t is at most 10
+     * decimal digits. */
+    char buf[12];
+    int i = 0;
+    if (n == 0) { uart3_putc_ram('0'); return; }
+    while (n > 0u) {
+        buf[i++] = (char)('0' + (n % 10u));
+        n /= 10u;
+    }
+    while (i > 0) uart3_putc_ram(buf[--i]);
+}
+
+/* Phase strings for the apply path. file-scope `static char[]` (no
+ * const) lands them in .data, which Reset_Handler copies from flash
+ * to RAM at startup. Reading them post-erase is therefore safe — the
+ * RAM image is intact. const-qualifying them would put them in
+ * .rodata (flash) and the post-erase reads would fetch garbage. */
+static char ota_msg_erasing_[]    = "\r\nota: erasing ";
+static char ota_msg_pages_[]      = " page(s) (";
+static char ota_msg_kb_close_[]   = " KB)\r\n";
+static char ota_msg_programming_[] = "\r\nota: programming ";
+static char ota_msg_words_[]      = " word(s)\r\n";
+static char ota_msg_ok_[]         = "\r\nota: applied — resetting MCU now\r\n";
+static char ota_msg_fail_[]       = "\r\nota: FAIL — halted, recover via SWD\r\n";
+
 /* Spin until BUSY clears or a hard timeout. We don't have a timer in
  * RAM-resident scope — just a deterministic loop count. Sized for
  * ~300 ms at 120 MHz: page erase is typically 30 ms (datasheet
@@ -146,42 +184,61 @@ static RAMFUNC int flash_overwrite_bank0_from_ram(const uint32_t *src,
     rc = flash_wait_idle_ram();
     if (rc != 0) goto out;
 
-    /* Erase covering the full image, page-aligned upward.
-     * Marker 'E' opens the erase phase; one '.' per page erased. */
-    uart3_putc_ram('\r'); uart3_putc_ram('\n'); uart3_putc_ram('E');
+    /* Erase covering the full image, page-aligned upward. Print a
+     * human-readable banner with the page count + KB, then one '.'
+     * per page erased so the operator can watch the progress tick. */
     uint32_t end = FLASH_BANK0_BASE + size_bytes;
     uint32_t end_aligned = (end + (FLASH_PAGE_SIZE - 1U))
                          & ~(uint32_t)(FLASH_PAGE_SIZE - 1U);
+    uint32_t num_pages = (end_aligned - FLASH_BANK0_BASE) / FLASH_PAGE_SIZE;
+    uart3_puts_ram(ota_msg_erasing_);
+    uart3_putu_ram(num_pages);
+    uart3_puts_ram(ota_msg_pages_);
+    uart3_putu_ram((num_pages * FLASH_PAGE_SIZE) / 1024u);
+    uart3_puts_ram(ota_msg_kb_close_);
     for (uint32_t page = FLASH_BANK0_BASE; page < end_aligned;
          page += FLASH_PAGE_SIZE) {
         rc = flash_erase_page_ram(page);
-        if (rc != 0) {
-            uart3_putc_ram('!');
-            goto out;
-        }
+        if (rc != 0) goto out;
         uart3_putc_ram('.');
     }
 
-    /* Word-program. Marker 'P' opens the program phase; one '.' per
-     * 256 words written so the operator can gauge per-1KB progress. */
-    uart3_putc_ram('\r'); uart3_putc_ram('\n'); uart3_putc_ram('P');
+    /* Word-program. One '.' per 256 words (1 KB) so a 48 KB image
+     * yields ~48 dots — fast enough to watch progress without
+     * spamming the link. */
     uint32_t words = size_bytes >> 2;
     uint32_t addr  = FLASH_BANK0_BASE;
+    uart3_puts_ram(ota_msg_programming_);
+    uart3_putu_ram(words);
+    uart3_puts_ram(ota_msg_words_);
     for (uint32_t i = 0; i < words; ++i) {
         rc = flash_program_word_ram(addr, src[i]);
-        if (rc != 0) {
-            uart3_putc_ram('!');
-            goto out;
-        }
+        if (rc != 0) goto out;
         addr += 4U;
         if ((i & 0xFFu) == 0xFFu) uart3_putc_ram('.');
     }
-    uart3_putc_ram('\r'); uart3_putc_ram('\n'); uart3_putc_ram('K');
-    uart3_putc_ram('\r'); uart3_putc_ram('\n');
+    uart3_puts_ram(ota_msg_ok_);
+
+    /* SUCCESS PATH MUST RESET FROM RAM. Returning to flash is a
+     * landmine: bank0 has just been overwritten, so the resume PC in
+     * the caller (flash_apply_pending_ota_image) is fetching from a
+     * different image than the one that called us. Layout-equivalent
+     * builds get away with it; layout-divergent ones (e.g. a marker
+     * printk shifting downstream symbols) hang or wedge. SYSRESETREQ
+     * here, in RAM, leaves nothing to chance. */
+    flash_lock_ram();
+    /* Drain the last UART byte before we cut the cord. */
+    while ((FLASH_UART3_STAT0 & FLASH_UART3_TBE) == 0u) { }
+    *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;   /* AIRCR.SYSRESETREQ */
+    __asm__ volatile ("dsb 0xF" ::: "memory");
+    for (;;) { __asm__ volatile ("nop"); }
 
 out:
+    /* Error path. We don't reset — leave the MCU halted with the FAIL
+     * banner on the wire so a bench operator can recover via SWD. */
+    uart3_puts_ram(ota_msg_fail_);
     flash_lock_ram();
-    return rc;
+    for (;;) { __asm__ volatile ("nop"); }
 }
 
 /* <<< RAM-RESIDENT END >>> */
@@ -273,25 +330,16 @@ int flash_apply_pending_ota_image(void)
            (unsigned)img_size, (unsigned)img_crc);
     brief_uart_drain();
 
-    /* IRQs OFF, dive into RAM. The pending_ota_flag stays set — the
-     * next boot's flash_apply_pending_ota_image() will see "running
-     * image already matches staged CRC" and clear the flag. This makes
-     * the apply phase idempotent on power-loss mid-overwrite: a half-
-     * written image won't match staged CRC, so the next boot re-applies
-     * from W25Q automatically. */
+    /* IRQs OFF, dive into RAM. Critical: flash_overwrite_bank0_from_ram
+     * NEVER returns. On success it issues SYSRESETREQ from RAM (so the
+     * resume PC never tries to fetch from just-overwritten flash); on
+     * error it halts in RAM with a 'FAIL\r\n' marker. The pending_ota_flag
+     * stays set — the next boot's flash_apply_pending_ota_image() will
+     * see "running image already matches staged CRC" and clear the flag.
+     * Half-written images at power-loss are caught by the same CRC check
+     * (mismatch → re-apply from W25Q). */
     __asm__ volatile ("cpsid i" ::: "memory");
-
-    int rc = flash_overwrite_bank0_from_ram((const uint32_t *)buf, padded_size);
-
-    if (rc != 0) {
-        /* Half-written image. Don't re-enable IRQs (running code may be
-         * inconsistent). Halt loud — bench operator power-cycles, the
-         * next boot resumes from W25Q. */
-        for (;;) { __asm__ volatile ("nop"); }
-    }
-
-    /* Successful overwrite. Trigger a CPU reset; new image starts fresh,
-     * sees pending flag, recognises the match-via-CRC, clears flag. */
-    *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;   /* AIRCR: SYSRESETREQ */
+    flash_overwrite_bank0_from_ram((const uint32_t *)buf, padded_size);
+    /* unreachable */
     for (;;) { __asm__ volatile ("nop"); }
 }
