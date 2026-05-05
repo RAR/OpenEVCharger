@@ -977,6 +977,48 @@ static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
     }
 }
 
+/* CP regression detector (spec § 4 #14). A J1772 C → B transition
+ * mid-charging-session is a "transient pause" — the EV stopped
+ * requesting current but stayed plugged in (e.g. SOC reached, charge
+ * scheduling, or a momentary fault on the EV side). Spec semantic
+ * is SELF-CLEAR: log the regression so HA / OCPP can see it, but
+ * don't drive EVSE_FAULT — update_evse_from_j1772 already opens the
+ * contactor immediately by transitioning CHARGING → READY when J1772
+ * leaves C. Allow re-progression: the fault clears as soon as J1772
+ * returns to C (driver / EV resumes charging) or to A (unplug ends
+ * the session normally).
+ *
+ * Edge-triggered on (prev_js == C && js == B && prev_es == CHARGING)
+ * so we don't raise during the pre-CHARGING dwell window or for
+ * unrelated B-state pre-charge drops. Self-clear runs unconditionally
+ * each tick — re-progress closes the loop without waiting for a
+ * CMD_CLEAR_FAULT round-trip from HA. */
+static void check_cp_regression(fault_state_t *fs,
+                                j1772_state_t prev_js, j1772_state_t js,
+                                evse_state_t prev_es, evse_state_t es,
+                                int32_t cp_mv)
+{
+    if (prev_js == J1772_STATE_C && js == J1772_STATE_B &&
+        prev_es == EVSE_CHARGING) {
+        if (!fault_is_active(fs, FAULT_CP_REGRESSION) &&
+            fault_raise(fs, FAULT_CP_REGRESSION) == 1) {
+            printk("FAULT raised: %s (J1772 C->B during charging)\n",
+                   fault_name(FAULT_CP_REGRESSION));
+            post_fault_event(FAULT_CP_REGRESSION, js, es, cp_mv);
+        }
+    }
+    if (fault_is_active(fs, FAULT_CP_REGRESSION) &&
+        (js == J1772_STATE_C || js == J1772_STATE_A)) {
+        if (fault_clear(fs, FAULT_CP_REGRESSION) == 1) {
+            printk("FAULT cleared: %s (J1772=%s)\n",
+                   fault_name(FAULT_CP_REGRESSION),
+                   j1772_state_name(js));
+            uint32_t evt_id = (uint32_t)FAULT_CP_REGRESSION;
+            (void)comms_publish_event(EVT_FAULT_CLEARED, &evt_id, sizeof evt_id);
+        }
+    }
+}
+
 /* CC ladder decode. Maps PA7 raw to a J1772 cable-rating amp value;
  * 0 means "no cable / not installed" (raw at open-rail) and is used
  * by the snapshot to populate system_state.cc_max_amps. The detector
@@ -1399,6 +1441,8 @@ static void safety_task_run(void *arg)
     int pe_streak = 0;
     int adc_runtime_streak = 0;
     int cc_streak = 0;
+    j1772_state_t prev_js = J1772_STATE_INVALID;
+    evse_state_t  prev_es = EVSE_BOOT;
     over_temp_ctx_t ot_ctx = { .trip_streak = 0, .fault_active = 0 };
     rfid_ctx_t      rfid_ctx;
     rfid_init_ctx(&rfid_ctx);
@@ -1550,8 +1594,12 @@ static void safety_task_run(void *arg)
          * relay state, and CP output. Faults preempt — helpers honor
          * EVSE_FAULT as sticky. */
         update_evse_from_j1772(&es, s, &evse_c_streak);
+        check_cp_regression(&fs, prev_js, s, prev_es, es, cp_mv);
         apply_relay_state(s, es, &fs);
         apply_cp_for_state(es, s);
+
+        prev_js = s;
+        prev_es = es;
 
         /* BL0939 telemetry poll. Best-effort, ~1 ms of bit-banged SPI
          * once per 400 ms — no checksum/timing impact on the safety
