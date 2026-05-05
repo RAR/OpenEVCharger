@@ -36,10 +36,13 @@ static int rtc_lwoff_wait_bounded(void)
     return 0;
 }
 
+/* RSYNF sets within microseconds on a healthy RTC, but allow up to
+ * ~2 s here so that even a worst-case 1 Hz shadow-sync window can't
+ * leave us reading a stale counter on warm boot. */
 static int rtc_rsyn_wait_bounded(void)
 {
     RTC_CTL &= ~RTC_CTL_RSYNF;
-    for (uint32_t i = 0; i < 800000u; ++i) {
+    for (uint32_t i = 0; i < 30000000u; ++i) {
         if (RTC_CTL & RTC_CTL_RSYNF) return 1;
     }
     return 0;
@@ -113,10 +116,18 @@ void rtc_init(void)
 int rtc_load_unix(uint32_t *out)
 {
     if (!magic_valid()) return 0;
-    /* Skip the SPL's RSYNF wait — see rtc_init() warm path note.
-     * Shadow regs may briefly hold the previous boot's value (≤ 1 s
-     * skew at 40 kHz LSI / PSC=39999) which we accept. */
-    if (out) *out = rtc_counter_get();
+    /* The RTC counter shadow regs reset to 0 on every system reset
+     * and must re-sync from the always-on side before the read is
+     * meaningful. RSYNF gets set every 1 Hz tick (PSC=39999 @ LSI),
+     * so we wait up to ~2 s; if it never sets the RTC really is dead
+     * and we report cold. */
+    (void)rtc_rsyn_wait_bounded();
+    uint32_t cnt = rtc_counter_get();
+    if (cnt == 0u) {
+        printk("rtc: load found cnt=0 (shadow not synced) — cold\n");
+        return 0;
+    }
+    if (out) *out = cnt;
     return 1;
 }
 
