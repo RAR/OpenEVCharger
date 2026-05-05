@@ -76,18 +76,16 @@ void rtc_init(void)
            (unsigned)div_a, (unsigned)div_b, mv);
 
     if (mv) {
-        /* Backup domain already configured by a previous boot in this
-         * VDD cycle. Don't reset it (that would wipe BKP_DATA + RTC).
-         *
-         * Make sure BDCTL.RTCEN is set — survives non-VDD resets but
-         * cheap to re-assert defensively.
-         *
-         * Skip rtc_register_sync_wait() here: it polls RSYNF after
-         * clearing it, which can hang forever if the RTC peripheral
-         * clock or LSI source isn't running for any reason. The
-         * counter reads in rtc_load_unix() are robust to slightly
-         * stale shadow registers (they re-sync within a few LSI
-         * ticks after the warm reset). */
+        /* Backup domain (BKP_DATA, RTC counter, BDCTL) is intact. But
+         * LSI (IRC40K) lives in the system-domain RCU_RSTSCK register,
+         * which IS reset on every system reset / SYSRESETREQ. So even
+         * though BDCTL.RTCSRC still selects IRC40K and BDCTL.RTCEN is
+         * set, the clock source itself is off after warm boot — the
+         * counter holds its value but the shadow regs can't sync until
+         * we re-enable LSI here. (Bench-confirmed 2026-05-05: div_a /
+         * div_b read 0/0 after SYSRESETREQ until this fix landed.) */
+        rcu_osci_on(RCU_IRC40K);
+        rcu_osci_stab_wait(RCU_IRC40K);
         rcu_periph_clock_enable(RCU_RTC);
         return;
     }
