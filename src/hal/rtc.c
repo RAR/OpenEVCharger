@@ -1,4 +1,5 @@
 #include "rtc.h"
+#include "uart.h"
 #include "gd32f20x.h"
 #include "gd32f20x_rtc.h"
 #include "gd32f20x_bkp.h"
@@ -52,6 +53,12 @@ void rtc_init(void)
 
     /* Allow writes to backup domain (BKP_DATAx + RTC + RCU_BDCTL). */
     pmu_backup_write_enable();
+
+    /* Diagnostic: surface raw BKP/RTC/BDCTL state at boot so a stuck
+     * "always cold" path is visible without an SWD probe. */
+    printk("rtc: bkp0=0x%04x bkp1=0x%04x cnt=0x%08x bdctl=0x%08x\n",
+           (unsigned)BKP_DATA0, (unsigned)BKP_DATA1,
+           (unsigned)rtc_counter_get(), (unsigned)RCU_BDCTL);
 
     if (magic_valid()) {
         /* Backup domain already configured by a previous boot in this
@@ -110,8 +117,19 @@ int rtc_load_unix(uint32_t *out)
 
 void rtc_store_unix(uint32_t unix_seconds)
 {
-    if (!rtc_lwoff_wait_bounded()) return;
+    if (!rtc_lwoff_wait_bounded()) {
+        printk("rtc: store unix=%u TIMEOUT (LWOFF#1 stuck)\n",
+               (unsigned)unix_seconds);
+        return;
+    }
     rtc_counter_set(unix_seconds);
-    if (!rtc_lwoff_wait_bounded()) return;
+    if (!rtc_lwoff_wait_bounded()) {
+        printk("rtc: store unix=%u TIMEOUT (LWOFF#2 stuck)\n",
+               (unsigned)unix_seconds);
+        return;
+    }
     magic_set(1);
+    printk("rtc: stored unix=%u (bkp0=0x%04x bkp1=0x%04x cnt=0x%08x)\n",
+           (unsigned)unix_seconds, (unsigned)BKP_DATA0,
+           (unsigned)BKP_DATA1, (unsigned)rtc_counter_get());
 }
