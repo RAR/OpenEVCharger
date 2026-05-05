@@ -839,7 +839,7 @@ static void publish_rfid_config(void)
  * after FAULT → READY doesn't immediately re-fire CP_NO_PILOT. */
 static void process_request(struct safety_req *r,
                             fault_state_t *fs, evse_state_t *es,
-                            int *cp_e_streak)
+                            int *cp_e_streak, j1772_ctx_t *cp)
 {
     switch (r->type) {
     case SAFETY_REQ_CLEAR_FAULT: {
@@ -889,6 +889,17 @@ static void process_request(struct safety_req *r,
              * leaving FAULT (so apply_cp_for_state is about to swing
              * CP from -12 V back to idle high). */
             *cp_e_streak = 0;
+            /* Re-init the J1772 classifier so its internal debounce
+             * starts fresh on the post-FAULT CP swing. Bench-observed
+             * 2026-05-04: a fault raised in state C drove EVSE_FAULT
+             * → state F → CP went to -12 V → classifier committed
+             * to E. CLEAR_FAULT resets cp_e_streak, but on the next
+             * tick j1772_step still reports E (no debounce-N reads
+             * of A yet) and check_cp_e re-fires within 3 ticks even
+             * though cp_high_mv already reads +12000 mV. Re-init
+             * forces committed=INVALID so check_cp_e skips until the
+             * classifier resettles on the live CP. */
+            j1772_init(cp);
         }
         break;
     }
@@ -926,7 +937,7 @@ static void process_request(struct safety_req *r,
 }
 
 static void drain_inbox(fault_state_t *fs, evse_state_t *es,
-                        int *cp_e_streak)
+                        int *cp_e_streak, j1772_ctx_t *cp)
 {
     if (s_safety_inbox == NULL) return;
     struct safety_req r;
@@ -934,7 +945,7 @@ static void drain_inbox(fault_state_t *fs, evse_state_t *es,
      * starve the safety loop. */
     for (int i = 0; i < 4; ++i) {
         if (xQueueReceive(s_safety_inbox, &r, 0) != pdTRUE) break;
-        process_request(&r, fs, es, cp_e_streak);
+        process_request(&r, fs, es, cp_e_streak, cp);
     }
 }
 
@@ -1139,8 +1150,17 @@ static void check_adc_runtime(fault_state_t *fs, evse_state_t *es,
     uint16_t b[ADC_RANKS];
     adc_scan_latest(b);
 
+    /* ADC_RANK_CP excluded from runtime: the regular DMA scan samples
+     * PA4 asynchronously to the PWM, so it lands in either HIGH or
+     * LOW phase. With a vehicle plugged in J1772 state C/D the EV's
+     * diode pulls LOW phase to -12 V, which the OEM read divider
+     * clamps to raw≈0 — bench-confirmed with state C cp_mv=5954
+     * driving the regular scan reading CPR=0 next sample. The boot
+     * self-test still validates the CP rail one-shot at startup, and
+     * the live cp_high path uses the inject group synchronised to
+     * the PWM update event (see hal/adc_inject.c). */
     static const uint8_t ranks[] = {
-        ADC_RANK_AC, ADC_RANK_CT, ADC_RANK_LCT, ADC_RANK_CP,
+        ADC_RANK_AC, ADC_RANK_CT, ADC_RANK_LCT,
     };
     int rail = 0;
     unsigned bad_rank = 0;
@@ -1648,7 +1668,7 @@ static void safety_task_run(void *arg)
 
         /* Drain control inbox first so a CLEAR_FAULT or USER_PAUSE
          * lands before the rest of the tick reads/applies state. */
-        drain_inbox(&fs, &es, &cp_e_streak);
+        drain_inbox(&fs, &es, &cp_e_streak, &cp);
 
         int32_t cp_mv = cp_high_mv();
         j1772_state_t s = j1772_step(&cp, cp_mv, J1772_DEBOUNCE_N);
