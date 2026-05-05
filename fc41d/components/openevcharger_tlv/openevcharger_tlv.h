@@ -1,6 +1,6 @@
 #pragma once
 
-// openbhzd_tlv — ESPHome side of the OpenBHZD MCU TLV protocol.
+// openevcharger_tlv — ESPHome side of the OpenEVCharger MCU TLV protocol.
 //
 // Transport: 115200 8N1 over a UART. On the FC41D (BK7231N) board the
 // MCU's UART4 (PC12 TX / PD2 RX) is wired to the BK's UART1 (P10 RX /
@@ -39,7 +39,7 @@
 #include <vector>
 
 namespace esphome {
-namespace openbhzd_tlv {
+namespace openevcharger_tlv {
 
 // FC41D → MCU requests
 static constexpr uint8_t CMD_PING = 0x01;
@@ -227,7 +227,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   // EVT_OTA_CHUNK_ACK responses. On the final ACK it issues
   // CMD_OTA_COMMIT and the MCU verifies CRC32 + arms its pending-OTA
   // flag. The MCU reboots into the new image only after a separate
-  // user-triggered reset (see openbhzd.yaml's "Reboot MCU After OTA"
+  // user-triggered reset (see openevcharger.yaml's "Reboot MCU After OTA"
   // button in step 6).
   //
   // Returns true if the push was queued, false if size is out of range
@@ -258,7 +258,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   // emits, with the colon-formatted UID string + the raw result code
   // (RFID_AUTH_RESULT_*). Lets YAML wire arbitrary side effects —
   // e.g. driving an OCPP transaction lifecycle via the ocpp component
-  // — without baking that knowledge into openbhzd_tlv itself.
+  // — without baking that knowledge into openevcharger_tlv itself.
   void add_on_rfid_auth_result_callback(
       std::function<void(std::string, uint8_t)> &&cb) {
     rfid_auth_result_callbacks_.push_back(std::move(cb));
@@ -603,5 +603,5 @@ class RFIDAuthResultTrigger : public Trigger<std::string, uint8_t> {
   }
 };
 
-}  // namespace openbhzd_tlv
+}  // namespace openevcharger_tlv
 }  // namespace esphome

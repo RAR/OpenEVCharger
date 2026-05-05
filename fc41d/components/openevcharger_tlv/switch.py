@@ -4,7 +4,7 @@ from esphome.components import switch
 
 from . import openevcharger_tlv_ns, OpenevchargerTlv
 
-CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 CONF_REQUIRE_RFID_AUTH = "require_rfid_auth"
 
 OpenevchargerTlvSwitch = openevcharger_tlv_ns.class_(

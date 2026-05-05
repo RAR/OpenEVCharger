@@ -10,7 +10,7 @@ from esphome.const import (
 
 from . import openevcharger_tlv_ns, OpenevchargerTlv
 
-CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 
 CONF_LINK_UP = "link_up"
 CONF_VEHICLE_CONNECTED = "vehicle_connected"

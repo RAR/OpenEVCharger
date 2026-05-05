@@ -4,7 +4,7 @@ from esphome.components import button
 
 from . import openevcharger_tlv_ns, OpenevchargerTlv
 
-CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 
 CONF_PING = "ping"
 CONF_REQUEST_STOP = "request_stop"

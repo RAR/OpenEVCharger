@@ -1,4 +1,4 @@
-#include "openbhzd_tlv.h"
+#include "openevcharger_tlv.h"
 #include "ntc_lut.h"
 
 #include "esphome/core/hal.h"
@@ -17,9 +17,9 @@
 #include <cstring>
 
 namespace esphome {
-namespace openbhzd_tlv {
+namespace openevcharger_tlv {
 
-static const char *const TAG = "openbhzd_tlv";
+static const char *const TAG = "openevcharger_tlv";
 
 // SOF, header, CRC sizes (spec § 5).
 static constexpr uint8_t SOF0 = 0xA5;
@@ -111,7 +111,7 @@ void OpenevchargerTlv::loop() {
 }
 
 void OpenevchargerTlv::dump_config() {
-  ESP_LOGCONFIG(TAG, "OpenBHZD TLV link:");
+  ESP_LOGCONFIG(TAG, "OpenEVCharger TLV link:");
   ESP_LOGCONFIG(TAG, "  Poll interval: %u ms", (unsigned) poll_interval_ms_);
   ESP_LOGCONFIG(TAG, "  Link timeout:  %u ms", (unsigned) link_timeout_ms_);
   this->check_uart_settings(115200);
@@ -1064,13 +1064,13 @@ bool OpenevchargerTlv::fetch_and_push_ota(const std::string &url) {
   // so WiFiClientSecure won't link. If your HA is HTTPS-only, hit it
   // by direct local-IP + port 8123 (HA's built-in listener is plain
   // HTTP unless you put it behind a reverse proxy):
-  //   http://<ha-local-ip>:8123/local/openbhzd.bin
+  //   http://<ha-local-ip>:8123/local/openevcharger.bin
   // Or stand up a plain-HTTP server alongside HA (python -m
   // http.server, busybox httpd, etc.) and serve the .bin from there.
   static const std::string scheme = "http://";
   if (url.compare(0, scheme.size(), scheme) != 0) {
     ESP_LOGW(TAG, "OTA fetch: only http:// supported (got %s) — see "
-                  "openbhzd_tlv.cpp comment for HTTPS workaround",
+                  "openevcharger_tlv.cpp comment for HTTPS workaround",
              url.c_str());
     return false;
   }
@@ -1105,7 +1105,7 @@ bool OpenevchargerTlv::fetch_and_push_ota(const std::string &url) {
   req += "Host: "; req += host;
   if (port != 80) { req += ':'; req += std::to_string(port); }
   req += "\r\n";
-  req += "User-Agent: openbhzd-fc41d/1\r\n";
+  req += "User-Agent: openevcharger-fc41d/1\r\n";
   req += "Accept: application/octet-stream\r\n";
   req += "Connection: close\r\n\r\n";
   client->write(reinterpret_cast<const uint8_t *>(req.data()), req.size());
@@ -1454,5 +1454,5 @@ void OpenevchargerTlvButton::press_action() {
 }
 #endif
 
-}  // namespace openbhzd_tlv
+}  // namespace openevcharger_tlv
 }  // namespace esphome

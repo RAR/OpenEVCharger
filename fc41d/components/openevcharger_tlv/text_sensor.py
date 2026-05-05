@@ -4,7 +4,7 @@ from esphome.components import text_sensor
 
 from . import openevcharger_tlv_ns, OpenevchargerTlv
 
-CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 
 CONF_EVSE_STATE = "evse_state"
 CONF_J1772_STATE = "j1772_state"

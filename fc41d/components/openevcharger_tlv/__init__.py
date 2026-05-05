@@ -1,6 +1,6 @@
-"""openbhzd_tlv — ESPHome side of the OpenBHZD MCU TLV protocol.
+"""openevcharger_tlv — ESPHome side of the OpenEVCharger MCU TLV protocol.
 
-Talks to the OpenBHZD safety-core MCU (GD32F205VG) over UART using the
+Talks to the OpenEVCharger safety-core MCU (GD32F205VG) over UART using the
 binary TLV protocol from spec § 5. Pairs with a UART configured at
 115200 8N1; on the FC41D BK7231N deployment that's UART1 (P10/P11),
 wired to the MCU's UART4 (PC12 TX / PD2 RX).
@@ -14,7 +14,7 @@ from esphome.const import CONF_ID, CONF_TRIGGER_ID
 CODEOWNERS = ["@andrewrankin"]
 DEPENDENCIES = ["uart"]
 
-openevcharger_tlv_ns = cg.esphome_ns.namespace("openbhzd_tlv")
+openevcharger_tlv_ns = cg.esphome_ns.namespace("openevcharger_tlv")
 OpenevchargerTlv = openevcharger_tlv_ns.class_("OpenevchargerTlv", cg.Component, uart.UARTDevice)
 RFIDAuthResultTrigger = openevcharger_tlv_ns.class_(
     "RFIDAuthResultTrigger", automation.Trigger.template(cg.std_string, cg.uint8)

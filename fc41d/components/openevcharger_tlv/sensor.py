@@ -21,7 +21,7 @@ from esphome.const import (
 
 from . import openevcharger_tlv_ns, OpenevchargerTlv
 
-CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 
 # CP voltages are reported in mV; expose as raw mV for clarity (not V) since
 # the J1772 PWM swings ±12 V and "12000 mV" is the natural unit.

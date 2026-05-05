@@ -2,7 +2,7 @@
 #include <cstdint>
 
 namespace esphome {
-namespace openbhzd_tlv {
+namespace openevcharger_tlv {
 
 // 150-entry NTC raw → temperature LUT, extracted verbatim from the
 // stock Rippleon firmware V1.0.066 at flash 0x08024f28..0x08025054.
@@ -77,5 +77,5 @@ inline float ntc_raw_to_celsius(uint16_t raw) {
     return (float)(idx_lo - 30) + frac;
 }
 
-}  // namespace openbhzd_tlv
+}  // namespace openevcharger_tlv
 }  // namespace esphome

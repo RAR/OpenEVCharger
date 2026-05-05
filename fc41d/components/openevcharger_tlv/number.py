@@ -8,7 +8,7 @@ from esphome.const import (
 
 from . import openevcharger_tlv_ns, OpenevchargerTlv
 
-CONF_OPENEVCHARGER_TLV_ID = "openbhzd_tlv_id"
+CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 CONF_ADVERTISED_AMPS = "advertised_amps"
 
 OpenevchargerTlvNumber = openevcharger_tlv_ns.class_(
@@ -31,7 +31,7 @@ CONFIG_SCHEMA = cv.Schema(
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_OPENEVCHARGER_TLV_ID])
     if conf := config.get(CONF_ADVERTISED_AMPS):
-        # 6 A = J1772 minimum advertised; 48 A = OpenBHZD MCU hw cap
+        # 6 A = J1772 minimum advertised; 48 A = OpenEVCharger MCU hw cap
         # (COMMS_HW_AMPS_MAX). DIP1 may further floor/ceil this.
         n = await number.new_number(conf, min_value=6, max_value=48, step=1)
         await cg.register_component(n, conf)
