@@ -68,6 +68,7 @@ static constexpr uint8_t CMD_OTA_COMMIT = 0x17;
 static constexpr uint8_t CMD_OTA_ABORT  = 0x18;
 static constexpr uint8_t CMD_SET_TIME   = 0x19;
 static constexpr uint8_t CMD_GET_TIME   = 0x1A;
+static constexpr uint8_t CMD_RESTART    = 0x1B;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -211,6 +212,7 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   // but means "clear". Returns the seq used.
   uint8_t send_set_time(uint32_t unix_seconds);
   uint8_t send_get_time();
+  uint8_t send_restart();
   // Cached MCU clock (last value reported via EVT_TIME, with the
   // FC41D millis at receipt — caller can extrapolate live by adding
   // the millis-since delta).
@@ -531,6 +533,7 @@ enum class ButtonAction : uint8_t {
   RFID_CLEAR_LIST,
   RFID_GET_LIST,
   OTA_ABORT,
+  RESTART,
 };
 
 #ifdef USE_NUMBER

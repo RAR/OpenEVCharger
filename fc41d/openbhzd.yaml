@@ -399,6 +399,13 @@ button:
     ota_abort:
       name: "Abort MCU OTA"
       entity_category: diagnostic
+    # Soft restart the MCU (SYSRESETREQ). Backup domain (RTC + BKP_DATA)
+    # is preserved, so the wall clock survives if the RTC bridge is
+    # working. Press logs "comms: CMD_RESTART seq=… — resetting in ~50 ms"
+    # on UART3 right before reset.
+    restart:
+      name: "Restart MCU"
+      entity_category: diagnostic
 
   # Local-only Phase A round-trip exerciser. Pushes a synthetic 256 B
   # blob (counter pattern); the MCU stages it to W25Q, verifies CRC,

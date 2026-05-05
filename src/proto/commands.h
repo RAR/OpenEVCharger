@@ -64,6 +64,11 @@
 #define CMD_SET_TIME              0x19u   /* payload (4 B): u32 unix_seconds LE */
 #define CMD_GET_TIME              0x1Au   /* no payload */
 
+/* Soft restart — issues SYSRESETREQ ~50 ms after ack. No payload.
+ * BD-side state survives (RTC counter, BKP_DATA), so a successful
+ * RTC bridge will resume wall-clock immediately on next boot. */
+#define CMD_RESTART               0x1Bu
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */

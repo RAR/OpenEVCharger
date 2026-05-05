@@ -969,6 +969,13 @@ uint8_t OpenbhzdTlv::send_get_time() {
   return s;
 }
 
+uint8_t OpenbhzdTlv::send_restart() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_RESTART, s, nullptr, 0);
+  ESP_LOGI(TAG, "MCU restart requested (seq=%u)", unsigned(s));
+  return s;
+}
+
 uint8_t OpenbhzdTlv::send_write_bl0939_cal_from_yaml() {
 #ifdef USE_SENSOR
   auto clamp_i16 = [](int32_t v) -> int16_t {
@@ -1442,6 +1449,7 @@ void OpenbhzdTlvButton::press_action() {
     case ButtonAction::RFID_CLEAR_LIST: parent_->send_rfid_clear_list(); break;
     case ButtonAction::RFID_GET_LIST: parent_->send_rfid_get_list(); break;
     case ButtonAction::OTA_ABORT: parent_->abort_ota_push(); break;
+    case ButtonAction::RESTART: parent_->send_restart(); break;
   }
 }
 #endif

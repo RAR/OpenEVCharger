@@ -410,6 +410,21 @@ static void handle_get_time(uint8_t seq)
     publish_time_(seq);
 }
 
+static void handle_restart(uint8_t seq)
+{
+    printk("comms: CMD_RESTART seq=%u — resetting in ~50 ms\n",
+           (unsigned)seq);
+    /* Best-effort drain of UART so the log line and TLV ack make it
+     * out before the core resets. ~50 ms at 115200 = ~575 chars,
+     * plenty for the lines we just printed. */
+    for (volatile int i = 0; i < 6000000; ++i) { __asm__ volatile (""); }
+    /* Cortex-M3 SYSRESETREQ via AIRCR. Backup domain (RTC + BKP_DATA)
+     * is preserved so the RTC bridge can resume the wall clock. */
+    *(volatile uint32_t *)0xE000ED0Cu = 0x05FA0004u;
+    __asm__ volatile ("dsb");
+    for (;;) {}
+}
+
 static void handle_request_stop(const uint8_t *p, size_t plen)
 {
     uint8_t reason = (plen >= 1) ? p[0] : 0u;
@@ -451,6 +466,7 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_OTA_ABORT:             handle_ota_abort(payload, plen, seq); break;
     case CMD_SET_TIME:              handle_set_time(payload, plen, seq); break;
     case CMD_GET_TIME:              handle_get_time(seq); break;
+    case CMD_RESTART:               handle_restart(seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);
