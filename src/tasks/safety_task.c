@@ -1105,24 +1105,22 @@ static void check_cp_regression(fault_state_t *fs,
                                 evse_state_t prev_es, evse_state_t es,
                                 int32_t cp_mv)
 {
+    /* Downgraded 2026-05-05: a C->B mid-CHARGING transition is a
+     * legitimate "EV stopped requesting" edge — happens on every
+     * normal end-of-charge, on bench-tester-driven unwinds, and on
+     * BMS-cutoff scenarios alike. We can't tell those apart from the
+     * EVSE side, so the fault bit was always going to be noisy.
+     *
+     * Keep the diagnostic trace: a printk on the wire and a record
+     * in the event_log via post_fault_event. Don't raise the fault
+     * bit (so HA's Fault Active sensor stays clean) and skip the
+     * self-clear branch (nothing to clear). */
+    (void)fs;
     if (prev_js == J1772_STATE_C && js == J1772_STATE_B &&
         prev_es == EVSE_CHARGING) {
-        if (!fault_is_active(fs, FAULT_CP_REGRESSION) &&
-            fault_raise(fs, FAULT_CP_REGRESSION) == 1) {
-            printk("FAULT raised: %s (J1772 C->B during charging)\n",
-                   fault_name(FAULT_CP_REGRESSION));
-            post_fault_event(FAULT_CP_REGRESSION, js, es, cp_mv);
-        }
-    }
-    if (fault_is_active(fs, FAULT_CP_REGRESSION) &&
-        (js == J1772_STATE_C || js == J1772_STATE_A)) {
-        if (fault_clear(fs, FAULT_CP_REGRESSION) == 1) {
-            printk("FAULT cleared: %s (J1772=%s)\n",
-                   fault_name(FAULT_CP_REGRESSION),
-                   j1772_state_name(js));
-            uint32_t evt_id = (uint32_t)FAULT_CP_REGRESSION;
-            (void)comms_publish_event(EVT_FAULT_CLEARED, &evt_id, sizeof evt_id);
-        }
+        printk("info: %s observed (J1772 C->B during charging) — logged, no fault raised\n",
+               fault_name(FAULT_CP_REGRESSION));
+        post_fault_event(FAULT_CP_REGRESSION, js, es, cp_mv);
     }
 }
 
