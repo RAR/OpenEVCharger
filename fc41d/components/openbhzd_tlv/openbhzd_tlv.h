@@ -216,6 +216,12 @@ class OpenbhzdTlv : public Component, public uart::UARTDevice {
   // Returns true if the push was queued, false if size is out of range
   // or another push is already in progress.
   bool start_ota_push(const uint8_t *data, size_t len);
+  // Fetch a binary over plain HTTP and hand it to start_ota_push.
+  // url must be of the form http://host[:port]/path  (HTTPS not
+  // supported — BK7231N's TLS isn't in this build). Pass HA's
+  // /local/<file> URL after dropping the .bin into /config/www/.
+  // Returns true if the push was queued.
+  bool fetch_and_push_ota(const std::string &url);
   void abort_ota_push();
   bool ota_push_active() const { return ota_state_ != OtaState::IDLE &&
                                         ota_state_ != OtaState::DONE  &&

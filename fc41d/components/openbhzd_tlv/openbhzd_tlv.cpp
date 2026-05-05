@@ -13,6 +13,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace esphome {
@@ -1018,6 +1019,139 @@ uint8_t OpenbhzdTlv::send_ota_abort(uint32_t session_id) {
                     uint8_t(session_id >> 16),  uint8_t(session_id >> 24)};
   send_frame_(CMD_OTA_ABORT, s, buf, sizeof buf);
   return s;
+}
+
+bool OpenbhzdTlv::fetch_and_push_ota(const std::string &url) {
+  // Parse "http://host[:port]/path". Reject anything else.
+  static const std::string scheme = "http://";
+  if (url.compare(0, scheme.size(), scheme) != 0) {
+    ESP_LOGW(TAG, "OTA fetch: only http:// supported (got %s)", url.c_str());
+    return false;
+  }
+  size_t a = scheme.size();
+  size_t slash = url.find('/', a);
+  std::string authority = url.substr(a, slash == std::string::npos ? std::string::npos
+                                                                   : slash - a);
+  std::string path = (slash == std::string::npos) ? "/" : url.substr(slash);
+  std::string host = authority;
+  uint16_t port = 80;
+  size_t colon = authority.find(':');
+  if (colon != std::string::npos) {
+    host = authority.substr(0, colon);
+    port = (uint16_t) std::atoi(authority.c_str() + colon + 1);
+  }
+  ESP_LOGI(TAG, "OTA fetch: host=%s port=%u path=%s",
+           host.c_str(), unsigned(port), path.c_str());
+
+  WiFiClient client;
+  client.setTimeout(10000);   // ms
+  if (!client.connect(host.c_str(), port)) {
+    ESP_LOGE(TAG, "OTA fetch: connect %s:%u failed", host.c_str(), unsigned(port));
+    return false;
+  }
+
+  // HTTP/1.1 GET, close after response so EOF terminates the body —
+  // simpler than parsing chunked transfer encoding.
+  std::string req;
+  req.reserve(128 + path.size() + host.size());
+  req  = "GET ";  req += path;  req += " HTTP/1.1\r\n";
+  req += "Host: "; req += host;
+  if (port != 80) { req += ':'; req += std::to_string(port); }
+  req += "\r\n";
+  req += "User-Agent: openbhzd-fc41d/1\r\n";
+  req += "Accept: application/octet-stream\r\n";
+  req += "Connection: close\r\n\r\n";
+  client.write(reinterpret_cast<const uint8_t *>(req.data()), req.size());
+
+  // Read status line + headers. Bail on anything but 200.
+  uint32_t deadline = millis() + 10000;
+  auto wait_line = [&](std::string &out) -> bool {
+    out.clear();
+    while (millis() < deadline) {
+      if (!client.connected() && !client.available()) return false;
+      if (!client.available()) { delay(5); continue; }
+      char c = char(client.read());
+      if (c == '\n') {
+        if (!out.empty() && out.back() == '\r') out.pop_back();
+        return true;
+      }
+      out.push_back(c);
+    }
+    return false;
+  };
+
+  std::string line;
+  if (!wait_line(line)) {
+    ESP_LOGE(TAG, "OTA fetch: status line timeout");
+    client.stop();
+    return false;
+  }
+  ESP_LOGD(TAG, "OTA fetch status: %s", line.c_str());
+  // Status line: "HTTP/1.1 200 OK"
+  size_t sp1 = line.find(' ');
+  int status = (sp1 == std::string::npos) ? 0 : std::atoi(line.c_str() + sp1 + 1);
+  if (status != 200) {
+    ESP_LOGW(TAG, "OTA fetch: HTTP %d", status);
+    client.stop();
+    return false;
+  }
+
+  size_t content_length = 0;
+  bool   have_clen = false;
+  while (wait_line(line)) {
+    if (line.empty()) break;   // header/body separator
+    // Case-insensitive Content-Length match.
+    if (line.size() >= 16 &&
+        (line.compare(0, 15, "Content-Length:") == 0 ||
+         line.compare(0, 15, "content-length:") == 0)) {
+      const char *v = line.c_str() + 15;
+      while (*v == ' ') ++v;
+      content_length = (size_t) std::atoll(v);
+      have_clen = true;
+    }
+  }
+  if (!have_clen || content_length == 0u) {
+    ESP_LOGW(TAG, "OTA fetch: missing/zero Content-Length");
+    client.stop();
+    return false;
+  }
+  if (content_length > OTA_PUSH_MAX_IMAGE_BYTES) {
+    ESP_LOGW(TAG, "OTA fetch: %u bytes exceeds cap %u",
+             unsigned(content_length), unsigned(OTA_PUSH_MAX_IMAGE_BYTES));
+    client.stop();
+    return false;
+  }
+
+  // Stream body straight into a vector sized once. Peak FC41D heap ≈
+  // content_length plus the OTA state machine's own ota_buf_ copy
+  // inside start_ota_push (= 2× image size momentarily, then the
+  // local vector goes out of scope so steady-state during push is 1×).
+  std::vector<uint8_t> body;
+  body.resize(content_length);
+  size_t got = 0;
+  while (got < content_length && millis() < deadline) {
+    if (!client.connected() && !client.available()) break;
+    int n = client.read(body.data() + got, content_length - got);
+    if (n > 0) {
+      got += size_t(n);
+    } else {
+      delay(5);
+    }
+  }
+  client.stop();
+
+  if (got != content_length) {
+    ESP_LOGW(TAG, "OTA fetch: short read %u/%u",
+             unsigned(got), unsigned(content_length));
+    return false;
+  }
+  ESP_LOGI(TAG, "OTA fetch: got %u bytes — handing to start_ota_push",
+           unsigned(got));
+
+  bool ok = start_ota_push(body.data(), body.size());
+  // Free body now that start_ota_push has copied into ota_buf_.
+  std::vector<uint8_t>().swap(body);
+  return ok;
 }
 
 bool OpenbhzdTlv::start_ota_push(const uint8_t *data, size_t len) {
