@@ -17,10 +17,12 @@
 #include "hal/adc_inject.h"
 #include "hal/spi3.h"
 #include "hal/w25q.h"
+#include "hal/flash.h"
 #include "persist/boot_count.h"
 #include "persist/boot_config.h"
 #include "persist/calibration.h"
 #include "persist/rfid_authlist.h"
+#include "persist/ota_stage.h"
 #include "persist/event_log.h"
 #include "persist/session_log.h"
 #include "persist/crash_state.h"
@@ -125,6 +127,26 @@ int main(void)
         if (rfid_authlist_load() < 0) {
             printk("rfid_authlist: load failed; auto-start disabled\n");
         }
+
+        /* OTA pending check. Default OFF — bench-validate the apply path
+         * (linker .ramfunc section, RAM-resident FMC primitives, the
+         * W25Q→RAM→flash sequence) under controlled conditions before
+         * enabling on a unit that's not behind an SWD probe. With the
+         * flag off, a stale pending flag from prior development just
+         * gets logged and cleared so the firmware boots normally. */
+#if defined(OPENBHZD_OTA_APPLY_ENABLED) && OPENBHZD_OTA_APPLY_ENABLED
+        if (boot_config_pending_ota_flag()) {
+            flash_copy_ramfunc_to_ram();
+            int rc = flash_apply_pending_ota_image();
+            printk("flash-ota: apply rc=%d (pending flag handled)\n", rc);
+        }
+#else
+        if (boot_config_pending_ota_flag()) {
+            printk("flash-ota: pending flag set but OPENBHZD_OTA_APPLY_ENABLED=0 "
+                   "— clearing without apply (bench-gated path)\n");
+            (void)ota_stage_clear_pending();
+        }
+#endif
 
         event_log_init();
         event_log_set_boot_count((uint16_t)bc);

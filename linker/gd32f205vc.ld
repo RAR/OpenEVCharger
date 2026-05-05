@@ -85,6 +85,23 @@ SECTIONS
         _edata = .;
     } > RAM AT > FLASH
 
+    /* RAM-resident code. Used by the OTA apply path so the FMC erase /
+     * word-program sequence (and the orchestrator that drives it) runs
+     * entirely out of RAM, leaving the flash bus free to be erased.
+     * Loaded from flash at startup like .data, but executed from RAM.
+     * Vendor startup_gd32f20x_cl.S only knows how to copy .data — main()
+     * does the .ramfunc copy explicitly before invoking any function in
+     * this section. */
+    _siramfunc = LOADADDR(.ramfunc);
+    .ramfunc : {
+        . = ALIGN(4);
+        _sramfunc = .;
+        *(.ramfunc)
+        *(.ramfunc.*)
+        . = ALIGN(4);
+        _eramfunc = .;
+    } > RAM AT > FLASH
+
     .bss : {
         . = ALIGN(4);
         _sbss = .;

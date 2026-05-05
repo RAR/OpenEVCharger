@@ -68,6 +68,7 @@ set(APP_SRCS
     src/hal/gfci.c
     src/hal/bl0939.c
     src/hal/spi3.c
+    src/hal/flash.c
     src/hal/uart5.c
     src/hal/rfid.c
     src/hal/ws2812.c
@@ -191,6 +192,15 @@ endif()
 if(DEFINED OPENBHZD_GFCI_CAL_SELF_TEST)
     target_compile_definitions(${TARGET} PRIVATE
         OPENBHZD_GFCI_CAL_SELF_TEST=${OPENBHZD_GFCI_CAL_SELF_TEST})
+endif()
+# E9: pre-scheduler stage→flash OTA apply path. Default OFF — bench-
+# validate the .ramfunc copy + RAM-resident FMC erase/program against
+# a unit with SWD recovery available before enabling on a sealed
+# unit. With the flag off, a stale boot_config.pending_ota_flag is
+# logged and cleared without touching internal flash.
+if(DEFINED OPENBHZD_OTA_APPLY_ENABLED)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENBHZD_OTA_APPLY_ENABLED=${OPENBHZD_OTA_APPLY_ENABLED})
 endif()
 # Bench survey of FreeRTOS task stack high-water marks. Prints a single
 # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
