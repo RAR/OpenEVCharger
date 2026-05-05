@@ -1957,7 +1957,13 @@ static void safety_task_run(void *arg)
             .ntc1_dC           = 0,
             .ntc2_dC           = 0,
             .cc_max_amps       = decode_cc_amps(adc_scan_rank(ADC_RANK_CC)),
-            .ac_present        = 0,
+            /* AC presence: BL0939 V_RMS above the floor for the
+             * AC-absent detector. Threshold matches check_ac_absent
+             * (BL0939_V_RMS_AC_PRESENT_RAW). Reported even when the
+             * BL0939 reading is stale — `bl.valid` carries that. */
+            .ac_present        = (bl.valid &&
+                                  bl.v_rms >= BL0939_V_RMS_AC_PRESENT_RAW)
+                                    ? 1u : 0u,
             .pad               = 0,
             .fault_active_bits = fs.active_bits,
             .first_fault_id    = (uint32_t)fs.first_raised,
