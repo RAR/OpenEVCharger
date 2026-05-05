@@ -130,7 +130,7 @@ void gpio_log_straps(void)
     int pb8  = (gpio_input_bit_get(PIN_STRAP_PB8_PORT,  PIN_STRAP_PB8_PIN)  == SET) ? 1 : 0;
     int pe2  = (gpio_input_bit_get(PIN_STRAP_PE2_PORT,  PIN_STRAP_PE2_PIN)  == SET) ? 1 : 0;
     int pb14 = (gpio_input_bit_get(PIN_STRAP_PB14_PORT, PIN_STRAP_PB14_PIN) == SET) ? 1 : 0;
-    printk("STRAPS: dip=%d%d%d%d pb7=%d pb8=%d pe2=%d pb14=%d\n",
+    printk("straps: dip=%d%d%d%d pb7=%d pb8=%d pe2=%d pb14=%d\n",
            dip1, dip2, dip3, dip4, pb7, pb8, pe2, pb14);
 }
 

@@ -33,7 +33,7 @@ static void adc_dump(void)
 {
     uint16_t b[ADC_RANKS];
     adc_scan_latest(b);
-    printk("ADC: AC=%u NTC1=%u CT=%u LCT=%u CPR=%u CC=%u PE=%u "
+    printk("adc: AC=%u NTC1=%u CT=%u LCT=%u CPR=%u CC=%u PE=%u "
            "NTC2=%u UNUSED=%u BTN=%u VREF=%u\n",
            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10]);
 }
@@ -103,7 +103,7 @@ static void io_task_run(void *arg)
                 (void)safety_request_resume();
                 break;
             default:
-                printk("BTN top ignored (evse=%s)\n",
+                printk("btn: top ignored (evse=%s)\n",
                        evse_state_name((evse_state_t)s.evse_state));
                 break;
             }

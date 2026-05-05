@@ -184,7 +184,7 @@ void bl0939_smoke_test(void)
     /* Note: our printk doesn't support width specifiers like %-20s,
      * so keep the format simple — each spec consumes exactly one arg
      * and we don't rely on alignment. */
-    printk("BL0939 smoke (after soft reset):\n");
+    printk("bl0939: smoke (after soft reset):\n");
     for (size_t i = 0; i < sizeof(regs)/sizeof(regs[0]); ++i) {
         uint32_t v = 0;
         int rc = bl0939_read_register(regs[i].addr, &v);
@@ -192,5 +192,5 @@ void bl0939_smoke_test(void)
                regs[i].addr, regs[i].name, rc, (unsigned)v,
                (rc == 0) ? "" : " (CHECKSUM FAIL)");
     }
-    printk("BL0939 smoke: done\n");
+    printk("bl0939: smoke done\n");
 }

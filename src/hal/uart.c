@@ -1,6 +1,10 @@
 #include "uart.h"
 #include "core/pin_map.h"
+#include "core/system_time.h"
 #include "gd32f20x.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "portmacro.h"
 #include <stdarg.h>
 
 static volatile uint8_t s_uart_ready = 0;
@@ -107,12 +111,70 @@ static char *itoa_u(uint32_t v, char *buf, int base, int width, char pad)
     return buf;
 }
 
+/* Tick read that's safe both pre-scheduler and from ISRs.
+ * configTICK_RATE_HZ=1000 → ticks == ms. */
+static uint32_t tick_ms_now(void)
+{
+    if (xPortIsInsideInterrupt()) {
+        return (uint32_t)xTaskGetTickCountFromISR();
+    }
+    return (uint32_t)xTaskGetTickCount();
+}
+
+/* Emit a fixed-width timestamp prefix. Format depends on whether the
+ * software wall-clock has been seeded by HA over TLV:
+ *   pre-sync : "[ssss.mmm] "  (uptime, 11 chars)
+ *   post-sync: "[hh:mm:ss.mmm] "  (wall HH:MM:SS.mmm, 15 chars)
+ * Returns bytes written. */
+static char *fmt_u_pad(uint32_t v, char *buf, int width, char pad)
+{
+    char tmp[12];
+    int n = 0;
+    if (v == 0) tmp[n++] = '0';
+    while (v) { tmp[n++] = (char)('0' + (v % 10u)); v /= 10u; }
+    while (n < width) tmp[n++] = pad;
+    while (n--) *buf++ = tmp[n];
+    return buf;
+}
+
+static char *write_timestamp_prefix(char *o, char *end)
+{
+    uint32_t tick_ms = tick_ms_now();
+    if (o >= end) return o;
+    *o++ = '[';
+    if (system_time_is_set()) {
+        uint32_t unix_s = system_time_now(tick_ms);
+        uint32_t day_s  = unix_s % 86400u;
+        uint32_t hh     = day_s / 3600u;
+        uint32_t mm     = (day_s % 3600u) / 60u;
+        uint32_t ss     = day_s % 60u;
+        uint32_t frac   = tick_ms % 1000u;
+        o = fmt_u_pad(hh,   o, 2, '0'); if (o < end) *o++ = ':';
+        o = fmt_u_pad(mm,   o, 2, '0'); if (o < end) *o++ = ':';
+        o = fmt_u_pad(ss,   o, 2, '0'); if (o < end) *o++ = '.';
+        o = fmt_u_pad(frac, o, 3, '0');
+    } else {
+        uint32_t secs = tick_ms / 1000u;
+        uint32_t frac = tick_ms % 1000u;
+        o = fmt_u_pad(secs, o, 4, ' '); if (o < end) *o++ = '.';
+        o = fmt_u_pad(frac, o, 3, '0');
+    }
+    if (o < end) *o++ = ']';
+    if (o < end) *o++ = ' ';
+    return o;
+}
+
 int printk(const char *fmt, ...)
 {
     if (!s_uart_ready) return 0;
-    char out[160];
+    char out[176];
     char *o = out;
     char *end = out + sizeof(out) - 1;
+    /* Newline-only calls (e.g. printk("\n")) skip the prefix so blank
+     * separator lines stay blank. */
+    if (fmt[0] != '\n' || fmt[1] != '\0') {
+        o = write_timestamp_prefix(o, end);
+    }
     va_list ap;
     va_start(ap, fmt);
     while (*fmt && o < end) {

@@ -68,9 +68,9 @@ void buttons_poll(void)
         s_count = 1;
     }
     if (s_count >= DEBOUNCE_N && s_committed != s_candidate) {
-        if (s_committed != BTN_NONE) printk("BTN release %s\n", btn_name(s_committed));
+        if (s_committed != BTN_NONE) printk("btn: release %s\n", btn_name(s_committed));
         if (s_candidate != BTN_NONE) {
-            printk("BTN press %s (raw=%u)\n", btn_name(s_candidate), raw);
+            printk("btn: press %s (raw=%u)\n", btn_name(s_candidate), raw);
             s_pending_event = s_candidate;
         }
         s_committed = s_candidate;
@@ -86,7 +86,7 @@ void buttons_poll(void)
     }
     if (s_pc9_count >= DEBOUNCE_N && s_pc9_committed != s_pc9_candidate) {
         s_pc9_committed = s_pc9_candidate;
-        printk("BTN %s pc9\n", s_pc9_committed ? "press" : "release");
+        printk("btn: %s pc9\n", s_pc9_committed ? "press" : "release");
         if (s_pc9_committed) s_pending_event = BTN_PC9;
     }
 }

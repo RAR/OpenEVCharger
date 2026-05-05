@@ -483,7 +483,7 @@ static void apply_cp_for_state(evse_state_t es, j1772_state_t js)
 static void evse_transition(evse_state_t *cur, evse_state_t next)
 {
     if (*cur == next) return;
-    printk("EVSE state %s -> %s\n", evse_state_name(*cur), evse_state_name(next));
+    printk("evse: state %s -> %s\n", evse_state_name(*cur), evse_state_name(next));
 
     /* Session lifecycle around CHARGING entry/exit. */
     if (next == EVSE_CHARGING && *cur != EVSE_CHARGING) {
@@ -564,7 +564,7 @@ static void check_safe_fail(fault_state_t *fs, evse_state_t *es,
     if (crash_state_is_safe_fail() &&
         !fault_is_active(fs, FAULT_CRASH_LOOP_SAFE_FAIL)) {
         if (fault_raise(fs, FAULT_CRASH_LOOP_SAFE_FAIL) == 1) {
-            printk("FAULT raised: %s (first=%s)\n",
+            printk("fault: raised %s (first=%s)\n",
                    fault_name(FAULT_CRASH_LOOP_SAFE_FAIL),
                    fault_name(fs->first_raised));
             post_fault_event(FAULT_CRASH_LOOP_SAFE_FAIL, js, *es, cp_mv);
@@ -579,7 +579,7 @@ static void check_relay_weld(fault_state_t *fs, evse_state_t *es,
                              j1772_state_t js, int32_t cp_mv)
 {
     if (sensed_closed != *last_logged_sense) {
-        printk("relay sense: %s (cmd=%s)\n",
+        printk("relay: sense %s (cmd=%s)\n",
                sensed_closed ? "CLOSED" : "open",
                relay_main_commanded() ? "close" : "open");
         *last_logged_sense = sensed_closed;
@@ -594,7 +594,7 @@ static void check_relay_weld(fault_state_t *fs, evse_state_t *es,
     if (*weld_streak >= (int)WELD_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_RELAY_WELD)) {
         if (fault_raise(fs, FAULT_RELAY_WELD) == 1) {
-            printk("FAULT raised: %s (sensed closed for >=%u ms while open-cmd)\n",
+            printk("fault: raised %s (sensed closed for >=%u ms while open-cmd)\n",
                    fault_name(FAULT_RELAY_WELD),
                    (unsigned)(WELD_PERSIST_TICKS * SAFETY_TASK_PERIOD_MS));
             post_fault_event(FAULT_RELAY_WELD, js, *es, cp_mv);
@@ -761,7 +761,7 @@ static void check_relay_stuck_open(fault_state_t *fs, evse_state_t *es,
     if (*stuck_streak >= (int)STUCK_OPEN_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_RELAY_STUCK_OPEN)) {
         if (fault_raise(fs, FAULT_RELAY_STUCK_OPEN) == 1) {
-            printk("FAULT raised: %s (cmd=close, PB12=open >=%u ms)\n",
+            printk("fault: raised %s (cmd=close, PB12=open >=%u ms)\n",
                    fault_name(FAULT_RELAY_STUCK_OPEN),
                    (unsigned)(STUCK_OPEN_PERSIST_TICKS * SAFETY_TASK_PERIOD_MS));
             post_fault_event(FAULT_RELAY_STUCK_OPEN, js, *es, cp_mv);
@@ -792,7 +792,7 @@ static void update_evse_from_j1772(evse_state_t *es, j1772_state_t js,
      * session and (when require_rfid_auth is on) needs a fresh swipe. */
     if (js == J1772_STATE_A && s_session_authorized) {
         s_session_authorized = 0;
-        printk("RFID: session authorization cleared (J1772=A)\n");
+        printk("rfid: session authorization cleared (J1772=A)\n");
         publish_rfid_config();
     }
     if (*es == EVSE_USER_PAUSED) {
@@ -1035,7 +1035,7 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
     if (*cp_e_streak >= (int)CP_E_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_CP_NO_PILOT)) {
         if (fault_raise(fs, FAULT_CP_NO_PILOT) == 1) {
-            printk("FAULT raised: %s (J1772=E for >=%u ticks, cp=%d mV)\n",
+            printk("fault: raised %s (J1772=E for >=%u ticks, cp=%d mV)\n",
                    fault_name(FAULT_CP_NO_PILOT),
                    (unsigned)CP_E_PERSIST_TICKS, (int)cp_mv);
             post_fault_event(FAULT_CP_NO_PILOT, js, *es, cp_mv);
@@ -1074,7 +1074,7 @@ static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
     if (*pe_streak >= (int)PE_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_PE_CONTINUITY)) {
         if (fault_raise(fs, FAULT_PE_CONTINUITY) == 1) {
-            printk("FAULT raised: %s (PC5 raw=%u >%u for >=%u ticks)\n",
+            printk("fault: raised %s (PC5 raw=%u >%u for >=%u ticks)\n",
                    fault_name(FAULT_PE_CONTINUITY),
                    (unsigned)raw, (unsigned)PE_OK_RAW_MAX,
                    (unsigned)PE_PERSIST_TICKS);
@@ -1180,7 +1180,7 @@ static void check_cc_out_of_range(fault_state_t *fs, evse_state_t *es,
     if (*cc_streak >= (int)CC_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_CC_OUT_OF_RANGE)) {
         if (fault_raise(fs, FAULT_CC_OUT_OF_RANGE) == 1) {
-            printk("FAULT raised: %s (PA7 raw=%u out-of-band for >=%u ticks)\n",
+            printk("fault: raised %s (PA7 raw=%u out-of-band for >=%u ticks)\n",
                    fault_name(FAULT_CC_OUT_OF_RANGE),
                    (unsigned)raw, (unsigned)CC_PERSIST_TICKS);
             post_fault_event(FAULT_CC_OUT_OF_RANGE, js, *es, cp_mv);
@@ -1244,7 +1244,7 @@ static void check_adc_runtime(fault_state_t *fs, evse_state_t *es,
     if (*adc_streak >= (int)ADC_RUNTIME_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_ADC_OUT_OF_RANGE)) {
         if (fault_raise(fs, FAULT_ADC_OUT_OF_RANGE) == 1) {
-            printk("FAULT raised: %s (rank %u raw=%u for >=%u ticks)\n",
+            printk("fault: raised %s (rank %u raw=%u for >=%u ticks)\n",
                    fault_name(FAULT_ADC_OUT_OF_RANGE),
                    bad_rank, (unsigned)bad_raw,
                    (unsigned)ADC_RUNTIME_PERSIST_TICKS);
@@ -1278,7 +1278,7 @@ static void check_gfci(fault_state_t *fs, evse_state_t *es,
     if (*gfci_streak >= (int)GFCI_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_GFCI)) {
         if (fault_raise(fs, FAULT_GFCI) == 1) {
-            printk("FAULT raised: %s (PE2=LOW for >=%u ticks)\n",
+            printk("fault: raised %s (PE2=LOW for >=%u ticks)\n",
                    fault_name(FAULT_GFCI),
                    (unsigned)GFCI_PERSIST_TICKS);
             post_fault_event(FAULT_GFCI, js, *es, cp_mv);
@@ -1314,7 +1314,7 @@ static void check_ac_absent(fault_state_t *fs, evse_state_t *es,
         *streak = 0;
         if (fault_is_active(fs, FAULT_AC_ABSENT)) {
             if (fault_clear(fs, FAULT_AC_ABSENT) == 1) {
-                printk("FAULT cleared: AC_ABSENT (V_RMS raw=%u)\n",
+                printk("fault: cleared AC_ABSENT (V_RMS raw=%u)\n",
                        (unsigned)bl->v_rms);
             }
         }
@@ -1323,7 +1323,7 @@ static void check_ac_absent(fault_state_t *fs, evse_state_t *es,
     if (*streak >= BL0939_DETECTOR_PERSIST &&
         !fault_is_active(fs, FAULT_AC_ABSENT)) {
         if (fault_raise(fs, FAULT_AC_ABSENT) == 1) {
-            printk("FAULT raised: AC_ABSENT (V_RMS raw=%u, threshold=%u)\n",
+            printk("fault: raised AC_ABSENT (V_RMS raw=%u, threshold=%u)\n",
                    (unsigned)bl->v_rms, (unsigned)BL0939_V_RMS_AC_PRESENT_RAW);
             post_fault_event(FAULT_AC_ABSENT, js, *es, cp_mv);
         }
@@ -1363,7 +1363,7 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
     if (*streak >= BL0939_DETECTOR_PERSIST &&
         !fault_is_active(fs, FAULT_RELAY_WELD)) {
         if (fault_raise(fs, FAULT_RELAY_WELD) == 1) {
-            printk("FAULT raised: RELAY_WELD (mA=%u, cmd=open)\n",
+            printk("fault: raised RELAY_WELD (mA=%u, cmd=open)\n",
                    (unsigned)ma);
             post_fault_event(FAULT_RELAY_WELD, js, *es, cp_mv);
         }
@@ -1404,7 +1404,7 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
     if (*streak >= BL0939_DETECTOR_PERSIST &&
         !fault_is_active(fs, FAULT_RELAY_STUCK_OPEN)) {
         if (fault_raise(fs, FAULT_RELAY_STUCK_OPEN) == 1) {
-            printk("FAULT raised: RELAY_STUCK_OPEN (mA=%u, "
+            printk("fault: raised RELAY_STUCK_OPEN (mA=%u, "
                    "cmd=close, EVSE=CHARGING)\n", (unsigned)ma);
             post_fault_event(FAULT_RELAY_STUCK_OPEN, js, *es, cp_mv);
         }
@@ -1435,7 +1435,7 @@ static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
     if (*streak >= BL0939_DETECTOR_PERSIST &&
         !fault_is_active(fs, FAULT_HARD_OVER_CURRENT)) {
         if (fault_raise(fs, FAULT_HARD_OVER_CURRENT) == 1) {
-            printk("FAULT raised: HARD_OVER_CURRENT (mA=%u > %u)\n",
+            printk("fault: raised HARD_OVER_CURRENT (mA=%u > %u)\n",
                    (unsigned)ma, (unsigned)threshold_ma);
             post_fault_event(FAULT_HARD_OVER_CURRENT, js, *es, cp_mv);
         }
@@ -1481,7 +1481,7 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
         *streak = 0;
         if (fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
             if (fault_clear(fs, FAULT_SOFT_OVER_CURRENT) == 1) {
-                printk("FAULT cleared: SOFT_OVER_CURRENT (current %u mA back below %u mA)\n",
+                printk("fault: cleared SOFT_OVER_CURRENT (current %u mA back below %u mA)\n",
                        (unsigned)ma, (unsigned)threshold_ma);
                 uint32_t evt_id = (uint32_t)FAULT_SOFT_OVER_CURRENT;
                 (void)comms_publish_event(EVT_FAULT_CLEARED, &evt_id, sizeof evt_id);
@@ -1501,7 +1501,7 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
         uint8_t step = (adv >= 10u) ? (uint8_t)(adv / 10u) : 1u;
         s_soc_derate_amps = (uint8_t)(s_soc_derate_amps + step);
         uint8_t new_adv = effective_advertised_amps();
-        printk("SOC: ramp advertised %uA -> %uA (cur=%u mA, thr=%u mA, derate=%u)\n",
+        printk("soc: ramp advertised %uA -> %uA (cur=%u mA, thr=%u mA, derate=%u)\n",
                (unsigned)adv, (unsigned)new_adv,
                (unsigned)ma, (unsigned)threshold_ma,
                (unsigned)s_soc_derate_amps);
@@ -1511,7 +1511,7 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
 
     if (!fault_is_active(fs, FAULT_SOFT_OVER_CURRENT)) {
         if (fault_raise(fs, FAULT_SOFT_OVER_CURRENT) == 1) {
-            printk("FAULT raised: SOFT_OVER_CURRENT (at %uA floor, cur=%u mA still over %u mA)\n",
+            printk("fault: raised SOFT_OVER_CURRENT (at %uA floor, cur=%u mA still over %u mA)\n",
                    (unsigned)adv, (unsigned)ma, (unsigned)threshold_ma);
             post_fault_event(FAULT_SOFT_OVER_CURRENT, js, *es, cp_mv);
         }
@@ -1525,7 +1525,7 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
 static void clear_soc_derate_for_session_end(void)
 {
     if (s_soc_derate_amps != 0) {
-        printk("SOC: derate cleared (%uA -> 0) on session end\n",
+        printk("soc: derate cleared (%uA -> 0) on session end\n",
                (unsigned)s_soc_derate_amps);
         s_soc_derate_amps = 0;
     }
@@ -1570,7 +1570,7 @@ static void check_over_temp(fault_state_t *fs, evse_state_t *es,
 
     if (act.trip) {
         if (fault_raise(fs, FAULT_OVER_TEMP) == 1) {
-            printk("FAULT raised: OVER_TEMP (wall_raw=%u gun_raw=%u, "
+            printk("fault: raised OVER_TEMP (wall_raw=%u gun_raw=%u, "
                    "trip<=%u, sustained %ux ticks)\n",
                    (unsigned)ntc1_raw, (unsigned)gun_raw,
                    OT_TRIP_RAW, (unsigned)OT_PERSIST_TICKS);
@@ -1590,7 +1590,7 @@ static void check_over_temp(fault_state_t *fs, evse_state_t *es,
         }
     } else if (act.clear) {
         if (fault_clear(fs, FAULT_OVER_TEMP) == 1) {
-            printk("FAULT cleared: OVER_TEMP (wall_raw=%u gun_raw=%u, "
+            printk("fault: cleared OVER_TEMP (wall_raw=%u gun_raw=%u, "
                    "clear>=%u)\n",
                    (unsigned)ntc1_raw, (unsigned)gun_raw, OT_CLEAR_RAW);
         }
@@ -1664,7 +1664,7 @@ static void safety_task_run(void *arg)
     int st_fails = run_boot_self_test(cp_mv0);
     if (st_fails > 0 && !fault_is_active(&fs, FAULT_BOOT_SELF_TEST)) {
         if (fault_raise(&fs, FAULT_BOOT_SELF_TEST) == 1) {
-            printk("FAULT raised: %s (%d sub-check fails)\n",
+            printk("fault: raised %s (%d sub-check fails)\n",
                    fault_name(FAULT_BOOT_SELF_TEST), st_fails);
             post_fault_event(FAULT_BOOT_SELF_TEST, js0, es, cp_mv0);
         }
@@ -1678,7 +1678,7 @@ static void safety_task_run(void *arg)
     if (self_test_gfci_cal() != 0 &&
         !fault_is_active(&fs, FAULT_GFCI_SELF_TEST)) {
         if (fault_raise(&fs, FAULT_GFCI_SELF_TEST) == 1) {
-            printk("FAULT raised: %s (CAL pulse did not provoke sense)\n",
+            printk("fault: raised %s (CAL pulse did not provoke sense)\n",
                    fault_name(FAULT_GFCI_SELF_TEST));
             post_fault_event(FAULT_GFCI_SELF_TEST, js0, es, cp_mv0);
         }
@@ -1694,7 +1694,7 @@ static void safety_task_run(void *arg)
         if (relay_st == ST_RELAY_OPEN_AT_BOOT &&
             !fault_is_active(&fs, FAULT_RELAY_OPEN_AT_BOOT)) {
             if (fault_raise(&fs, FAULT_RELAY_OPEN_AT_BOOT) == 1) {
-                printk("FAULT raised: %s\n",
+                printk("fault: raised %s\n",
                        fault_name(FAULT_RELAY_OPEN_AT_BOOT));
                 post_fault_event(FAULT_RELAY_OPEN_AT_BOOT, js0, es, cp_mv0);
             }
@@ -1702,7 +1702,7 @@ static void safety_task_run(void *arg)
         } else if (relay_st == ST_RELAY_WELD_AT_BOOT &&
                    !fault_is_active(&fs, FAULT_RELAY_WELD_AT_BOOT)) {
             if (fault_raise(&fs, FAULT_RELAY_WELD_AT_BOOT) == 1) {
-                printk("FAULT raised: %s\n",
+                printk("fault: raised %s\n",
                        fault_name(FAULT_RELAY_WELD_AT_BOOT));
                 post_fault_event(FAULT_RELAY_WELD_AT_BOOT, js0, es, cp_mv0);
             }
@@ -1748,7 +1748,7 @@ static void safety_task_run(void *arg)
         j1772_state_t s = j1772_step(&cp, cp_mv, J1772_DEBOUNCE_N);
 
         if (s != last_logged_j1772 && s != J1772_STATE_INVALID) {
-            printk("J1772 state=%s cp=%d mV\n",
+            printk("j1772: state=%s cp=%d mV\n",
                    j1772_state_name(s), (int)cp_mv);
             last_logged_j1772 = s;
             uint8_t st = (uint8_t)s;
@@ -1863,7 +1863,7 @@ static void safety_task_run(void *arg)
                     } payload = { .uid = a.uid, .present = a.present };
                     (void)comms_publish_event(EVT_RFID_SWIPE,
                                               &payload, sizeof payload);
-                    printk("RFID: %s uid=0x%08x\n",
+                    printk("rfid: %s uid=0x%08x\n",
                            a.present ? "swipe" : "removed",
                            (unsigned)a.uid);
 
@@ -1875,11 +1875,11 @@ static void safety_task_run(void *arg)
                             s_rfid_learn_ticks = 0;
                             if (rfid_authlist_count() >= RFID_AUTHLIST_MAX) {
                                 result = RFID_AUTH_RESULT_LIST_FULL;
-                                printk("RFID: learn rejected — list full\n");
+                                printk("rfid: learn rejected — list full\n");
                             } else {
                                 (void)persist_post_rfid_authlist_add(a.uid);
                                 result = RFID_AUTH_RESULT_LEARNED;
-                                printk("RFID: learned uid=0x%08x\n",
+                                printk("rfid: learned uid=0x%08x\n",
                                        (unsigned)a.uid);
                             }
                         } else if (rfid_authlist_contains(a.uid)) {
@@ -1909,13 +1909,13 @@ static void safety_task_run(void *arg)
                                 result = RFID_AUTH_RESULT_MATCHED_NOOP;
                             }
                             if (!prior_auth) publish_rfid_config();
-                            printk("RFID: matched uid=0x%08x result=%u "
+                            printk("rfid: matched uid=0x%08x result=%u "
                                    "(EVSE=%s)\n",
                                    (unsigned)a.uid, (unsigned)result,
                                    evse_state_name(es));
                         } else {
                             result = RFID_AUTH_RESULT_REJECTED;
-                            printk("RFID: rejected uid=0x%08x\n",
+                            printk("rfid: rejected uid=0x%08x\n",
                                    (unsigned)a.uid);
                         }
                         struct __attribute__((packed)) {

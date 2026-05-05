@@ -84,11 +84,11 @@ int main(void)
     gpio_init_all();
     gpio_log_straps();
     adc_scan_init();
-    printk("ADC scan armed: 11 ranks @ ~3.6 kHz\n");
+    printk("adc: scan armed 11 ranks @ ~3.6 kHz\n");
     cp_pwm_init();
-    printk("CP PWM armed: TIMER0 1 kHz, PE13 idle HIGH\n");
+    printk("cp: PWM armed TIMER0 1 kHz, PE13 idle HIGH\n");
     adc_inject_init();
-    printk("CP injected ADC armed: PA4 sampled on each PWM rising edge\n");
+    printk("cp: injected ADC armed PA4 sampled on each PWM rising edge\n");
 
 #if defined(OPENBHZD_BL0939_SMOKE) && OPENBHZD_BL0939_SMOKE
     /* One-shot bench probe: bit-bang SPI to U11 (BL0939) and log
@@ -103,9 +103,9 @@ int main(void)
 
     spi3_init();
     if (w25q_init() != 0) {
-        printk("W25Q: JEDEC init FAIL — boot_count not persisted\n");
+        printk("w25q: JEDEC init FAIL — boot_count not persisted\n");
     } else {
-        printk("W25Q: JEDEC ID = 0x%06x\n", (unsigned)w25q_jedec_id());
+        printk("w25q: JEDEC ID = 0x%06x\n", (unsigned)w25q_jedec_id());
 
 #if defined(OPENBHZD_BENCH_CRASH_RESET) && OPENBHZD_BENCH_CRASH_RESET
         /* One-shot recovery: erase crash_state ping-pong sectors so
@@ -115,11 +115,11 @@ int main(void)
         extern int w25q_erase_sector(uint32_t addr);
         w25q_erase_sector(0x04D000U);
         w25q_erase_sector(0x04E000U);
-        printk("BENCH: crash_state sectors erased (one-shot)\n");
+        printk("bench: crash_state sectors erased (one-shot)\n");
 #endif
         uint32_t bc = boot_count_increment();
-        if (bc == 0xFFFFFFFFu) printk("W25Q: boot_count write FAIL\n");
-        else                   printk("boot_count = %u\n", (unsigned)bc);
+        if (bc == 0xFFFFFFFFu) printk("w25q: boot_count write FAIL\n");
+        else                   printk("boot_count: %u\n", (unsigned)bc);
 
         if (boot_config_load() < 0) {
             printk("boot_config: load failed; defaults uninitialised\n");
@@ -173,7 +173,7 @@ int main(void)
      * ltchiptool's handshake. Slide DIP4 back open + power-cycle
      * to resume normal TLV traffic. */
     if (gpio_dip4_held()) {
-        printk("MODE: FC41D flash (DIP4 held) — comms_task suppressed\n");
+        printk("mode: FC41D flash (DIP4 held) — comms_task suppressed\n");
         fc41d_flash_helper_create();
     } else {
         /* Normal mode: power up the FC41D and release reset so its
@@ -183,12 +183,12 @@ int main(void)
         gpio_bit_set(PIN_FC41D_VEN_PORT, PIN_FC41D_VEN_PIN);
         for (volatile int i = 0; i < 600000; ++i) { __asm__ volatile (""); }
         gpio_bit_set(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN);
-        printk("FC41D: VEN=1 CEN=1 — module released\n");
+        printk("fc41d: VEN=1 CEN=1 — module released\n");
         comms_task_create();
     }
     persist_task_create();
 
-    printk("scheduler starting\n");
+    printk("boot: scheduler starting\n");
     vTaskStartScheduler();
 
     /* Should never return. If we get here, the scheduler ran out of
