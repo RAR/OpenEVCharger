@@ -195,7 +195,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   uint8_t send_write_bl0939_cal(int16_t v_uv_per_raw,
                                 int16_t ia_ua_per_raw,
                                 int16_t ib_ua_per_raw,
-                                int16_t pa_mw_per_raw);
+                                int16_t pa_uw_per_raw);
   // Convenience: ship the four per-chassis scales already loaded from
   // YAML over to the MCU. Clamps to int16 range. Lets HA "Push BL0939
   // Calibration" button persist the YAML-configured values without
@@ -315,7 +315,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   void set_bl0939_v_uv_per_raw(int32_t s) { bl0939_v_uv_per_raw_ = s; }
   void set_bl0939_ia_ua_per_raw(int32_t s) { bl0939_ia_ua_per_raw_ = s; }
   void set_bl0939_ib_ua_per_raw(int32_t s) { bl0939_ib_ua_per_raw_ = s; }
-  void set_bl0939_pa_mw_per_raw(int32_t s) { bl0939_pa_mw_per_raw_ = s; }
+  void set_bl0939_pa_uw_per_raw(int32_t s) { bl0939_pa_uw_per_raw_ = s; }
 #endif
 #ifdef USE_BINARY_SENSOR
   void set_link_up_bsensor(binary_sensor::BinarySensor *s) { link_up_bsensor_ = s; }
@@ -425,7 +425,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   int32_t bl0939_v_uv_per_raw_{0};
   int32_t bl0939_ia_ua_per_raw_{0};
   int32_t bl0939_ib_ua_per_raw_{0};
-  int32_t bl0939_pa_mw_per_raw_{0};
+  int32_t bl0939_pa_uw_per_raw_{0};
 #endif
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *link_up_bsensor_{nullptr};

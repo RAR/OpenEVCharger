@@ -359,7 +359,7 @@ enum st_relay_result {
  * CHARGING→{anything else} transitions. Energy delivered is integrated
  * from BL0939 active-power readings each poll cycle (gated on the
  * relay being commanded closed). When the BL0939 chassis scale is
- * uncalibrated (calibration_bl0939_pa_mw_per_raw == 0), the
+ * uncalibrated (calibration_bl0939_pa_uw_per_raw == 0), the
  * accumulator stays 0 — uncalibrated chargers report no kWh rather
  * than spurious totals. */
 typedef enum {
@@ -1424,12 +1424,16 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
     if (!bl->valid) return;
     int16_t scale = calibration_bl0939_ia_ua_per_raw();
     if (scale <= 0) { *streak = 0; return; }
-    /* Real-amps threshold: any current ≥ 100 mA flowing through the
-     * contactor while we commanded it open is a weld. 100 mA is well
-     * above any realistic noise/leakage floor and well below a real
-     * EV load. */
+    /* Real-amps threshold: any current ≥ 500 mA flowing through the
+     * contactor while we commanded it open is a weld. 500 mA is well
+     * above the bench-observed ~44 mA BL0939 noise floor AND above
+     * the load-capacitance discharge transient (bench-observed ~121
+     * mA for ~1 s after opening on a 10 A current-pull plug, 2026-05-06)
+     * — but still ~24× below the smallest realistic EV load (6 A min).
+     * 100 mA was too tight and caused a spurious fault on pause from
+     * a 10 A bench session. */
     uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
-    int sensing_flow = (ma >= 100u);
+    int sensing_flow = (ma >= 500u);
     if (sensing_flow && !relay_main_commanded()) {
         if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
     } else {
@@ -1916,20 +1920,23 @@ static void safety_task_run(void *arg)
             /* Energy integration: only count power flow while we're
              * actively driving the contactor (avoids integrating noise
              * across READY / USER_PAUSED / FAULT stretches). bl.a_watt
-             * is BL0939's signed channel-A active power; with a
-             * non-zero chassis scale it converts to mW. Negative power
-             * (back-flow) is dropped so fluctuations around zero don't
-             * artificially deplete the accumulator. Integration window
-             * is the BL0939 poll period = BL0939_POLL_TICKS ×
-             * SAFETY_TASK_PERIOD_MS = 400 ms. */
+             * is BL0939's signed channel-A active power; pa_scale is
+             * µW/raw (may be NEGATIVE on inverted-sense PCBs — sign
+             * carries through, so a properly-calibrated negative
+             * pa_scale × negative a_watt gives positive power for a
+             * load). Negative product means back-flow (or sign-mis-cal)
+             * — dropped, same semantic as before the unit switch.
+             * Integration window is the BL0939 poll period =
+             * BL0939_POLL_TICKS × SAFETY_TASK_PERIOD_MS = 400 ms.
+             * Divisor is 1e6 (µW × ms / 1e6 = mWs). */
             if (s_session.active && relay_main_commanded()) {
-                int16_t pa_scale = calibration_bl0939_pa_mw_per_raw();
-                if (pa_scale > 0) {
-                    int64_t mw = (int64_t)bl.a_watt * (int64_t)pa_scale;
-                    if (mw > 0) {
+                int16_t pa_scale = calibration_bl0939_pa_uw_per_raw();
+                if (pa_scale != 0) {
+                    int64_t uw = (int64_t)bl.a_watt * (int64_t)pa_scale;
+                    if (uw > 0) {
                         s_session.mws_accum +=
-                            (mw * (int64_t)BL0939_POLL_TICKS *
-                                 (int64_t)SAFETY_TASK_PERIOD_MS) / 1000;
+                            (uw * (int64_t)BL0939_POLL_TICKS *
+                                 (int64_t)SAFETY_TASK_PERIOD_MS) / 1000000;
                     }
                 }
             }
@@ -2043,7 +2050,32 @@ static void safety_task_run(void *arg)
             .contactor_cmd     = (uint8_t)relay_main_commanded(),
             .cp_high_mv        = (int16_t)cp_mv,
             .cp_low_mv         = (int16_t)cp_low_mv(),
-            .active_amps_x10   = 0,
+            /* active_amps_x10: BL0939 IA × cal scale → tenths-of-amps.
+             * Single-CT hardware on this PCB (IB unwired); the OEM
+             * routes BOTH 240 V legs through the one CT (user-confirmed
+             * 2026-05-06). For a balanced 240 V split-phase EV load
+             * (L1+L2 of equal magnitude, 180° out of phase) the CT
+             * may sum to ~0 — needs re-validation against a real
+             * 240 V EV before the metering can be trusted in
+             * production. The bench-tester current-pull plug runs
+             * single-leg, which is why F1 cal could fit cleanly.
+             * Stays 0 until ia_ua_per_raw is calibrated (factory
+             * default 0 = uncalibrated).
+             * Computation: raw [count] × scale [µA/raw] = µA; /100000
+             * = amps × 10. Sign-tolerant for inverted-sense channels
+             * (matches the pa_uw_per_raw pattern). u16 range caps at
+             * 6553.5 A — well above any real EV load. */
+            .active_amps_x10   = ({
+                int16_t _ia_scale = calibration_bl0939_ia_ua_per_raw();
+                uint16_t _ax10 = 0;
+                if (_ia_scale != 0 && bl.valid) {
+                    int64_t _ua = (int64_t)bl.ia_rms * (int64_t)_ia_scale;
+                    if (_ua < 0) _ua = -_ua;
+                    int64_t _v = _ua / 100000;
+                    _ax10 = (_v > 65535) ? 65535u : (uint16_t)_v;
+                }
+                _ax10;
+            }),
             .ntc1_dC           = 0,
             .ntc2_dC           = 0,
             .cc_max_amps       = decode_cc_amps(adc_scan_rank(ADC_RANK_CC)),

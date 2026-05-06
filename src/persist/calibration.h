@@ -33,7 +33,15 @@ struct __attribute__((packed)) calibration {
     int16_t  bl0939_v_uv_per_raw;       /* V_RMS raw × this = mains µV */
     int16_t  bl0939_ia_ua_per_raw;      /* IA_RMS raw × this = mains µA */
     int16_t  bl0939_ib_ua_per_raw;      /* IB_RMS raw × this = mains µA */
-    int16_t  bl0939_pa_mw_per_raw;      /* A_WATT raw × this = mains mW */
+    int16_t  bl0939_pa_uw_per_raw;      /* A_WATT raw × this = mains µW
+                                         * (matches v_uv_per_raw, ia_ua_per_raw).
+                                         * May be NEGATIVE on boards where the
+                                         * current-sense direction inverts
+                                         * BL0939's expected polarity — sign
+                                         * carries through; consumers gate on
+                                         * != 0 (not > 0) and abs() the result
+                                         * when accumulating positive-only
+                                         * energy. */
     uint8_t  reserved[6];
     uint32_t crc32;                     /* helper-managed */
 };
@@ -62,13 +70,13 @@ int32_t calibration_cp_slope_den(void);
 int16_t calibration_bl0939_v_uv_per_raw(void);
 int16_t calibration_bl0939_ia_ua_per_raw(void);
 int16_t calibration_bl0939_ib_ua_per_raw(void);
-int16_t calibration_bl0939_pa_mw_per_raw(void);
+int16_t calibration_bl0939_pa_uw_per_raw(void);
 
 /* Replace the BL0939 chassis scales and persist. Idempotent if all
  * four fields match. Returns 0 on success, <0 on error. */
 int calibration_set_bl0939(int16_t v_uv_per_raw,
                            int16_t ia_ua_per_raw,
                            int16_t ib_ua_per_raw,
-                           int16_t pa_mw_per_raw);
+                           int16_t pa_uw_per_raw);
 
 #endif

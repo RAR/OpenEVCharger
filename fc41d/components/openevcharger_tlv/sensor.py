@@ -55,7 +55,7 @@ CONF_OTA_PROGRESS = "ota_progress"
 CONF_BL0939_V_UV_PER_RAW = "bl0939_v_uv_per_raw"
 CONF_BL0939_IA_UA_PER_RAW = "bl0939_ia_ua_per_raw"
 CONF_BL0939_IB_UA_PER_RAW = "bl0939_ib_ua_per_raw"
-CONF_BL0939_PA_MW_PER_RAW = "bl0939_pa_mw_per_raw"
+CONF_BL0939_PA_UW_PER_RAW = "bl0939_pa_uw_per_raw"
 
 UNIT_MILLIVOLT = "mV"
 
@@ -196,7 +196,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_BL0939_V_UV_PER_RAW, default=0): cv.int_,
         cv.Optional(CONF_BL0939_IA_UA_PER_RAW, default=0): cv.int_,
         cv.Optional(CONF_BL0939_IB_UA_PER_RAW, default=0): cv.int_,
-        cv.Optional(CONF_BL0939_PA_MW_PER_RAW, default=0): cv.int_,
+        cv.Optional(CONF_BL0939_PA_UW_PER_RAW, default=0): cv.int_,
     }
 )
 
@@ -234,7 +234,7 @@ _SCALE_SETTERS = {
     CONF_BL0939_V_UV_PER_RAW: "set_bl0939_v_uv_per_raw",
     CONF_BL0939_IA_UA_PER_RAW: "set_bl0939_ia_ua_per_raw",
     CONF_BL0939_IB_UA_PER_RAW: "set_bl0939_ib_ua_per_raw",
-    CONF_BL0939_PA_MW_PER_RAW: "set_bl0939_pa_mw_per_raw",
+    CONF_BL0939_PA_UW_PER_RAW: "set_bl0939_pa_uw_per_raw",
 }
 
 

@@ -244,13 +244,49 @@ sensor:
     #   bl0939_v_uv_per_raw = round(meter_mV * 1000 / V_RMS_raw)
     bl0939_v_uv_per_raw: 58
     # Current / power scales need a known load to fit (no-load IA_RMS
-    # has a bias offset). Stay 0 = uncalibrated until a 1 A reference
-    # load is on the bench. Solve from the load-cycle reading:
+    # has a bias offset). Solve from the load-cycle reading:
     #   bl0939_ia_ua_per_raw = round(meter_mA * 1000 / IA_RMS_raw)
-    #   bl0939_pa_mw_per_raw = round(meter_W   * 1000 / A_WATT_raw)
-    bl0939_ia_ua_per_raw: 0
+    #   bl0939_pa_uw_per_raw = round(meter_W  * 1e6 / A_WATT_raw)
+    #
+    # F1 cal 2026-05-06 against an EVSE-tester current-pull plug, three
+    # points (6 / 8 / 10 A). All three round to the same ia_ua_per_raw
+    # (6.94 / 6.99 / 7.03 µA/raw), so the i16 quantisation absorbs the
+    # spread cleanly. Residual ±0.05 A across the 6–10 A range — fine
+    # for the BL0939-gated safety detectors (1.25× / 1.05× margins).
+    #
+    # A_WATT raw is signed-NEGATIVE on this PCB (current-sense direction
+    # opposite the BL0939 expectation) — pa_uw_per_raw carries that sign
+    # so raw × scale / 1e6 = positive watts. Unit is µW/raw (matching
+    # V's µV/raw and IA's µA/raw) — earlier mW/raw choice quantised to
+    # i16 with ~16% error since the actual scale is ~2.575 mW/raw.
+    # i16 µW/raw range is ±32767 µW/raw, plenty of room.
+    #
+    # IB stays 0: the second BL0939 current channel reads zero across
+    # all loads on this PCB — single-CT hardware, IB pin not wired.
+    # mains_current_a publishing is gated on ia_ua_per_raw != 0 only.
+    bl0939_ia_ua_per_raw: 7
     bl0939_ib_ua_per_raw: 0
-    bl0939_pa_mw_per_raw: 0
+    bl0939_pa_uw_per_raw: -2575
+
+  # Power-in-kW shim for OCPP. The esphome-ocpp-server external
+  # component assumes ESPHome power sensors report in kW and multiplies
+  # by 1000 when forwarding to OCPP (which wants W). Our active_power
+  # sensor reports W (BL0939-derived), so the OCPP layer would publish
+  # 1000× too high (bench-tripped 2026-05-06: 1183 W → 1,196,566 W in
+  # the MeterValues frame). This template sensor wraps active_power in
+  # kW so the OCPP-side ×1000 lands at the correct W value.
+  # Internal-only — HA still sees Active Power in W via active_power_sensor.
+  - platform: template
+    id: active_power_kw_for_ocpp
+    name: "Active Power (kW shim, internal)"
+    internal: true
+    unit_of_measurement: kW
+    accuracy_decimals: 4
+    update_interval: 1s
+    lambda: |-
+      auto v = id(active_power_sensor).state;
+      if (std::isnan(v)) return 0.0f;
+      return v / 1000.0f;
 
   - platform: wifi_signal
     name: "WiFi Signal"
@@ -566,7 +602,7 @@ ocpp:
   meter_values:
     voltage: mains_voltage_sensor
     current: mains_current_a_sensor
-    power: active_power_sensor
+    power: active_power_kw_for_ocpp
     energy: session_kwh_sensor
     # Bind Set Advertised Amps → Current.Offered. The OCPP component
     # auto-computes Power.Offered = current_offered × voltage when both

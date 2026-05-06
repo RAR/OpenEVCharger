@@ -711,8 +711,13 @@ void OpenevchargerTlv::publish_state_() {
       double a = double(s.bl0939_ib_rms) * double(bl0939_ib_ua_per_raw_) / 1.0e6;
       mains_current_b_sensor_->publish_state(float(a));
     }
-    if (active_power_sensor_ && bl0939_pa_mw_per_raw_ != 0) {
-      double w = double(s.bl0939_a_watt) * double(bl0939_pa_mw_per_raw_) / 1.0e3;
+    if (active_power_sensor_ && bl0939_pa_uw_per_raw_ != 0) {
+      // pa_uw_per_raw is µW per raw count; signed to handle inverted-
+      // sense PCBs (the ROC001 reads A_WATT negative because the CT
+      // direction is opposite BL0939's expectation — bench-confirmed
+      // 2026-05-06). Sign carries through the multiplication, so the
+      // published watts value is sign-correct without an abs() here.
+      double w = double(s.bl0939_a_watt) * double(bl0939_pa_uw_per_raw_) / 1.0e6;
       active_power_sensor_->publish_state(float(w));
     }
     // Mains frequency is reported directly by the BL0939 — no per-
@@ -1008,7 +1013,7 @@ uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
   return send_write_bl0939_cal(clamp_i16(bl0939_v_uv_per_raw_),
                                clamp_i16(bl0939_ia_ua_per_raw_),
                                clamp_i16(bl0939_ib_ua_per_raw_),
-                               clamp_i16(bl0939_pa_mw_per_raw_));
+                               clamp_i16(bl0939_pa_uw_per_raw_));
 #else
   return 0;
 #endif

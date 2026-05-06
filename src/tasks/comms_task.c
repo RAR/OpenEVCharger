@@ -214,7 +214,7 @@ static void handle_write_bl0939_cal(const uint8_t *p, size_t plen)
      *   i16 bl0939_v_uv_per_raw
      *   i16 bl0939_ia_ua_per_raw
      *   i16 bl0939_ib_ua_per_raw
-     *   i16 bl0939_pa_mw_per_raw
+     *   i16 bl0939_pa_uw_per_raw  (sign carries on inverted-sense PCBs)
      * 0 in any slot means "uncalibrated" — the detectors gated on
      * IA scale stay silent and the FC41D-side engineering-unit
      * sensors stay unpublished. */

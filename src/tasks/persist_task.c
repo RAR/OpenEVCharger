@@ -48,7 +48,7 @@ struct __attribute__((packed)) bl0939_cal_args {
     int16_t v_uv_per_raw;
     int16_t ia_ua_per_raw;
     int16_t ib_ua_per_raw;
-    int16_t pa_mw_per_raw;
+    int16_t pa_uw_per_raw;
 };
 
 struct __attribute__((packed)) get_fault_log_args {
@@ -190,14 +190,14 @@ int persist_post_calibration(int16_t anchor_raw,
 int persist_post_bl0939_cal(int16_t v_uv_per_raw,
                             int16_t ia_ua_per_raw,
                             int16_t ib_ua_per_raw,
-                            int16_t pa_mw_per_raw)
+                            int16_t pa_uw_per_raw)
 {
     struct persist_req req;
     req.type = PERSIST_REQ_BL0939_CAL;
     req.payload.bl0939_cal.v_uv_per_raw  = v_uv_per_raw;
     req.payload.bl0939_cal.ia_ua_per_raw = ia_ua_per_raw;
     req.payload.bl0939_cal.ib_ua_per_raw = ib_ua_per_raw;
-    req.payload.bl0939_cal.pa_mw_per_raw = pa_mw_per_raw;
+    req.payload.bl0939_cal.pa_uw_per_raw = pa_uw_per_raw;
     return post(&req);
 }
 
@@ -593,7 +593,7 @@ static void persist_task_run(void *arg)
                 (void)calibration_set_bl0939(req.payload.bl0939_cal.v_uv_per_raw,
                                              req.payload.bl0939_cal.ia_ua_per_raw,
                                              req.payload.bl0939_cal.ib_ua_per_raw,
-                                             req.payload.bl0939_cal.pa_mw_per_raw);
+                                             req.payload.bl0939_cal.pa_uw_per_raw);
                 break;
             case PERSIST_REQ_GET_FAULT_LOG:
                 handle_get_fault_log(req.payload.fault_log.max_count,

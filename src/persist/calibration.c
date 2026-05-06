@@ -27,20 +27,20 @@ int16_t calibration_bl0939_ib_ua_per_raw(void)
 {
     return s_cal.bl0939_ib_ua_per_raw;
 }
-int16_t calibration_bl0939_pa_mw_per_raw(void)
+int16_t calibration_bl0939_pa_uw_per_raw(void)
 {
-    return s_cal.bl0939_pa_mw_per_raw;
+    return s_cal.bl0939_pa_uw_per_raw;
 }
 
 int calibration_set_bl0939(int16_t v_uv_per_raw,
                            int16_t ia_ua_per_raw,
                            int16_t ib_ua_per_raw,
-                           int16_t pa_mw_per_raw)
+                           int16_t pa_uw_per_raw)
 {
     if (s_cal.bl0939_v_uv_per_raw  == v_uv_per_raw  &&
         s_cal.bl0939_ia_ua_per_raw == ia_ua_per_raw &&
         s_cal.bl0939_ib_ua_per_raw == ib_ua_per_raw &&
-        s_cal.bl0939_pa_mw_per_raw == pa_mw_per_raw) {
+        s_cal.bl0939_pa_uw_per_raw == pa_uw_per_raw) {
         return 0;
     }
 
@@ -48,7 +48,7 @@ int calibration_set_bl0939(int16_t v_uv_per_raw,
     s_cal.bl0939_v_uv_per_raw  = v_uv_per_raw;
     s_cal.bl0939_ia_ua_per_raw = ia_ua_per_raw;
     s_cal.bl0939_ib_ua_per_raw = ib_ua_per_raw;
-    s_cal.bl0939_pa_mw_per_raw = pa_mw_per_raw;
+    s_cal.bl0939_pa_uw_per_raw = pa_uw_per_raw;
 
     uint8_t  slot = 0;
     uint32_t counter = 0;
@@ -59,10 +59,10 @@ int calibration_set_bl0939(int16_t v_uv_per_raw,
         return rc;
     }
     printk("calibration: BL0939 stored -> slot %c (counter=%u, "
-           "v=%d uV/raw, ia=%d uA/raw, ib=%d uA/raw, pa=%d mW/raw)\n",
+           "v=%d uV/raw, ia=%d uA/raw, ib=%d uA/raw, pa=%d uW/raw)\n",
            'A' + slot, (unsigned)counter,
            (int)v_uv_per_raw, (int)ia_ua_per_raw,
-           (int)ib_ua_per_raw, (int)pa_mw_per_raw);
+           (int)ib_ua_per_raw, (int)pa_uw_per_raw);
     return 0;
 }
 
