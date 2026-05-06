@@ -145,6 +145,18 @@ static void publish_rfid_config(void);
  * transients and the chip's own 400-800 ms RMS update window. */
 #define BL0939_DETECTOR_PERSIST  3U
 
+/* STUCK_OPEN needs a longer debounce than WELD/AC_ABSENT/OC because
+ * it's a "startup" condition: relay closes, EV needs time to ramp
+ * its current draw past the 500 mA detector threshold. Real EVs
+ * typically engage within ~500 ms but bench testers with manual
+ * load-current step controls (e.g. EVSE-tester current-pull plug,
+ * 2026-05-06) take longer. 8 polls × 400 ms = 3.2 s settle window;
+ * a real stuck contactor doesn't go away so the extra latency is
+ * acceptable. WELD stays at 3 polls because welds are detected
+ * AFTER the relay opens (no ramp grace needed) and faster fault
+ * latching is safer there. */
+#define BL0939_STUCK_OPEN_PERSIST 8U
+
 /* AC presence threshold — V_RMS *raw* below this means the chip is
  * not seeing mains. Bench reading at 120 V was 0x208cae (≈ 2.13 M);
  * 0x080000 (≈ 524 k) is well below any plausible mains and well
@@ -1476,11 +1488,11 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
      * floor that won't trip on idle pre-charge currents. */
     uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
     if (ma < 500u) {
-        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+        if (*streak < BL0939_STUCK_OPEN_PERSIST) ++(*streak);
     } else {
         *streak = 0;
     }
-    if (*streak >= BL0939_DETECTOR_PERSIST &&
+    if (*streak >= BL0939_STUCK_OPEN_PERSIST &&
         !fault_is_active(fs, FAULT_RELAY_STUCK_OPEN)) {
         if (fault_raise(fs, FAULT_RELAY_STUCK_OPEN) == 1) {
             printk("fault: raised RELAY_STUCK_OPEN (mA=%u, "
