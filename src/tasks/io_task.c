@@ -122,13 +122,20 @@ static void io_task_run(void *arg)
         if (!charging_now && prev_charging) buzzer_set_pattern(BUZ_SESSION_END);
         prev_charging = charging_now;
 
-        if (s.fault_active_bits && !prev_fault) {
-            int gfci = (s.fault_active_bits >> FAULT_GFCI) & 1u;
+        /* Buzzer alerts on the rising edge of LATCHED faults only. Self-
+         * clearing/informational faults (SOFT_OVER_CURRENT post-derate,
+         * AC_ABSENT brief glitch, CP_REGRESSION graceful C→B, etc.) are
+         * logged but don't halt charging, so beeping on them would be
+         * misleading. prev_fault tracks the masked value too so the
+         * rising/falling-edge detection lines up with the new semantic. */
+        uint32_t alerting_bits = s.fault_active_bits & FAULT_LATCHED_MASK;
+        if (alerting_bits && !prev_fault) {
+            int gfci = (alerting_bits >> FAULT_GFCI) & 1u;
             buzzer_set_pattern(gfci ? BUZ_FAULT_GFCI : BUZ_FAULT_NON_GFCI);
-        } else if (!s.fault_active_bits && prev_fault) {
+        } else if (!alerting_bits && prev_fault) {
             buzzer_set_pattern(BUZ_OFF);
         }
-        prev_fault = s.fault_active_bits;
+        prev_fault = alerting_bits;
         prev_evse  = (evse_state_t)s.evse_state;
         (void)prev_evse;
 

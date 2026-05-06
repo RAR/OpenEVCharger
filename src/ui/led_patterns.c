@@ -105,10 +105,15 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
     }
 
     /* Faults take priority over EVSE state.  Spec § 7:
-     *   any fault: red flash 2 Hz
-     *   GFCI:      red flash 5 Hz */
-    if (in->fault_active_bits) {
-        int gfci = (in->fault_active_bits >> FAULT_GFCI) & 1u;
+     *   any latched fault: red flash 2 Hz
+     *   GFCI:              red flash 5 Hz
+     * Self-clearing/informational faults (SOFT_OVER_CURRENT post-derate,
+     * AC_ABSENT brief glitch, CP_REGRESSION graceful end-of-charge, etc.)
+     * do NOT alert the user — they're logged but don't halt charging,
+     * so red-flashing on them would be misleading. */
+    uint32_t alerting_bits = in->fault_active_bits & FAULT_LATCHED_MASK;
+    if (alerting_bits) {
+        int gfci = (alerting_bits >> FAULT_GFCI) & 1u;
         uint8_t v = flash(t_ms, gfci ? 200u : 500u);
         fill_all(v, 0, 0, in->brightness_pct);
         ws2812_show();

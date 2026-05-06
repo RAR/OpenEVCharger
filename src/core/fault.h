@@ -38,6 +38,16 @@ typedef enum {
 
 #define FAULT_FIRST_SELF_CLEARING  FAULT_OVER_TEMP
 
+/* Bitmask of latched fault ids — those that halt charging and require
+ * intervention to clear. Used by the UI layer to gate red-flash LED +
+ * buzzer alerts so self-clearing/informational faults (SOFT_OVER_CURRENT
+ * post-derate, AC_ABSENT during a brief mains glitch, CP_REGRESSION on
+ * graceful end-of-charge, etc.) don't beep + flash red on the user.
+ * Bit 0 is unused (FAULT_NONE), bits 14-15 are gaps in the enum, and
+ * the mask deliberately excludes both. */
+#define FAULT_LATCHED_MASK \
+    (((1u << FAULT_FIRST_SELF_CLEARING) - 1u) & ~1u)
+
 typedef struct {
     uint32_t   active_bits;       /* bit n = fault id n is currently raised */
     fault_id_t first_raised;      /* first fault that drove the EVSE into FAULT */
