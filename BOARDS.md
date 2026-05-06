@@ -22,9 +22,11 @@ above the HAL should compile unchanged.
 
 - **Nexcyber NECS-ACW family.** Different OEM, different MCU
   (Nations N32G45x), different Wi-Fi module (Tuya WBR2 / RTL8720CF
-  AmebaZ2). Some Tuya DP-map overlap on the comms side but the
-  hardware is not interchangeable with Rippleon ROC. Hardware on
-  hand; port not started.
+  AmebaZ2), and a different cloud architecture — Nexcyber is a stock
+  Tuya device (Tuya cloud directly via the WBR2), whereas Rippleon
+  runs a custom OCPP/REST backend behind the FC41D. Not
+  interchangeable with Rippleon ROC. Hardware on hand; port not
+  started.
 
 If you have an EVSE PCB you'd like to add, open an issue with:
 
