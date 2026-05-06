@@ -126,6 +126,13 @@ target_include_directories(${TARGET} PRIVATE
 target_compile_definitions(${TARGET} PRIVATE
     GD32F20X_CL=1
     HXTAL_VALUE=8000000
+    # F3 bench-validated 2026-05-06 (iter 3, 500 ms pulse + 1000 ms
+    # recover). Bench unit chip is slow (~370 ms latch latency post
+    # CAL release, ~270 ms hold, clean self-release). On-boot self-
+    # test now runs the polarity-agnostic CAL pulse via gfci_self_test
+    # and routes a failure to FAULT_GFCI_SELF_TEST. See src/hal/gfci.c
+    # for timing rationale.
+    OPENEVCHARGER_GFCI_CAL_SELF_TEST=1
 )
 
 # Bench-time options. Default OFF unless explicitly passed via cmake.
