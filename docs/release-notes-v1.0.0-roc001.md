@@ -1,7 +1,7 @@
 # OpenEVCharger v1.0.0-roc001 — release notes (DRAFT)
 
 **Date:** 2026-05-06 (anticipated)
-**Target:** Rippleon ROC001 / Nexcyber NECS-ACW family (GD32F205VG)
+**Target:** Rippleon ROC001 (GD32F205VG)
 **Tag:** `v1.0.0-roc001` (cut once F1 BL0939 calibration is in)
 
 > Draft prepped 2026-05-05 evening. Tag and ship after the morning's
@@ -11,7 +11,8 @@
 ## What this is
 
 A clean-room replacement firmware for the Rippleon ROC001 EVSE
-(also rebadged as the Nexcyber NECS-ACW family by New Energy CS).
+(OEM: New Energy CS; the Nexcyber NECS-ACW family is a separate
+product line, not in scope for this release).
 GD32F205VG-based safety core in C; FreeRTOS task layout; FC41D
 Wi-Fi/BLE/cloud module on UART4 driven by ESPHome + MicroOcpp;
 OCPP 1.6-J + Home Assistant integration via TLV.
@@ -134,8 +135,8 @@ adapted to GD32F2 hardware; no upstream OpenEVSE code is incorporated.
 ## Acknowledgements
 
 - OpenEVSE project for the J1772 / state-machine model.
-- New Energy CS (the OEM behind the Rippleon and Nexcyber rebrands)
-  for shipping reasonable hardware that's reverse-engineerable.
+- New Energy CS (Rippleon ROC OEM) for shipping reasonable hardware
+  that's reverse-engineerable.
 - evcc, MicroOcpp, ESPHome, LibreTiny upstream maintainers.
 
 ---

@@ -16,11 +16,17 @@ above the HAL should compile unchanged.
 
 | Board | MCU | Status | Notes |
 |---|---|---|---|
-| **Rippleon ROC001** (also sold as Nexcyber NECS-ACW family by New Energy CS) | GD32F205VG | ✅ Bench-validated through M7 + GFCI live, OTA, RTC bridge | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE module on UART4. Pin map fully reverse-engineered from stock V1.0.066. |
+| **Rippleon ROC001** | GD32F205VG | ✅ Bench-validated through M7 + GFCI live, OTA, RTC bridge | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE module on UART4. Pin map fully reverse-engineered from stock V1.0.066. OEM is New Energy CS (newenergycs.com); ROC002–010 are likely close siblings but unverified. |
 
 ## Wishlist / open ports
 
-None yet. If you have an EVSE PCB you'd like to add, open an issue with:
+- **Nexcyber NECS-ACW family.** Different OEM, different MCU
+  (Nations N32G45x), different Wi-Fi module (Tuya WBR2 / RTL8720CF
+  AmebaZ2). Some Tuya DP-map overlap on the comms side but the
+  hardware is not interchangeable with Rippleon ROC. Hardware on
+  hand; port not started.
+
+If you have an EVSE PCB you'd like to add, open an issue with:
 
 - Photographs of both sides, MCU silkscreen visible.
 - `lsusb` / chip auto-detect output from `openocd` (so we know the flash
