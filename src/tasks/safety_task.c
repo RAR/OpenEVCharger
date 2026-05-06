@@ -197,8 +197,13 @@ static void publish_rfid_config(void);
 #define BL0939_SOC_TOL_DEN           100U
 #define BL0939_SOC_PERSIST_POLLS      75U   /* 75 × 400 ms = 30 s */
 #define SOC_DERATE_FLOOR_A             6U   /* J1772 minimum advertised */
-#define BL0939_HOC_TOL_NUM           125U   /* / 100 = 1.25× hw cap */
+#define BL0939_HOC_TOL_NUM           120U   /* / 100 = 1.20× advertised */
 #define BL0939_HOC_TOL_DEN           100U
+/* HARD_OC needs > 5 s sustained per spec § 4 #10. 13 polls × 400 ms
+ * = 5.2 s. Other BL0939 detectors stay at the shorter
+ * BL0939_DETECTOR_PERSIST (3 polls / 1.2 s) — they're catching
+ * different scenarios where 1.2 s of evidence is enough. */
+#define BL0939_HOC_PERSIST_POLLS     13U
 
 /* GFCI fault sense (PE2 LOW) sustained for this many ticks before
  * raising. 3 ticks @ 20 ms = 60 ms — well under UL2231's 25 ms +
@@ -1528,9 +1533,18 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
     }
 }
 
-/* Hard over-current — > hw_cap × 1.25. Latched. Spec § 4. Active
- * only once a per-chassis raw → mA cal scale is non-zero in
- * boot_config. */
+/* Hard over-current — > advertised × 1.20 sustained for > 5 s. Latched.
+ * Spec § 4 #10. Active only once a per-chassis BL0939 IA cal scale is
+ * non-zero. Gated on effective_advertised_amps so it tracks the live
+ * SOFT_OC-derated advertise (an EV that ignores the duty derate
+ * eventually trips HARD_OC at the lower effective threshold).
+ *
+ * Earlier (pre-2026-05-06) the threshold was HW_AMPS_MAX × 1.25 = 60 A
+ * — a "save the relay" detector rather than a "EV exceeded advertised"
+ * detector. The spec-compliant variant catches non-compliant EVs
+ * earlier and is bench-testable with normal currents. The 60 A
+ * absolute-ceiling case can be re-added as a separate detector if
+ * production deployments surface a need for it. */
 static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
                                     const struct bl0939_readings *bl,
                                     j1772_state_t js, int32_t cp_mv,
@@ -1539,20 +1553,23 @@ static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
     if (!bl->valid) return;
     int16_t scale = calibration_bl0939_ia_ua_per_raw();
     if (scale <= 0) { *streak = 0; return; }
+    uint8_t adv = effective_advertised_amps();
+    if (adv == 0) { *streak = 0; return; }
     /* mA = raw * (uA/raw) / 1000. Use uint64_t for headroom. */
     uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
-    uint64_t threshold_ma = (uint64_t)HW_AMPS_MAX * 1000u
+    uint64_t threshold_ma = (uint64_t)adv * 1000u
                             * BL0939_HOC_TOL_NUM / BL0939_HOC_TOL_DEN;
     if (ma > threshold_ma) {
-        if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
+        if (*streak < BL0939_HOC_PERSIST_POLLS) ++(*streak);
     } else {
         *streak = 0;
     }
-    if (*streak >= BL0939_DETECTOR_PERSIST &&
+    if (*streak >= BL0939_HOC_PERSIST_POLLS &&
         !fault_is_active(fs, FAULT_HARD_OVER_CURRENT)) {
         if (fault_raise(fs, FAULT_HARD_OVER_CURRENT) == 1) {
-            printk("fault: raised HARD_OVER_CURRENT (mA=%u > %u)\n",
-                   (unsigned)ma, (unsigned)threshold_ma);
+            printk("fault: raised HARD_OVER_CURRENT "
+                   "(at %uA adv, cur=%u mA > %u mA for >5 s)\n",
+                   (unsigned)adv, (unsigned)ma, (unsigned)threshold_ma);
             post_fault_event(FAULT_HARD_OVER_CURRENT, js, *es, cp_mv);
         }
         evse_transition(es, EVSE_FAULT);
