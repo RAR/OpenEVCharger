@@ -1189,9 +1189,15 @@ covered (spec § 4.1.6).
 Sub-checks deferred to M6.b (need morning-hours risk-controlled bench
 supervision):
 
-- GFCI CAL pulse + EXTI fire (no GFCI sense pin in pin map yet).
-- Relay actuate-and-readback (PE12 close + PB12 confirm) — closing
-  the contactor on AC clicks the J1772 plug.
+- ~~GFCI CAL pulse + EXTI fire~~ ✅ landed 2026-05-06 — see
+  `FAULT_GFCI_SELF_TEST` row in safety.md. Bench validation went
+  through three iterations (60 ms / 500 ms / 500 ms+1000 ms recover)
+  before the slow GFCI module on this PCB cleanly latched and
+  released. `OPENEVCHARGER_GFCI_CAL_SELF_TEST=1` now default.
+- ~~Relay actuate-and-readback~~ ✅ closed N/A 2026-05-06 — see the
+  M7.2 closure note. PB12 is the UL2231 force-open latch, not a
+  closed-feedback sense; there is no sense pin on this PCB.
+  Runtime BL0939 WELD/STUCK_OPEN cover the same fault modes.
 
 If any sub-check fails, raise `FAULT_BOOT_SELF_TEST` (latched) and
 transition to EVSE_FAULT. Self-test runs **before** the safe-fail
@@ -1310,7 +1316,31 @@ sense open. No regressions.
 Build: text 22504 / data 20 / bss 27604 — flash 4.30%, RAM 21.08%.
 +40 B text vs M6.6 (the HAL is small, 8 B bss for the cmd state).
 
-## M7.2 — Boot self-test relay actuate-and-readback (2026-05-03)
+## M7.2 — Boot self-test relay actuate-and-readback (2026-05-03; CLOSED N/A 2026-05-06)
+
+> **Closed N/A on this hardware revision** (commit `19f75b6`,
+> 2026-05-06). Bench session evening 2026-05-06 tested the
+> on-demand "Run Relay Actuate Self-Test" HA button both with and
+> without load. Identical "PE12 close cmd but PB12 stayed OPEN"
+> result regardless of contactor state because
+> `relay_main_sense_closed()` is hardcoded to return 0:
+> **PB12 is the UL2231 force-open LATCH** on this PCB (driving PB12
+> HIGH while PE12 HIGH forces the contactor open via hardware),
+> NOT a closed-feedback sense. There is no closed-feedback sense
+> pin on this hardware revision.
+>
+> Spec § 4.1.4 step 4 is therefore unimplementable here. Runtime
+> BL0939 IA-based WELD/STUCK_OPEN detectors (bench-validated
+> 2026-05-06) cover the same fault modes during real charging
+> sessions. Test code, build flag, on-demand command, and HA
+> button all removed. `FAULT_RELAY_OPEN_AT_BOOT` (id 9) and
+> `FAULT_RELAY_WELD_AT_BOOT` (id 10) enum slots retained for
+> record-format stability but never raised.
+>
+> The original M7.2 bench narrative below is preserved as a record
+> of the investigation that led to the closure.
+
+
 
 `safety_task` boot path now implements spec § 4.1.4 step 4: with CP
 gated to state A (no vehicle plugged), command PE12 closed and poll
@@ -1512,7 +1542,7 @@ Six sub-milestones landed:
 | Sub-milestone | What | Tag |
 |---|---|---|
 | M7.1 | hal/relay.{c,h} | m7-1-relay-hal |
-| M7.2 | boot self-test relay actuate-and-readback (gated off) | m7-2-relay-self-test |
+| M7.2 | boot self-test relay actuate-and-readback ([CLOSED N/A 2026-05-06](#m72--boot-self-test-relay-actuate-and-readback-2026-05-03-closed-na-2026-05-06)) | m7-2-relay-self-test |
 | M7.3 | J1772 state-driven relay control (READY ↔ CHARGING) | m7-3-relay-state-driven |
 | M7.4 | advertised-amps duty + DIP1/hw cap | m7-4-advertise-amps |
 | M7.5 | relay stuck-open detector | m7-5-stuck-open |
@@ -1526,19 +1556,26 @@ What's now wired end-to-end (pending bench prep with state-C load):
 - CP duty: idle high in A; advertise per `min(boot_config_amps, DIP1, 48 A)`
   in B/C/D; state F (-12 V) on FAULT.
 - Three new fault detectors: RELAY_OPEN_AT_BOOT, RELAY_WELD_AT_BOOT
-  (boot self-test step 4, gated off for bench), RELAY_STUCK_OPEN
-  (runtime, silent until commanded close).
+  (boot self-test step 4 — later closed N/A 2026-05-06; PB12 turned
+  out to be the UL2231 force-open latch, not a sense; see M7.2),
+  RELAY_STUCK_OPEN (runtime, silent until commanded close).
 - Every charging session writes a session_record on end.
 
-Bench carve-outs:
-- **Relay actuate-and-readback boot self-test** is build-flag gated
-  off. PE12 close cmd doesn't produce a PB12 transition on this
-  bench setup — either the contactor coil ties to AC primary or PB12
-  is a through-current sense rather than coil-state sense. Probe
-  campaign with mains live needed before flipping the default to on.
-- **State-C exercise** needs a 882 Ω load across CP↔PE or a real EV.
-  Without it, the charging cycle is code-only validated.
-- **mWh integration** stalled on CT902 zero-offset baseline.
+Bench carve-outs (status as of 2026-05-06 evening):
+- ~~**Relay actuate-and-readback boot self-test**~~ closed N/A
+  2026-05-06. PB12 turned out to be the UL2231 force-open latch
+  on this PCB, not a sense pin. Removed entirely; runtime BL0939
+  WELD/STUCK_OPEN substitute. See M7.2 closure note above.
+- ~~**State-C exercise**~~ done 2026-05-05 with EVSE tester. Full
+  B↔C↔A graph + relay-close-on-C + session-record persistence
+  bench-validated.
+- ~~**mWh integration**~~ done 2026-05-06 (commit `a40fa54` +
+  F1 BL0939 cal `72b96c6`). Sign-aware integrator; bench-validated
+  at 6 A and 10 A.
+- **F5 — full charging session against a real 240 V EV** still
+  outstanding. Doubles as both-legs-through-one-CT topology
+  validation; F1 cal landed against single-leg EVSE-tester pull
+  plug, balanced split-phase loads may sum to ~0 in the single CT.
 
 ## Bench fix — semihost tee defaulted off (2026-05-03)
 
