@@ -49,12 +49,10 @@ int safety_request_rfid_learn(void);
  * after the persist task lands a CMD_SET_REQUIRE_RFID_AUTH write. */
 int safety_request_publish_rfid_config(void);
 
-/* On-demand self-test invocations for F7/F3 bench validation. Both
- * run synchronously inside the safety_task tick (single-writer
- * guarantee preserved) and are refused unless EVSE = READY and
- * J1772 = A. Result is printk-only — bench operator reads the log;
- * no event/ack is generated to keep the wire light. */
-int safety_request_run_relay_actuate_test(void);
+/* On-demand GFCI CAL self-test for F3 bench validation. Runs the
+ * PE3 → PE2 round-trip pulse synchronously inside the safety_task
+ * tick (single-writer preserved). Refused unless EVSE = READY.
+ * Result is printk-only — bench operator reads the log. */
 int safety_request_run_gfci_cal_test(void);
 
 #endif

@@ -19,6 +19,12 @@ typedef enum {
     FAULT_DIODE_CHECK           = 6,
     FAULT_BOOT_SELF_TEST        = 7,
     FAULT_GFCI_SELF_TEST        = 8,
+    /* Reserved — designed for a boot-time relay actuate-readback test.
+     * Bench 2026-05-06 confirmed PB12 on this PCB is the UL2231 force-
+     * open latch, NOT a closed-feedback sense; no closed-feedback
+     * pin exists. The boot test was removed (see relay.h) and these
+     * IDs never raise on this hardware revision. Slots kept to
+     * preserve numbering for any historical event_log records. */
     FAULT_RELAY_WELD_AT_BOOT    = 9,
     FAULT_RELAY_OPEN_AT_BOOT    = 10,
     FAULT_ADC_OUT_OF_RANGE      = 11,

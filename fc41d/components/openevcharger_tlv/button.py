@@ -23,7 +23,6 @@ CONF_RFID_GET_LIST = "rfid_get_list"
 CONF_OTA_ABORT = "ota_abort"
 CONF_RESTART = "restart"
 CONF_SIMULATE_REPLUG = "simulate_replug"
-CONF_RUN_RELAY_ACTUATE_TEST = "run_relay_actuate_test"
 CONF_RUN_GFCI_CAL_TEST = "run_gfci_cal_test"
 
 OpenevchargerTlvButton = openevcharger_tlv_ns.class_("OpenevchargerTlvButton", button.Button)
@@ -47,7 +46,6 @@ _FIELDS = {
     CONF_OTA_ABORT: "OTA_ABORT",
     CONF_RESTART: "RESTART",
     CONF_SIMULATE_REPLUG: "SIMULATE_REPLUG",
-    CONF_RUN_RELAY_ACTUATE_TEST: "RUN_RELAY_ACTUATE_TEST",
     CONF_RUN_GFCI_CAL_TEST: "RUN_GFCI_CAL_TEST",
 }
 

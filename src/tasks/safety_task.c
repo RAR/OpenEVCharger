@@ -36,7 +36,6 @@ typedef enum {
     SAFETY_REQ_RFID_LEARN_ARM,
     SAFETY_REQ_PUBLISH_RFID_CONFIG,
     SAFETY_REQ_SIMULATE_REPLUG,
-    SAFETY_REQ_RUN_RELAY_ACTUATE_TEST,
     SAFETY_REQ_RUN_GFCI_CAL_TEST,
 } safety_req_type_t;
 
@@ -345,43 +344,17 @@ static void publish_rfid_config(void);
 #define DIP1_AMPS_CLOSED   48U
 #define DIP1_AMPS_OPEN     40U
 
-/* Relay actuate-and-readback self-test: spec § 4.1.4 step 4. Total
- * budget 50 ms with CP held in state A. Close, poll PB12 every 5 ms
- * up to 40 ms (typical mechanical pickup is 10-15 ms), open, poll
- * again up to 30 ms for release.
- *
- * Default OFF until the bench investigation in docs/bring-up.md
- * (M7.2) resolves: on the bench-tested ROC001 with no AC load, PE12
- * close cmd does not produce a PB12 = HIGH transition. Two
- * possibilities, neither yet ruled out:
- *
- *  1. Contactor coil is supplied from the AC primary side, so without
- *     mains the coil cannot energise.
- *  2. PB12 sense circuit only reports through-current presence, not
- *     coil state — so even with the coil energised, no AC = no sense
- *     transition.
- *
- * Either way, on a real installation with AC mains live this should
- * pass, so the spec-correct enable lives behind a compile-time flag
- * that can flip once the bench has been re-probed with mains live. */
-/* M7.2 — gated off by default. Polarity inversion landed in M7.b
- * (PE12 HIGH = force open). Re-enable only after bench confirms the
- * inverted-polarity actuate-and-readback works without welding the
- * contactor. */
-#ifndef OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST
-#define OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST  0
-#endif
-
-#define ST_RELAY_CLOSE_POLL_MS    5
-#define ST_RELAY_CLOSE_POLLS      8     /* 40 ms */
-#define ST_RELAY_OPEN_POLL_MS     5
-#define ST_RELAY_OPEN_POLLS       6     /* 30 ms */
-
-enum st_relay_result {
-    ST_RELAY_OK              = 0,
-    ST_RELAY_OPEN_AT_BOOT    = 1,
-    ST_RELAY_WELD_AT_BOOT    = 2,
-};
+/* Relay actuate-and-readback self-test (spec § 4.1.4 step 4) was
+ * removed 2026-05-06. The test relied on PB12 returning a closed-
+ * feedback signal in response to a PE12 = HIGH coil command. Bench
+ * runs both with and without load on this ROC001 PCB confirmed
+ * relay_main_sense_closed() never asserts because PB12 is wired as
+ * the UL2231 force-open LATCH (driving PB12 HIGH while PE12 HIGH
+ * forces the contactor open) — there is no closed-feedback sense
+ * pin on this hardware revision. The runtime BL0939 IA-based WELD
+ * (post-open settle + 500 mA threshold) and STUCK_OPEN (commanded-
+ * closed + sub-threshold IA for 3.2 s) detectors substitute during
+ * real charging sessions. See src/hal/relay.c for pin-map detail. */
 
 /* Session tracking — populated only between READY→CHARGING and
  * CHARGING→{anything else} transitions. Energy delivered is integrated
@@ -766,38 +739,6 @@ static int self_test_gfci_cal(void)
 #endif
 }
 
-/* Returns ST_RELAY_OK, _OPEN_AT_BOOT, or _WELD_AT_BOOT. Caller must
- * gate on CP being in state A (no vehicle plugged) so the brief
- * close has no load consequence. */
-static int self_test_relay_actuate(void)
-{
-    relay_main_close();
-    int closed_seen = 0;
-    for (int i = 0; i < ST_RELAY_CLOSE_POLLS; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(ST_RELAY_CLOSE_POLL_MS));
-        if (relay_main_sense_closed()) { closed_seen = 1; break; }
-    }
-    relay_main_open();
-
-    if (!closed_seen) {
-        printk("self-test: PE12 close cmd but PB12 stayed OPEN -> RELAY_OPEN_AT_BOOT\n");
-        return ST_RELAY_OPEN_AT_BOOT;
-    }
-
-    int open_seen = 0;
-    for (int i = 0; i < ST_RELAY_OPEN_POLLS; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(ST_RELAY_OPEN_POLL_MS));
-        if (!relay_main_sense_closed()) { open_seen = 1; break; }
-    }
-
-    if (!open_seen) {
-        printk("self-test: PE12 open cmd but PB12 stayed CLOSED -> RELAY_WELD_AT_BOOT\n");
-        return ST_RELAY_WELD_AT_BOOT;
-    }
-    printk("self-test: relay actuate-and-readback OK\n");
-    return ST_RELAY_OK;
-}
-
 /* Symmetric counterpart to check_relay_weld: commanded close +
  * sensed open >= 200 ms → FAULT_RELAY_STUCK_OPEN. Spec § 4 #3.
  * Only runs when we've commanded close — so it's silent on bench
@@ -942,11 +883,6 @@ int safety_request_publish_rfid_config(void)
 int safety_request_simulate_replug(void)
 {
     return post_safety_req(SAFETY_REQ_SIMULATE_REPLUG, 0, 0);
-}
-
-int safety_request_run_relay_actuate_test(void)
-{
-    return post_safety_req(SAFETY_REQ_RUN_RELAY_ACTUATE_TEST, 0, 0);
 }
 
 int safety_request_run_gfci_cal_test(void)
@@ -1099,24 +1035,6 @@ static void process_request(struct safety_req *r,
         } else {
             printk("safety: SIMULATE_REPLUG ignored (state=%s)\n",
                    evse_state_name(*es));
-        }
-        break;
-    case SAFETY_REQ_RUN_RELAY_ACTUATE_TEST:
-        /* On-demand F7 bench validation. Refused unless EVSE_READY +
-         * J1772=A — actuating the contactor with a vehicle plugged
-         * would dump current into the EV. self_test_relay_actuate
-         * is the same routine wired into the boot path under
-         * OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST; calling it here lets the
-         * bench operator iterate without rebooting per attempt. */
-        if (*es != EVSE_READY) {
-            printk("safety: RUN_RELAY_ACTUATE_TEST ignored (state=%s, need READY)\n",
-                   evse_state_name(*es));
-        } else if (cp->committed != J1772_STATE_A) {
-            printk("safety: RUN_RELAY_ACTUATE_TEST ignored (J1772=%s, need A)\n",
-                   j1772_state_name(cp->committed));
-        } else {
-            printk("safety: RUN_RELAY_ACTUATE_TEST starting\n");
-            (void)self_test_relay_actuate();   /* logs PASS/FAIL itself */
         }
         break;
     case SAFETY_REQ_RUN_GFCI_CAL_TEST:
@@ -1880,38 +1798,10 @@ static void safety_task_run(void *arg)
         evse_transition(&es, EVSE_FAULT);
     }
 
-    /* Spec § 4.1.4 step 4: relay actuate-and-readback. Only run with
-     * CP in state A (no vehicle plugged) so the brief close is a
-     * no-op on the J1772 plug side. Skip if anything is connected. */
-#if OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST
-    if (js0 == J1772_STATE_A) {
-        int relay_st = self_test_relay_actuate();
-        if (relay_st == ST_RELAY_OPEN_AT_BOOT &&
-            !fault_is_active(&fs, FAULT_RELAY_OPEN_AT_BOOT)) {
-            if (fault_raise(&fs, FAULT_RELAY_OPEN_AT_BOOT) == 1) {
-                printk("fault: raised %s\n",
-                       fault_name(FAULT_RELAY_OPEN_AT_BOOT));
-                post_fault_event(FAULT_RELAY_OPEN_AT_BOOT, js0, es, cp_mv0);
-            }
-            evse_transition(&es, EVSE_FAULT);
-        } else if (relay_st == ST_RELAY_WELD_AT_BOOT &&
-                   !fault_is_active(&fs, FAULT_RELAY_WELD_AT_BOOT)) {
-            if (fault_raise(&fs, FAULT_RELAY_WELD_AT_BOOT) == 1) {
-                printk("fault: raised %s\n",
-                       fault_name(FAULT_RELAY_WELD_AT_BOOT));
-                post_fault_event(FAULT_RELAY_WELD_AT_BOOT, js0, es, cp_mv0);
-            }
-            evse_transition(&es, EVSE_FAULT);
-        }
-    } else {
-        printk("self-test: skipping relay actuate (J1772=%s, not A)\n",
-               j1772_state_name(js0));
-    }
-#else
-    printk("self-test: relay actuate test DISABLED at build time "
-           "(OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST=0; bench carve-out)\n");
-    (void)self_test_relay_actuate;     /* avoid -Wunused-function */
-#endif
+    /* Spec § 4.1.4 step 4 (relay actuate-readback) is permanently N/A
+     * on this PCB: PB12 is the UL2231 force-open latch, not a closed-
+     * feedback sense — see relay.h. Runtime BL0939 WELD/STUCK_OPEN
+     * detectors cover the same fault modes during real sessions. */
 
     check_safe_fail(&fs, &es, js0, cp_mv0);
     if (es != EVSE_FAULT) {

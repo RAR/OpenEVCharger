@@ -78,13 +78,16 @@
  * FAULT / BOOT / SELF_TEST. */
 #define CMD_SIMULATE_REPLUG       0x1Cu
 
-/* On-demand boot self-test invocations (F7 + F3 bench validation).
- * Run a single self-test sub-check from the safety_task without
- * needing a reboot per iteration. Both refused (logged no-op) unless
- * EVSE = READY and J1772 = A — a contactor click on a plugged EV
- * would trip a fault, and the GFCI CAL pulse races the live detector
- * if a session is running. No payload. */
-#define CMD_RUN_RELAY_ACTUATE_TEST 0x1Du
+/* On-demand GFCI CAL self-test (F3 bench validation). Drives PE3
+ * for ~60 ms and polls PE2 for the round-trip assertion edge so
+ * the bench operator can validate the path without rebooting.
+ * Refused (logged no-op) unless EVSE = READY — a CAL pulse during
+ * CHARGING would race the live GFCI detector. No payload.
+ *
+ * 0x1D was briefly CMD_RUN_RELAY_ACTUATE_TEST; bench 2026-05-06
+ * confirmed PB12 on this PCB is the UL2231 force-open latch, not a
+ * closed-feedback sense, so the relay test is permanently N/A and
+ * 0x1D is reserved (do not reuse). */
 #define CMD_RUN_GFCI_CAL_TEST      0x1Eu
 
 /* MCU → FC41D events / responses (bit 7 set) */
