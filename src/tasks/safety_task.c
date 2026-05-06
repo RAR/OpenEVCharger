@@ -35,7 +35,17 @@ typedef enum {
     SAFETY_REQ_USER_RESUME,
     SAFETY_REQ_RFID_LEARN_ARM,
     SAFETY_REQ_PUBLISH_RFID_CONFIG,
+    SAFETY_REQ_SIMULATE_REPLUG,
 } safety_req_type_t;
+
+/* Simulate-replug window: CP held at state F (-12 V) and the
+ * contactor open for this duration, after which the EVSE auto-
+ * resumes from USER_PAUSED → READY. 3000 ms is the J1772 spec
+ * timeout for an EV to react to CP-state-F by transitioning back
+ * to state A — long enough that any well-behaved EV releases its
+ * end of the handshake before we re-energise CP. */
+#define SAFETY_REPLUG_WINDOW_MS    3000U
+#define SAFETY_REPLUG_WINDOW_TICKS (SAFETY_REPLUG_WINDOW_MS / SAFETY_TASK_PERIOD_MS)
 
 struct safety_req {
     uint8_t  type;
@@ -50,6 +60,15 @@ static QueueHandle_t s_safety_inbox;
  * by the swipe block each tick, cleared on capture. Single-writer
  * (safety_task body) so no atomicity concerns. */
 static uint16_t s_rfid_learn_ticks = 0;
+
+/* Simulate-replug countdown. While > 0, apply_cp_for_state forces
+ * cp_pwm_set_state_f() regardless of EVSE state, and apply_relay_state
+ * keeps the contactor open. Decremented at the top of each tick;
+ * on the 1→0 edge we transition USER_PAUSED → READY so the EV's
+ * fresh handshake (which the CP collapse drove it back to State A
+ * for) can promote naturally to CHARGING via update_evse_from_j1772.
+ * Single-writer (safety_task body). */
+static uint16_t s_replug_window_ticks = 0;
 
 /* Per-session "user has authorized this session" flag. Set when a
  * matched authorized-tag swipe lands; cleared on plug-removal
@@ -461,6 +480,15 @@ static uint8_t effective_advertised_amps(void)
  * safety_task is the single owner of TIM1_CCR3 per spec § 4. */
 static void apply_cp_for_state(evse_state_t es, j1772_state_t js)
 {
+    /* Simulate-replug window pre-empts every other rule: hold CP at
+     * state F until s_replug_window_ticks expires. The relay path
+     * (apply_relay_state) reads EVSE state, which is USER_PAUSED for
+     * the duration, so the contactor stays open without a separate
+     * override. */
+    if (s_replug_window_ticks > 0u) {
+        cp_pwm_set_state_f();
+        return;
+    }
     if (es == EVSE_FAULT) {
         cp_pwm_set_state_f();
         return;
@@ -883,6 +911,11 @@ int safety_request_publish_rfid_config(void)
     return post_safety_req(SAFETY_REQ_PUBLISH_RFID_CONFIG, 0, 0);
 }
 
+int safety_request_simulate_replug(void)
+{
+    return post_safety_req(SAFETY_REQ_SIMULATE_REPLUG, 0, 0);
+}
+
 static void publish_rfid_config(void)
 {
     struct __attribute__((packed)) {
@@ -991,6 +1024,29 @@ static void process_request(struct safety_req *r,
         break;
     case SAFETY_REQ_PUBLISH_RFID_CONFIG:
         publish_rfid_config();
+        break;
+    case SAFETY_REQ_SIMULATE_REPLUG:
+        if (*es == EVSE_READY || *es == EVSE_CHARGING ||
+            *es == EVSE_USER_PAUSED || *es == EVSE_COOLING_DOWN) {
+            printk("safety: SIMULATE_REPLUG (from %s, %u ms window)\n",
+                   evse_state_name(*es),
+                   (unsigned)SAFETY_REPLUG_WINDOW_MS);
+            /* Drop to USER_PAUSED so apply_relay_state keeps the
+             * contactor open and we don't accumulate session energy
+             * during the wake-up window. CP override is driven by
+             * s_replug_window_ticks below — apply_cp_for_state forces
+             * state F as long as the counter is non-zero, regardless
+             * of the EVSE state. */
+            evse_transition(es, EVSE_USER_PAUSED);
+            s_replug_window_ticks = SAFETY_REPLUG_WINDOW_TICKS;
+            /* Drive CP to state F immediately rather than waiting for
+             * apply_cp_for_state at the bottom of this tick — the EV
+             * needs the falling edge as soon as possible. */
+            cp_pwm_set_state_f();
+        } else {
+            printk("safety: SIMULATE_REPLUG ignored (state=%s)\n",
+                   evse_state_name(*es));
+        }
         break;
     default:
         printk("safety: unknown inbox req type=%u\n", (unsigned)r->type);
@@ -1743,6 +1799,23 @@ static void safety_task_run(void *arg)
         /* Drain control inbox first so a CLEAR_FAULT or USER_PAUSE
          * lands before the rest of the tick reads/applies state. */
         drain_inbox(&fs, &es, &cp_e_streak, &cp);
+
+        /* Simulate-replug window service. Decrement the counter and on
+         * the 1→0 edge transition USER_PAUSED → READY so the EV's
+         * fresh handshake (which the CP collapse drove it back to State
+         * A for) can promote naturally to CHARGING via update_evse_from_j1772.
+         * Re-init the J1772 classifier so its debounce starts fresh on
+         * the post-replug CP swing — matches the CLEAR_FAULT exit path. */
+        if (s_replug_window_ticks > 0u) {
+            if (--s_replug_window_ticks == 0u) {
+                printk("safety: SIMULATE_REPLUG window over -> READY\n");
+                if (es == EVSE_USER_PAUSED) {
+                    evse_transition(&es, EVSE_READY);
+                }
+                cp_e_streak = 0;
+                j1772_init(&cp);
+            }
+        }
 
         int32_t cp_mv = cp_high_mv();
         j1772_state_t s = j1772_step(&cp, cp_mv, J1772_DEBOUNCE_N);

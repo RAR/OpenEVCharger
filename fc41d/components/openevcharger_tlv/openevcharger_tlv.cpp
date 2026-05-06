@@ -991,6 +991,13 @@ uint8_t OpenevchargerTlv::send_restart() {
   return s;
 }
 
+uint8_t OpenevchargerTlv::send_simulate_replug() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_SIMULATE_REPLUG, s, nullptr, 0);
+  ESP_LOGI(TAG, "Simulate replug requested (seq=%u)", unsigned(s));
+  return s;
+}
+
 uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
 #ifdef USE_SENSOR
   auto clamp_i16 = [](int32_t v) -> int16_t {
@@ -1465,6 +1472,7 @@ void OpenevchargerTlvButton::press_action() {
     case ButtonAction::RFID_GET_LIST: parent_->send_rfid_get_list(); break;
     case ButtonAction::OTA_ABORT: parent_->abort_ota_push(); break;
     case ButtonAction::RESTART: parent_->send_restart(); break;
+    case ButtonAction::SIMULATE_REPLUG: parent_->send_simulate_replug(); break;
   }
 }
 #endif

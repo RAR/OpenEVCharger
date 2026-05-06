@@ -32,6 +32,12 @@ int safety_request_pause(uint8_t reason);
  * the next transition. */
 int safety_request_resume(void);
 
+/* Simulate a J1772 replug from the EVSE side: open the contactor,
+ * drive CP to state F (-12 V) for SAFETY_REPLUG_WINDOW_MS, then
+ * auto-resume to READY so the EV re-handshakes. Refused from
+ * FAULT/BOOT/SELF_TEST (logged no-op). */
+int safety_request_simulate_replug(void);
+
 /* Arm one-shot learn-mode: the next card-present RFID swipe gets added
  * to the persisted authorized list (instead of going through the
  * lookup → start/stop dispatch). Disarms automatically once a UID is

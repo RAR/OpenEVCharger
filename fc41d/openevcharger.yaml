@@ -407,6 +407,17 @@ button:
     restart:
       name: "Restart MCU"
       entity_category: diagnostic
+    # CP-wake replug: drop CP to state F (-12 V) and open the contactor
+    # for ~3 s, then auto-resume to READY. Forces the EV to drop
+    # charging and re-handshake without a physical unplug. Useful for
+    # OCPP RemoteStop+Start, recovering a stuck EV state, or bench-
+    # exercising the J1772 classifier. Some older EVs (early Leaf,
+    # some Ioniq) latch a fault on CP collapse and need a real unplug
+    # to clear — bench-validate against the user's car before relying
+    # on this for automated remote restart.
+    simulate_replug:
+      name: "Simulate Replug"
+      entity_category: diagnostic
 
   # Local-only Phase A round-trip exerciser. Pushes a synthetic 256 B
   # blob (counter pattern); the MCU stages it to W25Q, verifies CRC,

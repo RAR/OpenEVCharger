@@ -436,6 +436,12 @@ static void handle_request_start_resume(void)
     (void)safety_request_resume();
 }
 
+static void handle_simulate_replug(uint8_t seq)
+{
+    printk("comms: CMD_SIMULATE_REPLUG seq=%u\n", (unsigned)seq);
+    (void)safety_request_simulate_replug();
+}
+
 static void dispatch(uint8_t cmd, uint8_t seq,
                      const uint8_t *payload, size_t plen)
 {
@@ -467,6 +473,7 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_SET_TIME:              handle_set_time(payload, plen, seq); break;
     case CMD_GET_TIME:              handle_get_time(seq); break;
     case CMD_RESTART:               handle_restart(seq); break;
+    case CMD_SIMULATE_REPLUG:       handle_simulate_replug(seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

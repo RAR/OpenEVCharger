@@ -69,6 +69,15 @@
  * RTC bridge will resume wall-clock immediately on next boot. */
 #define CMD_RESTART               0x1Bu
 
+/* Simulate a J1772 replug from the EVSE side without a physical
+ * unplug. Drives CP to state F (-12 V continuous) and opens the
+ * contactor for ~3 s, then auto-resumes to READY so the EV
+ * re-handshakes. Useful for OCPP RemoteStop+Start, recovering a
+ * stuck EV state, or bench-testing the J1772 classifier without
+ * touching the cable. No payload. Refused (logged, no-op) from
+ * FAULT / BOOT / SELF_TEST. */
+#define CMD_SIMULATE_REPLUG       0x1Cu
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */
