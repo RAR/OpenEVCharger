@@ -146,12 +146,13 @@ See `docs/bring-up.md` for the full bench procedure.
 - Cold-boot wall clock requires an HA push (no battery-backed RTC on this
   PCB). Warm reboots within the same VDD cycle are clean.
 - HTTPS OTA not supported (LibreTiny mbedtls limitation); LAN HTTP only.
-- BL0939 calibration is per-chassis. Both 240 V legs route through
-  one CT on the OEM PCB; F1 cal landed against a single-leg
-  EVSE-tester pull plug. **Real 240 V split-phase loads (L1 + L2 of
-  equal magnitude, 180 ° out of phase) may sum to ~0 in the CT** —
-  metering trustworthiness for production hinges on F5 (real-EV
-  session) confirming the topology behaves.
+- BL0939 calibration is per-chassis. The OEM PCB routes a single leg
+  through the CT (confirmed 2026-05-06 by board re-inspection); F1 cal
+  landed against a single-leg EVSE-tester pull plug, which matches the
+  real topology, so the cal is representative. For split-phase EV loads
+  (L1 + L2 equal magnitude, 180 ° out of phase) the single-leg current
+  IS the per-leg charging current, and P = V<sub>line-to-line</sub> × I
+  remains correct.
 - Stack high-water sizing right-sized at idle; revisit under real charge
   load (see open `E10`).
 - GFCI CAL self-test timing tuned for this unit's GFCI module
@@ -170,8 +171,7 @@ Cal items still TODO before the firmware is "done" rather than "shipped":
   daughterboard). Stock V1.0.066 also skips diode check on this PCB.
 - ~~**F3** — GFCI 8-state CAL self-test scope-validation~~ ✅ DONE 2026-05-06.
 - **F5** — full charging session with a real EV (M10). Last
-  bench-blocking milestone before tag. Doubles as both-legs-CT
-  topology validation.
+  bench-blocking milestone before tag.
 - **F6** — CC ladder bench characterisation → lift the
   `OPENEVCHARGER_CC_DETECTOR` build flag.
 - ~~**F7** — Relay actuate-readback under live AC mains.~~ ✅ CLOSED N/A

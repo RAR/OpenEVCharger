@@ -136,7 +136,8 @@ UL2231 / J1772 / NEC compliance gates:
    compliance — recommended).
 
 Remaining bench-blocking item before tag: **F5 — full charging
-session against a real 240 V EV.** Doubles as the both-legs-through-
-one-CT topology validation (the BL0939 cal landed at bench against
-a single-leg EVSE-tester pull plug; balanced split-phase loads may
-sum to ~0 in the single CT — needs real EV to confirm).
+session against a real 240 V EV.** Topology carve-out resolved
+2026-05-06 evening — board re-inspection confirms the OEM routes a
+single leg through the CT, which matches the F1 single-leg pull-plug
+cal. F5 still required for real-EV state-machine + session-record
+validation.

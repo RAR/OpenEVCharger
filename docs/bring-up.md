@@ -1573,9 +1573,10 @@ Bench carve-outs (status as of 2026-05-06 evening):
   F1 BL0939 cal `72b96c6`). Sign-aware integrator; bench-validated
   at 6 A and 10 A.
 - **F5 — full charging session against a real 240 V EV** still
-  outstanding. Doubles as both-legs-through-one-CT topology
-  validation; F1 cal landed against single-leg EVSE-tester pull
-  plug, balanced split-phase loads may sum to ~0 in the single CT.
+  outstanding. Topology carve-out resolved 2026-05-06 — board
+  re-inspection confirms a single leg routes through the CT, so
+  F1's single-leg pull-plug cal is representative. F5 remains a
+  state-machine + session-record validation, not a metering rethink.
 
 ## Bench fix — semihost tee defaulted off (2026-05-03)
 
