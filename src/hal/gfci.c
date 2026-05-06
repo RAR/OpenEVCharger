@@ -1,6 +1,7 @@
 #include "gfci.h"
 #include "../core/pin_map.h"
 #include "../hal/uart.h"
+#include "../hal/wdg.h"
 #include "gd32f20x.h"
 
 /* PE2 is configured as input pull-up by gpio_init_all() (it appeared
@@ -36,23 +37,26 @@ int gfci_fault_active(void)
  * (some GFCI chips integrate imbalance and only latch the comparator
  * after CAL release).
  *
- * Timing: bench 2026-05-06 first attempt with 60 ms pulse failed —
- * scope confirmed PE3 went low for 60 ms but PE2 never asserted.
- * Bumped to 500 ms (typical RV4145 / FAN4147 / similar GFCI chip
- * integration time). Recover bumped to 200 ms for chips that latch
- * post-release. Per-poll diagnostic logging emitted on every PE2
- * edge so subsequent bench iterations can pinpoint whether PE2 is
- * moving at all during the window. Total budget 700 ms; IWDG is
- * 1000 ms and wdg_kick fires at the top of safety_task tick before
- * drain_inbox so the budget is safe. */
+ * Timing: bench 2026-05-06 iteration history:
+ *   iter 1 — pulse 60 ms / recover 100 ms → FAIL rc=-1, scope confirmed
+ *            PE3 asserted but PE2 never moved during window.
+ *   iter 2 — pulse 500 ms / recover 200 ms → still FAIL rc=-1, BUT the
+ *            live runtime GFCI detector raised ~213 ms after the test
+ *            gave up. PE2 actually went LOW ~385 ms after CAL release.
+ *            The chip responds, just very slowly (much slower than
+ *            typical RV4145 / FAN4147 ~30 ms response).
+ *   iter 3 — pulse 500 ms / recover 1000 ms; total 1500 ms exceeds the
+ *            1 s IWDG window so wdg_kick() is now called per-poll.
+ * Per-poll diagnostic logging on every PE2 edge so subsequent bench
+ * iterations can pinpoint exactly when the chip latches. */
 #ifndef GFCI_CAL_PULSE_MS
-#define GFCI_CAL_PULSE_MS        500U
+#define GFCI_CAL_PULSE_MS         500U
 #endif
 #ifndef GFCI_CAL_POLL_INTERVAL_MS
-#define GFCI_CAL_POLL_INTERVAL_MS 10U
+#define GFCI_CAL_POLL_INTERVAL_MS  10U
 #endif
 #ifndef GFCI_CAL_RECOVER_MS
-#define GFCI_CAL_RECOVER_MS      200U
+#define GFCI_CAL_RECOVER_MS      1000U
 #endif
 
 static void busy_wait_us(uint32_t us)
@@ -93,6 +97,7 @@ int gfci_self_test(void)
     for (uint32_t t = 0; t < GFCI_CAL_PULSE_MS;
          t += GFCI_CAL_POLL_INTERVAL_MS) {
         busy_wait_us(GFCI_CAL_POLL_INTERVAL_MS * 1000U);
+        wdg_kick();   /* total test ~1500 ms now exceeds the 1 s IWDG */
         int pe2 = gfci_fault_active();
         if (pe2 != last_pe2) {
             printk("gfci-cal: t=%u ms PE2 %d -> %d (during pulse)\n",
@@ -123,6 +128,7 @@ int gfci_self_test(void)
     for (uint32_t t = 0; t < GFCI_CAL_RECOVER_MS;
          t += GFCI_CAL_POLL_INTERVAL_MS) {
         busy_wait_us(GFCI_CAL_POLL_INTERVAL_MS * 1000U);
+        wdg_kick();
         int pe2 = gfci_fault_active();
         if (pe2 != last_pe2) {
             printk("gfci-cal: t=%u ms PE2 %d -> %d (recover)\n",
