@@ -152,10 +152,19 @@ static void publish_rfid_config(void);
  * load-current step controls (e.g. EVSE-tester current-pull plug,
  * 2026-05-06) take longer. 8 polls × 400 ms = 3.2 s settle window;
  * a real stuck contactor doesn't go away so the extra latency is
- * acceptable. WELD stays at 3 polls because welds are detected
- * AFTER the relay opens (no ramp grace needed) and faster fault
- * latching is safer there. */
+ * acceptable. */
 #define BL0939_STUCK_OPEN_PERSIST 8U
+
+/* WELD also needs a "shutdown" settle window: when the relay opens
+ * with a load drawing several amps, capacitance / inductance in the
+ * load path bleeds residual current through BL0939 IA for a couple
+ * seconds. Bench-observed 2026-05-06: 1051 mA residual ~850 ms
+ * after relay-open from a 6 A bench session — well above the 500 mA
+ * weld threshold. Real welds don't go away, so skipping the first
+ * 3.2 s of weld detection after a close→open transition is safe
+ * (a steady weld latches on the very next poll once settle expires).
+ * Same duration as STUCK_OPEN for symmetry. */
+#define BL0939_WELD_SETTLE_POLLS  8U
 
 /* AC presence threshold — V_RMS *raw* below this means the chip is
  * not seeing mains. Bench reading at 120 V was 0x208cae (≈ 2.13 M);
@@ -1436,14 +1445,30 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
     if (!bl->valid) return;
     int16_t scale = calibration_bl0939_ia_ua_per_raw();
     if (scale <= 0) { *streak = 0; return; }
+
+    /* Post-open settle window: load capacitance bleeds residual
+     * current for a couple seconds after the contactor opens. Track
+     * relay close→open edges as a function-local static and suppress
+     * weld detection for BL0939_WELD_SETTLE_POLLS polls. Bench-tripped
+     * 2026-05-06 with 1051 mA residual ~850 ms after relay open from
+     * a 6 A session — well above the 500 mA threshold. */
+    static int s_prev_commanded = -1;
+    static unsigned s_settle_polls = 0;
+    int now_commanded = relay_main_commanded();
+    if (s_prev_commanded == 1 && now_commanded == 0) {
+        s_settle_polls = BL0939_WELD_SETTLE_POLLS;
+    }
+    s_prev_commanded = now_commanded;
+    if (s_settle_polls > 0u) {
+        --s_settle_polls;
+        *streak = 0;
+        return;
+    }
+
     /* Real-amps threshold: any current ≥ 500 mA flowing through the
      * contactor while we commanded it open is a weld. 500 mA is well
-     * above the bench-observed ~44 mA BL0939 noise floor AND above
-     * the load-capacitance discharge transient (bench-observed ~121
-     * mA for ~1 s after opening on a 10 A current-pull plug, 2026-05-06)
-     * — but still ~24× below the smallest realistic EV load (6 A min).
-     * 100 mA was too tight and caused a spurious fault on pause from
-     * a 10 A bench session. */
+     * above the bench-observed ~44 mA BL0939 noise floor — but still
+     * ~24× below the smallest realistic EV load (6 A min). */
     uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
     int sensing_flow = (ma >= 500u);
     if (sensing_flow && !relay_main_commanded()) {
