@@ -54,11 +54,37 @@ if [[ $# -ge 1 ]]; then
             ;;
     esac
 else
-    ELF="$REPO_ROOT/build/openevcharger.elf"
+    BUILD_DIR="$REPO_ROOT/build"
+    ELF="$BUILD_DIR/openevcharger.elf"
+    CACHE="$BUILD_DIR/CMakeCache.txt"
+
+    # Detect stale CMake cache pointing at a previous source path
+    # (e.g. after the OpenBHZD → OpenEVCharger rename, or any later
+    # repo move). Re-configure from scratch instead of letting cmake
+    # error out on a vanished source dir.
+    NEED_CONFIGURE=0
+    if [[ ! -e "$CACHE" ]]; then
+        NEED_CONFIGURE=1
+    else
+        CACHED_SRC=$(awk -F= '/^CMAKE_HOME_DIRECTORY:INTERNAL=/{print $2}' "$CACHE")
+        if [[ "$CACHED_SRC" != "$REPO_ROOT" ]]; then
+            echo "Stale CMake cache (src=$CACHED_SRC, expected $REPO_ROOT) — wiping build/"
+            rm -rf "$BUILD_DIR"
+            NEED_CONFIGURE=1
+        fi
+    fi
+    if [[ "$NEED_CONFIGURE" -eq 1 ]]; then
+        echo "Configuring build/ (toolchain + REAL_120M_PLL)"
+        cmake -S "$REPO_ROOT" -B "$BUILD_DIR" \
+              -DCMAKE_TOOLCHAIN_FILE="$REPO_ROOT/cmake/arm-none-eabi-toolchain.cmake" \
+              -DOPENEVCHARGER_REAL_120M_PLL=1 \
+              -G Ninja
+    fi
+
     if [[ ! -e "$ELF" ]] || \
        find "$REPO_ROOT/src" -newer "$ELF" -type f | grep -q .; then
         echo "Build needed; running cmake --build build"
-        cmake --build "$REPO_ROOT/build"
+        cmake --build "$BUILD_DIR"
     fi
     echo "Flashing $ELF ..."
     openocd -f "$CFG" \
