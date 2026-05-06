@@ -78,6 +78,15 @@
  * FAULT / BOOT / SELF_TEST. */
 #define CMD_SIMULATE_REPLUG       0x1Cu
 
+/* On-demand boot self-test invocations (F7 + F3 bench validation).
+ * Run a single self-test sub-check from the safety_task without
+ * needing a reboot per iteration. Both refused (logged no-op) unless
+ * EVSE = READY and J1772 = A — a contactor click on a plugged EV
+ * would trip a fault, and the GFCI CAL pulse races the live detector
+ * if a session is running. No payload. */
+#define CMD_RUN_RELAY_ACTUATE_TEST 0x1Du
+#define CMD_RUN_GFCI_CAL_TEST      0x1Eu
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */

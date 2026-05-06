@@ -442,6 +442,18 @@ static void handle_simulate_replug(uint8_t seq)
     (void)safety_request_simulate_replug();
 }
 
+static void handle_run_relay_actuate_test(uint8_t seq)
+{
+    printk("comms: CMD_RUN_RELAY_ACTUATE_TEST seq=%u\n", (unsigned)seq);
+    (void)safety_request_run_relay_actuate_test();
+}
+
+static void handle_run_gfci_cal_test(uint8_t seq)
+{
+    printk("comms: CMD_RUN_GFCI_CAL_TEST seq=%u\n", (unsigned)seq);
+    (void)safety_request_run_gfci_cal_test();
+}
+
 static void dispatch(uint8_t cmd, uint8_t seq,
                      const uint8_t *payload, size_t plen)
 {
@@ -474,6 +486,8 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_GET_TIME:              handle_get_time(seq); break;
     case CMD_RESTART:               handle_restart(seq); break;
     case CMD_SIMULATE_REPLUG:       handle_simulate_replug(seq); break;
+    case CMD_RUN_RELAY_ACTUATE_TEST: handle_run_relay_actuate_test(seq); break;
+    case CMD_RUN_GFCI_CAL_TEST:      handle_run_gfci_cal_test(seq); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);

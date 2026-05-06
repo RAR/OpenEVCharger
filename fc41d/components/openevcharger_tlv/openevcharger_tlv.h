@@ -70,6 +70,8 @@ static constexpr uint8_t CMD_SET_TIME   = 0x19;
 static constexpr uint8_t CMD_GET_TIME   = 0x1A;
 static constexpr uint8_t CMD_RESTART    = 0x1B;
 static constexpr uint8_t CMD_SIMULATE_REPLUG = 0x1C;
+static constexpr uint8_t CMD_RUN_RELAY_ACTUATE_TEST = 0x1D;
+static constexpr uint8_t CMD_RUN_GFCI_CAL_TEST = 0x1E;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -215,6 +217,8 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   uint8_t send_get_time();
   uint8_t send_restart();
   uint8_t send_simulate_replug();
+  uint8_t send_run_relay_actuate_test();
+  uint8_t send_run_gfci_cal_test();
   // Cached MCU clock (last value reported via EVT_TIME, with the
   // FC41D millis at receipt — caller can extrapolate live by adding
   // the millis-since delta).
@@ -544,6 +548,8 @@ enum class ButtonAction : uint8_t {
   OTA_ABORT,
   RESTART,
   SIMULATE_REPLUG,
+  RUN_RELAY_ACTUATE_TEST,
+  RUN_GFCI_CAL_TEST,
 };
 
 #ifdef USE_NUMBER

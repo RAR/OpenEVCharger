@@ -28,4 +28,16 @@ void gfci_init(void);
  * 0 if PE2 reads HIGH (= idle / no fault). Active-low. */
 int  gfci_fault_active(void);
 
+/* Polarity-agnostic CAL self-test pulse. Drives PE3 to the inverse
+ * of its idle level for ~60 ms, polls PE2 for an assertion edge, then
+ * restores PE3 and waits for PE2 to release.
+ *   0  = PASS
+ *  -1  = no sense edge during CAL pulse
+ *  -2  = sense stuck-low after CAL release
+ *  -3  = sense already asserted at start (live fault?)
+ * Note: contains ~160 ms of busy-wait. Acceptable inside safety_task's
+ * 20 ms tick because the IWDG window is 1 s, but no other detector
+ * runs during the call. Bench-use only. */
+int  gfci_self_test(void);
+
 #endif /* OPENEVCHARGER_HAL_GFCI_H */

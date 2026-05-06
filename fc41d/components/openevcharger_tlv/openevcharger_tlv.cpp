@@ -1003,6 +1003,20 @@ uint8_t OpenevchargerTlv::send_simulate_replug() {
   return s;
 }
 
+uint8_t OpenevchargerTlv::send_run_relay_actuate_test() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_RUN_RELAY_ACTUATE_TEST, s, nullptr, 0);
+  ESP_LOGI(TAG, "Relay actuate self-test requested (seq=%u)", unsigned(s));
+  return s;
+}
+
+uint8_t OpenevchargerTlv::send_run_gfci_cal_test() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_RUN_GFCI_CAL_TEST, s, nullptr, 0);
+  ESP_LOGI(TAG, "GFCI CAL self-test requested (seq=%u)", unsigned(s));
+  return s;
+}
+
 uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
 #ifdef USE_SENSOR
   auto clamp_i16 = [](int32_t v) -> int16_t {
@@ -1478,6 +1492,8 @@ void OpenevchargerTlvButton::press_action() {
     case ButtonAction::OTA_ABORT: parent_->abort_ota_push(); break;
     case ButtonAction::RESTART: parent_->send_restart(); break;
     case ButtonAction::SIMULATE_REPLUG: parent_->send_simulate_replug(); break;
+    case ButtonAction::RUN_RELAY_ACTUATE_TEST: parent_->send_run_relay_actuate_test(); break;
+    case ButtonAction::RUN_GFCI_CAL_TEST: parent_->send_run_gfci_cal_test(); break;
   }
 }
 #endif

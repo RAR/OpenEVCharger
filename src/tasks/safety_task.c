@@ -36,6 +36,8 @@ typedef enum {
     SAFETY_REQ_RFID_LEARN_ARM,
     SAFETY_REQ_PUBLISH_RFID_CONFIG,
     SAFETY_REQ_SIMULATE_REPLUG,
+    SAFETY_REQ_RUN_RELAY_ACTUATE_TEST,
+    SAFETY_REQ_RUN_GFCI_CAL_TEST,
 } safety_req_type_t;
 
 /* Simulate-replug window: CP held at state F (-12 V) and the
@@ -942,6 +944,16 @@ int safety_request_simulate_replug(void)
     return post_safety_req(SAFETY_REQ_SIMULATE_REPLUG, 0, 0);
 }
 
+int safety_request_run_relay_actuate_test(void)
+{
+    return post_safety_req(SAFETY_REQ_RUN_RELAY_ACTUATE_TEST, 0, 0);
+}
+
+int safety_request_run_gfci_cal_test(void)
+{
+    return post_safety_req(SAFETY_REQ_RUN_GFCI_CAL_TEST, 0, 0);
+}
+
 static void publish_rfid_config(void)
 {
     struct __attribute__((packed)) {
@@ -1087,6 +1099,48 @@ static void process_request(struct safety_req *r,
         } else {
             printk("safety: SIMULATE_REPLUG ignored (state=%s)\n",
                    evse_state_name(*es));
+        }
+        break;
+    case SAFETY_REQ_RUN_RELAY_ACTUATE_TEST:
+        /* On-demand F7 bench validation. Refused unless EVSE_READY +
+         * J1772=A — actuating the contactor with a vehicle plugged
+         * would dump current into the EV. self_test_relay_actuate
+         * is the same routine wired into the boot path under
+         * OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST; calling it here lets the
+         * bench operator iterate without rebooting per attempt. */
+        if (*es != EVSE_READY) {
+            printk("safety: RUN_RELAY_ACTUATE_TEST ignored (state=%s, need READY)\n",
+                   evse_state_name(*es));
+        } else if (cp->committed != J1772_STATE_A) {
+            printk("safety: RUN_RELAY_ACTUATE_TEST ignored (J1772=%s, need A)\n",
+                   j1772_state_name(cp->committed));
+        } else {
+            printk("safety: RUN_RELAY_ACTUATE_TEST starting\n");
+            (void)self_test_relay_actuate();   /* logs PASS/FAIL itself */
+        }
+        break;
+    case SAFETY_REQ_RUN_GFCI_CAL_TEST:
+        /* On-demand F3 bench validation. Calls gfci_self_test()
+         * directly (bypassing self_test_gfci_cal's build-flag gate)
+         * since the whole point is to validate the path before the
+         * flag flips. Refused unless EVSE_READY — running this in
+         * CHARGING would race the live GFCI detector. J1772 state
+         * doesn't matter (no contactor involvement). */
+        if (*es != EVSE_READY) {
+            printk("safety: RUN_GFCI_CAL_TEST ignored (state=%s, need READY)\n",
+                   evse_state_name(*es));
+        } else {
+            printk("safety: RUN_GFCI_CAL_TEST starting\n");
+            int rc = gfci_self_test();
+            if (rc == 0) {
+                printk("self-test: GFCI CAL PASS\n");
+            } else {
+                const char *why = (rc == -1) ? "no sense edge during CAL pulse"
+                                : (rc == -2) ? "sense stuck-low after CAL release"
+                                : (rc == -3) ? "sense already asserted at start"
+                                :              "unknown rc";
+                printk("self-test: GFCI CAL FAIL (rc=%d, %s)\n", rc, why);
+            }
         }
         break;
     default:

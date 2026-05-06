@@ -454,6 +454,26 @@ button:
     simulate_replug:
       name: "Simulate Replug"
       entity_category: diagnostic
+    # F7 bench validation: actuate the contactor and read PB12 closed-
+    # feedback within 50 ms, then open and confirm release. MCU refuses
+    # unless EVSE=READY and J1772=A — i.e. no vehicle plugged. Watch
+    # UART3 for "self-test: relay actuate-and-readback OK" or one of
+    # the failure paths (RELAY_OPEN_AT_BOOT / RELAY_WELD_AT_BOOT). Once
+    # this passes reliably under live mains, flip
+    # OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST=1 in CMakeLists so the boot
+    # path runs it automatically.
+    run_relay_actuate_test:
+      name: "Run Relay Actuate Self-Test"
+      entity_category: diagnostic
+    # F3 bench validation: drive PE3 CAL pulse and observe PE2 GFCI
+    # sense edge. ~160 ms busy-wait inside safety_task — no other
+    # detector ticks during the test. MCU refuses unless EVSE=READY.
+    # Watch UART3 for "self-test: GFCI CAL PASS" / FAIL with rc.
+    # Scope PE3 + PE2 simultaneously the first time. Once the path
+    # is bench-confirmed, flip OPENEVCHARGER_GFCI_CAL_SELF_TEST=1.
+    run_gfci_cal_test:
+      name: "Run GFCI CAL Self-Test"
+      entity_category: diagnostic
 
   # Local-only Phase A round-trip exerciser. Pushes a synthetic 256 B
   # blob (counter pattern); the MCU stages it to W25Q, verifies CRC,
