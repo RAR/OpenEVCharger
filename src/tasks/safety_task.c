@@ -1026,10 +1026,25 @@ static void process_request(struct safety_req *r,
         publish_rfid_config();
         break;
     case SAFETY_REQ_SIMULATE_REPLUG:
+        /* Refuse if there's no plug (J1772 committed=A or INVALID).
+         * Driving CP to state F with no EV does nothing observable
+         * AND bounces us out of USER_PAUSED via update_evse_from_j1772's
+         * "USER_PAUSED + js=A → READY" rule (which fires on the same
+         * tick because cp_high ADC inject hasn't caught up to the new
+         * CP-F drive yet — the first-tick race). Bench-discovered
+         * 2026-05-06. */
+        if (cp->committed != J1772_STATE_B &&
+            cp->committed != J1772_STATE_C &&
+            cp->committed != J1772_STATE_D) {
+            printk("safety: SIMULATE_REPLUG ignored (J1772=%s, no plug to replug)\n",
+                   j1772_state_name(cp->committed));
+            break;
+        }
         if (*es == EVSE_READY || *es == EVSE_CHARGING ||
             *es == EVSE_USER_PAUSED || *es == EVSE_COOLING_DOWN) {
-            printk("safety: SIMULATE_REPLUG (from %s, %u ms window)\n",
+            printk("safety: SIMULATE_REPLUG (from %s, J1772=%s, %u ms window)\n",
                    evse_state_name(*es),
+                   j1772_state_name(cp->committed),
                    (unsigned)SAFETY_REPLUG_WINDOW_MS);
             /* Drop to USER_PAUSED so apply_relay_state keeps the
              * contactor open and we don't accumulate session energy
@@ -1076,8 +1091,12 @@ static void check_cp_e(fault_state_t *fs, evse_state_t *es,
      * cp_high_mv() reads ~+725 mV when we set CCR=0 → CP physically
      * -12 V. The classifier reports E in that case, which would
      * spuriously re-raise CP_NO_PILOT. Once we've already entered
-     * EVSE_FAULT for any reason, suppress this check. */
-    if (*es == EVSE_FAULT) {
+     * EVSE_FAULT for any reason, suppress this check. The same
+     * logic applies during the simulate-replug window — we drive
+     * CP to state F intentionally, and the classifier will commit
+     * to E within 3 ticks. Bench-tripped 2026-05-06 with the very
+     * first SIMULATE_REPLUG press. */
+    if (*es == EVSE_FAULT || s_replug_window_ticks > 0u) {
         *cp_e_streak = 0;
         return;
     }
