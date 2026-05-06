@@ -257,8 +257,8 @@ GD32F205 FWDGT (free watchdog timer = STM32-equivalent IWDG). LSI clock is ~40 k
  * STM32). Owned by safety_task: no other code calls wdg_kick().
  */
 
-#ifndef OPENBHZD_HAL_WDG_H
-#define OPENBHZD_HAL_WDG_H
+#ifndef OPENEVCHARGER_HAL_WDG_H
+#define OPENEVCHARGER_HAL_WDG_H
 
 #include <stdint.h>
 
@@ -277,7 +277,7 @@ void wdg_kick(void);
  */
 int wdg_was_last_reset(void);
 
-#endif /* OPENBHZD_HAL_WDG_H */
+#endif /* OPENEVCHARGER_HAL_WDG_H */
 ```
 
 - [ ] **Step 2: Write `src/hal/wdg.c`**
@@ -358,8 +358,8 @@ If compilation reveals that `DBG_CTL_FWDGT_HOLD` isn't defined in the vendor hea
 - [ ] **Step 1: `src/tasks/safety_task.h`**
 
 ```c
-#ifndef OPENBHZD_TASKS_SAFETY_TASK_H
-#define OPENBHZD_TASKS_SAFETY_TASK_H
+#ifndef OPENEVCHARGER_TASKS_SAFETY_TASK_H
+#define OPENEVCHARGER_TASKS_SAFETY_TASK_H
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -410,8 +410,8 @@ void safety_task_create(void)
 - [ ] **Step 3: `src/tasks/io_task.h`**
 
 ```c
-#ifndef OPENBHZD_TASKS_IO_TASK_H
-#define OPENBHZD_TASKS_IO_TASK_H
+#ifndef OPENEVCHARGER_TASKS_IO_TASK_H
+#define OPENEVCHARGER_TASKS_IO_TASK_H
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -471,8 +471,8 @@ void io_task_create(void)
 - [ ] **Step 5: `src/tasks/comms_task.h`**
 
 ```c
-#ifndef OPENBHZD_TASKS_COMMS_TASK_H
-#define OPENBHZD_TASKS_COMMS_TASK_H
+#ifndef OPENEVCHARGER_TASKS_COMMS_TASK_H
+#define OPENEVCHARGER_TASKS_COMMS_TASK_H
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -513,8 +513,8 @@ void comms_task_create(void)
 - [ ] **Step 7: `src/tasks/persist_task.h`**
 
 ```c
-#ifndef OPENBHZD_TASKS_PERSIST_TASK_H
-#define OPENBHZD_TASKS_PERSIST_TASK_H
+#ifndef OPENEVCHARGER_TASKS_PERSIST_TASK_H
+#define OPENEVCHARGER_TASKS_PERSIST_TASK_H
 
 #include "FreeRTOS.h"
 #include "task.h"

@@ -22,8 +22,8 @@
 - [ ] **Step 1: Write the header**
 
 ```c
-#ifndef OPENBHZD_CORE_FAULT_H
-#define OPENBHZD_CORE_FAULT_H
+#ifndef OPENEVCHARGER_CORE_FAULT_H
+#define OPENEVCHARGER_CORE_FAULT_H
 
 #include <stdint.h>
 
@@ -91,7 +91,7 @@ int  fault_clear_all_clearable(fault_state_t *s);
 /* Stable short string for logging / TLV. Never returns NULL. */
 const char *fault_name(fault_id_t id);
 
-#endif /* OPENBHZD_CORE_FAULT_H */
+#endif /* OPENEVCHARGER_CORE_FAULT_H */
 ```
 
 - [ ] **Step 2: Commit not yet — finish the .c next.**
@@ -232,8 +232,8 @@ const char *fault_name(fault_id_t id)
 - [ ] **Step 1: Header only — no implementation needed yet.**
 
 ```c
-#ifndef OPENBHZD_CORE_EVSE_STATE_H
-#define OPENBHZD_CORE_EVSE_STATE_H
+#ifndef OPENEVCHARGER_CORE_EVSE_STATE_H
+#define OPENEVCHARGER_CORE_EVSE_STATE_H
 
 #include <stdint.h>
 
@@ -262,7 +262,7 @@ static inline const char *evse_state_name(evse_state_t s)
     }
 }
 
-#endif /* OPENBHZD_CORE_EVSE_STATE_H */
+#endif /* OPENEVCHARGER_CORE_EVSE_STATE_H */
 ```
 
 ---

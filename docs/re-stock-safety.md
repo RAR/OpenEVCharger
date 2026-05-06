@@ -142,7 +142,7 @@ interpretation.
    it. (`pinout.md` line 320 also needs correcting.)
 3. **Trip / clear thresholds:** trip at raw ≤ 300 (= 95 °C),
    clear at raw ≤ 396 (= 85 °C, applying OpenEVCharger's 10 °C hysteresis).
-4. **Build flag:** OpenEVCharger presumably already has `OPENBHZD_NTC1_PRESENT`
+4. **Build flag:** OpenEVCharger presumably already has `OPENEVCHARGER_NTC1_PRESENT`
    etc. (per `safety.md` row). Once the LUT is wired in, no flag flip
    is needed for NTC1 — it's already active. NTC2 toggle still
    bench-gated by gun-thermistor presence (separately tracked).
@@ -224,7 +224,7 @@ machine to state 0**, completing a polling cycle.
      PE2 stays low → `FAULT_GFCI_SELF_TEST`.
    - In normal operation (no CAL pulse): if PE2 high → `FAULT_GFCI`
      (real-time leakage detected by the module).
-3. **Build flag:** flip `OPENBHZD_GFCI_KNOWN=1` (or whatever the
+3. **Build flag:** flip `OPENEVCHARGER_GFCI_KNOWN=1` (or whatever the
    gating flag is in `safety_task`). Add `check_gfci()` to the
    tick, latched + power-cycle-only clear per UL2231.
 
@@ -325,7 +325,7 @@ of that halfword is the next step.
 ### What to do in OpenEVCharger code
 
 **Do not flip the relay-feedback flag.** Status of
-`OPENBHZD_RELAY_FEEDBACK_KNOWN` should stay 0.
+`OPENEVCHARGER_RELAY_FEEDBACK_KNOWN` should stay 0.
 
 Bench investigation required (matches `safety.md` § "FAULT_RELAY_WELD"
 already): scope every otherwise-unassigned MCU input while toggling

@@ -135,7 +135,7 @@ PE2 LOW mid-cycle) for `FAULT_GFCI_SELF_TEST` coverage.
   (HARD_OVER_CURRENT above) and cannot land independently.
 - **Bench needed:** BL0939 UART parser (see HARD_OVER_CURRENT).
 - **Enable:** EITHER identify a real sense pin (then flip
-  `OPENBHZD_RELAY_FEEDBACK_KNOWN=1`), OR land V/I path then add a
+  `OPENEVCHARGER_RELAY_FEEDBACK_KNOWN=1`), OR land V/I path then add a
   current-inferred weld detector that watches PC0 vs PE12 + CP.
 
 ### `FAULT_DIODE_CHECK` — gated

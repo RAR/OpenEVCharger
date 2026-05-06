@@ -50,8 +50,8 @@ OpenEVCharger/
 - [ ] **Step 1: Create `src/persist/crc.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_CRC_H
-#define OPENBHZD_PERSIST_CRC_H
+#ifndef OPENEVCHARGER_PERSIST_CRC_H
+#define OPENEVCHARGER_PERSIST_CRC_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -94,8 +94,8 @@ uint32_t crc32(const void *data, size_t len)
 - [ ] **Step 1: Create `src/persist/boot_count.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_BOOT_COUNT_H
-#define OPENBHZD_PERSIST_BOOT_COUNT_H
+#ifndef OPENEVCHARGER_PERSIST_BOOT_COUNT_H
+#define OPENEVCHARGER_PERSIST_BOOT_COUNT_H
 
 #include <stdint.h>
 

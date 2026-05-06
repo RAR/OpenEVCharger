@@ -153,8 +153,8 @@ PC9 is read straight via `gpio_input_bit_get()`; identical 3-poll debounce. PC9 
 - [ ] **Step 1: Create `src/core/pin_map.h` with one symbol per load-bearing pin and one boot-time idle level**
 
 ```c
-#ifndef OPENBHZD_CORE_PIN_MAP_H
-#define OPENBHZD_CORE_PIN_MAP_H
+#ifndef OPENEVCHARGER_CORE_PIN_MAP_H
+#define OPENEVCHARGER_CORE_PIN_MAP_H
 
 /* Canonical pin assignments for OpenEVCharger on the Rippleon ROC001 board.
  *
@@ -285,7 +285,7 @@ PC9 is read straight via `gpio_input_bit_get()`; identical 3-poll debounce. PC9 
 #define PIN_STRAP_PB14_PORT     GPIOB
 #define PIN_STRAP_PB14_PIN      GPIO_PIN_14
 
-#endif /* OPENBHZD_CORE_PIN_MAP_H */
+#endif /* OPENEVCHARGER_CORE_PIN_MAP_H */
 ```
 
 - [ ] **Step 2: Add `src/core/` to the include path**
@@ -331,8 +331,8 @@ git commit -m "M2.1: add canonical pin_map.h"
 - [ ] **Step 1: Create `src/hal/uart.h`**
 
 ```c
-#ifndef OPENBHZD_HAL_UART_H
-#define OPENBHZD_HAL_UART_H
+#ifndef OPENEVCHARGER_HAL_UART_H
+#define OPENEVCHARGER_HAL_UART_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -581,8 +581,8 @@ git commit -m "M2.2: USART1 debug console + printk"
 - [ ] **Step 1: Create `src/hal/gpio.h`**
 
 ```c
-#ifndef OPENBHZD_HAL_GPIO_H
-#define OPENBHZD_HAL_GPIO_H
+#ifndef OPENEVCHARGER_HAL_GPIO_H
+#define OPENEVCHARGER_HAL_GPIO_H
 
 #include <stdint.h>
 
@@ -864,8 +864,8 @@ git commit -m "M2.3: gpio_init_all() — bulk pin config from canonical pin_map"
 - [ ] **Step 1: Create `src/hal/adc_scan.h`**
 
 ```c
-#ifndef OPENBHZD_HAL_ADC_SCAN_H
-#define OPENBHZD_HAL_ADC_SCAN_H
+#ifndef OPENEVCHARGER_HAL_ADC_SCAN_H
+#define OPENEVCHARGER_HAL_ADC_SCAN_H
 
 #include <stdint.h>
 
@@ -1084,8 +1084,8 @@ git commit -m "M2.4: ADC0 + DMA1 ch0 11-rank circular scan"
 - [ ] **Step 1: Create `src/ui/buttons.h`**
 
 ```c
-#ifndef OPENBHZD_UI_BUTTONS_H
-#define OPENBHZD_UI_BUTTONS_H
+#ifndef OPENEVCHARGER_UI_BUTTONS_H
+#define OPENEVCHARGER_UI_BUTTONS_H
 
 typedef enum {
     BTN_NONE = 0,

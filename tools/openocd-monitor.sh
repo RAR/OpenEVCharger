@@ -4,13 +4,13 @@
 #
 # IMPORTANT: ARM semihosting BKPT 0xAB halts the chip when no host is
 # servicing it AND DHCSR.C_DEBUGEN is set (sticky after openocd
-# disconnect). Default firmware build has OPENBHZD_SEMIHOSTING=0 so
+# disconnect). Default firmware build has OPENEVCHARGER_SEMIHOSTING=0 so
 # the chip never issues the BKPT — printk goes only over the (PA9)
 # UART, which is physically inaccessible on this bench.
 #
 # To capture printk: rebuild with the flag, flash, then run monitor:
 #
-#   cmake -B build -DOPENBHZD_SEMIHOSTING=1
+#   cmake -B build -DOPENEVCHARGER_SEMIHOSTING=1
 #   cmake --build build
 #   tools/flash.sh
 #   tools/openocd-monitor.sh   # leave this running; do NOT Ctrl-C
@@ -28,7 +28,7 @@ CFG="$REPO_ROOT/tools/openocd-gd32f205.cfg"
 
 echo "Starting OpenOCD with semihosting enabled. Ctrl-C to stop."
 echo "(Reminder: chip will freeze on next printk after you Ctrl-C"
-echo " unless firmware was built with OPENBHZD_SEMIHOSTING=0.)"
+echo " unless firmware was built with OPENEVCHARGER_SEMIHOSTING=0.)"
 exec openocd -f "$CFG" \
     -c "init" \
     -c "reset halt" \

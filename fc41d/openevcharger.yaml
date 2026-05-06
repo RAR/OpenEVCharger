@@ -466,7 +466,7 @@ button:
 
   # Local-only Phase A round-trip exerciser. Pushes a synthetic 256 B
   # blob (counter pattern); the MCU stages it to W25Q, verifies CRC,
-  # and arms boot_config.pending_ota_flag. With OPENBHZD_OTA_APPLY_ENABLED=0
+  # and arms boot_config.pending_ota_flag. With OPENEVCHARGER_OTA_APPLY_ENABLED=0
   # (default), next boot logs "clearing without apply" and continues
   # normally — safe to press without an SWD recovery setup. Watch the
   # "MCU OTA Progress" sensor climb to 100 and the printk on UART3:

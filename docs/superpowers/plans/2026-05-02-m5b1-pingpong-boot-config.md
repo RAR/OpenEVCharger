@@ -63,8 +63,8 @@ The spec lists `event_log.c/h` and `session_log.c/h` under `persist/`; both come
 - [ ] **Step 1: Create `src/persist/pingpong.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_PINGPONG_H
-#define OPENBHZD_PERSIST_PINGPONG_H
+#ifndef OPENEVCHARGER_PERSIST_PINGPONG_H
+#define OPENEVCHARGER_PERSIST_PINGPONG_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -249,8 +249,8 @@ Expected: clean build, text grows by ~600 B.
 - [ ] **Step 1: Create `src/persist/boot_config.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_BOOT_CONFIG_H
-#define OPENBHZD_PERSIST_BOOT_CONFIG_H
+#ifndef OPENEVCHARGER_PERSIST_BOOT_CONFIG_H
+#define OPENEVCHARGER_PERSIST_BOOT_CONFIG_H
 
 #include <stdint.h>
 

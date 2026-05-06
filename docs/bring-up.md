@@ -1349,13 +1349,13 @@ Either way, **on a real installation with mains-side current
 flowing, this test should pass**. Gated behind a build flag:
 
 ```c
-#ifndef OPENBHZD_RELAY_ACTUATE_SELF_TEST
-#define OPENBHZD_RELAY_ACTUATE_SELF_TEST  0
+#ifndef OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST
+#define OPENEVCHARGER_RELAY_ACTUATE_SELF_TEST  0
 #endif
 ```
 
 Default OFF (so the bench boots clean). Production builds opt in via
-`cmake -DOPENBHZD_RELAY_ACTUATE_SELF_TEST=1`. Bench follow-up needed:
+`cmake -DOPENEVCHARGER_RELAY_ACTUATE_SELF_TEST=1`. Bench follow-up needed:
 
 - Scope/multimeter on the contactor coil terminals while toggling
   PE12, with mains live, to confirm the coil actually energises.
@@ -1556,14 +1556,14 @@ bit is sticky-on, the gate doesn't catch the post-disconnect case.
 Fix: gated the BKPT body behind a build flag with default OFF:
 
 ```c
-#ifndef OPENBHZD_SEMIHOSTING
-#define OPENBHZD_SEMIHOSTING 0
+#ifndef OPENEVCHARGER_SEMIHOSTING
+#define OPENEVCHARGER_SEMIHOSTING 0
 #endif
 ```
 
 Production builds (default) issue no BKPTs and never freeze.
 Monitor-attached bench debugging uses
-`cmake -B build -DOPENBHZD_SEMIHOSTING=1` and reflashes; that build
+`cmake -B build -DOPENEVCHARGER_SEMIHOSTING=1` and reflashes; that build
 still streams printk to openocd. `openocd-monitor.sh` updated with
 a banner explaining the workflow.
 
@@ -1631,7 +1631,7 @@ independent path. Either pilot fault → safe-fail open.
   `_release()`, `_active()` API added. `relay_main_sense_closed()`
   now returns 0 (no reliable sense). `relay_main_sense_raw()` exposes
   the AC-presence reading for diagnostic use.
-- `src/tasks/safety_task.c` — `OPENBHZD_RELAY_FEEDBACK_KNOWN` build
+- `src/tasks/safety_task.c` — `OPENEVCHARGER_RELAY_FEEDBACK_KNOWN` build
   flag (default 0) gates off check_relay_weld + check_relay_stuck_open
   to avoid false-positives when sense is unreliable.
 
@@ -1788,8 +1788,8 @@ DMA-fed PWM on PA15 = TIMER1_CH0 (partial-remap-1).
   event into TIMER_CH0CV. After all bits, 60 padding zeros = 75 µs
   reset latch (≥ 50 µs spec). DMA full-transfer ISR disables timer.
 - API: `ws2812_init / set_pixel(i, r, g, b) / clear / show / busy`.
-- LED count compile-time: default `OPENBHZD_WS2812_LEDS=8`; override
-  via `cmake -DOPENBHZD_WS2812_LEDS=N`.
+- LED count compile-time: default `OPENEVCHARGER_WS2812_LEDS=8`; override
+  via `cmake -DOPENEVCHARGER_WS2812_LEDS=N`.
 
 Static frame buffer = `(8 LEDs × 24 bits + 60 pad) × 2 B = 504 B` in bss.
 
@@ -1842,7 +1842,7 @@ raised, no spurious buzzer activity.
 Live LED + buzzer observation needs the user at the bench. Visual
 validation pending — drop me a note about what colour shows up after
 boot. Strip count default 8; if the bench has a different number,
-rebuild with `cmake -DOPENBHZD_WS2812_LEDS=N`.
+rebuild with `cmake -DOPENEVCHARGER_WS2812_LEDS=N`.
 
 Build: text 30168 / data 20 / bss 28180 — flash 5.76%, RAM 21.51%.
 +2.4 KB text vs M8 (DMA driver + pattern engines + io_task expansion).
@@ -1938,7 +1938,7 @@ driver.
 ### Over-temp robustness (`0b733d0` + `d7ee845`) ✅
 
 `OT_PERSIST_TICKS=5` (100 ms) before raising — filters single-sample
-ADC glitches. `OPENBHZD_NTC2_PRESENT=0` default since PB0 isn't a
+ADC glitches. `OPENEVCHARGER_NTC2_PRESENT=0` default since PB0 isn't a
 thermistor (see channel-role correction below).
 
 ### Channel-role correction: PA2 = gun NTC (`a70a28e`) ✅

@@ -58,8 +58,8 @@ OpenEVCharger/
 - [ ] **Step 1: Create `src/persist/crash_state.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_CRASH_STATE_H
-#define OPENBHZD_PERSIST_CRASH_STATE_H
+#ifndef OPENEVCHARGER_PERSIST_CRASH_STATE_H
+#define OPENEVCHARGER_PERSIST_CRASH_STATE_H
 
 #include <stdint.h>
 

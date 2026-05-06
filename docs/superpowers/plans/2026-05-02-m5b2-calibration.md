@@ -55,8 +55,8 @@ OpenEVCharger/
 - [ ] **Step 1: Create `src/persist/calibration.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_CALIBRATION_H
-#define OPENBHZD_PERSIST_CALIBRATION_H
+#ifndef OPENEVCHARGER_PERSIST_CALIBRATION_H
+#define OPENEVCHARGER_PERSIST_CALIBRATION_H
 
 #include <stdint.h>
 

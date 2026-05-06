@@ -51,8 +51,8 @@ OpenEVCharger/
 - [ ] **Step 1: Create `src/persist/session_log.h`**
 
 ```c
-#ifndef OPENBHZD_PERSIST_SESSION_LOG_H
-#define OPENBHZD_PERSIST_SESSION_LOG_H
+#ifndef OPENEVCHARGER_PERSIST_SESSION_LOG_H
+#define OPENEVCHARGER_PERSIST_SESSION_LOG_H
 
 #include <stddef.h>
 #include <stdint.h>

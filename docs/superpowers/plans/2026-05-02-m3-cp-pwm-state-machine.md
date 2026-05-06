@@ -111,8 +111,8 @@ To stop chatter, `j1772_classify` returns the **same** state as last time when `
 - [ ] **Step 1: Create `src/hal/cp_pwm.h`**
 
 ```c
-#ifndef OPENBHZD_HAL_CP_PWM_H
-#define OPENBHZD_HAL_CP_PWM_H
+#ifndef OPENEVCHARGER_HAL_CP_PWM_H
+#define OPENEVCHARGER_HAL_CP_PWM_H
 
 #include <stdint.h>
 
@@ -306,8 +306,8 @@ git commit -m "M3.1: TIMER0 1 kHz CP PWM on PE13 with idle-high default"
 - [ ] **Step 1: Create `src/hal/adc_inject.h`**
 
 ```c
-#ifndef OPENBHZD_HAL_ADC_INJECT_H
-#define OPENBHZD_HAL_ADC_INJECT_H
+#ifndef OPENEVCHARGER_HAL_ADC_INJECT_H
+#define OPENEVCHARGER_HAL_ADC_INJECT_H
 
 #include <stdint.h>
 
@@ -440,8 +440,8 @@ git commit -m "M3.2: ADC0 injected on PA4 triggered by TIMER0 TRGO + EOC ISR"
 - [ ] **Step 1: Create `src/core/j1772.h`**
 
 ```c
-#ifndef OPENBHZD_CORE_J1772_H
-#define OPENBHZD_CORE_J1772_H
+#ifndef OPENEVCHARGER_CORE_J1772_H
+#define OPENEVCHARGER_CORE_J1772_H
 
 #include <stdint.h>
 
