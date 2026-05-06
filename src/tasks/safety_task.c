@@ -1533,18 +1533,22 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
     }
 }
 
-/* Hard over-current — > advertised × 1.20 sustained for > 5 s. Latched.
- * Spec § 4 #10. Active only once a per-chassis BL0939 IA cal scale is
- * non-zero. Gated on effective_advertised_amps so it tracks the live
- * SOFT_OC-derated advertise (an EV that ignores the duty derate
- * eventually trips HARD_OC at the lower effective threshold).
+/* Hard over-current — latched, halts charging. Two stacked thresholds,
+ * trip whichever fires first:
  *
- * Earlier (pre-2026-05-06) the threshold was HW_AMPS_MAX × 1.25 = 60 A
- * — a "save the relay" detector rather than a "EV exceeded advertised"
- * detector. The spec-compliant variant catches non-compliant EVs
- * earlier and is bench-testable with normal currents. The 60 A
- * absolute-ceiling case can be re-added as a separate detector if
- * production deployments surface a need for it. */
+ *   1. Spec § 4 #10: advertised × 1.20 sustained > 5 s. Catches an EV
+ *      that ignores the advertised duty cycle. Tracks the live
+ *      SOFT_OC-derated advertise (so an EV that ignores the duty
+ *      derate eventually trips HARD_OC at the lower effective
+ *      threshold).
+ *   2. Absolute hardware ceiling: HW_AMPS_MAX × 1.25 (= 60 A on this
+ *      hardware). Defensive backstop for the case where the spec
+ *      threshold is somehow too permissive (advertised wildly
+ *      misconfigured, cal scale corrupted, etc.). Bypassed under
+ *      normal operation since advertised ≤ 48 A → spec threshold
+ *      ≤ 57.6 A < 60 A.
+ *
+ * Active only once a per-chassis BL0939 IA cal scale is non-zero. */
 static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
                                     const struct bl0939_readings *bl,
                                     j1772_state_t js, int32_t cp_mv,
@@ -1557,8 +1561,12 @@ static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
     if (adv == 0) { *streak = 0; return; }
     /* mA = raw * (uA/raw) / 1000. Use uint64_t for headroom. */
     uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
-    uint64_t threshold_ma = (uint64_t)adv * 1000u
-                            * BL0939_HOC_TOL_NUM / BL0939_HOC_TOL_DEN;
+    uint64_t spec_threshold_ma = (uint64_t)adv * 1000u
+                                 * BL0939_HOC_TOL_NUM / BL0939_HOC_TOL_DEN;
+    uint64_t hw_ceiling_ma = (uint64_t)HW_AMPS_MAX * 1000u * 125u / 100u;
+    uint64_t threshold_ma = (spec_threshold_ma < hw_ceiling_ma)
+                                ? spec_threshold_ma
+                                : hw_ceiling_ma;
     if (ma > threshold_ma) {
         if (*streak < BL0939_HOC_PERSIST_POLLS) ++(*streak);
     } else {
