@@ -150,6 +150,14 @@
  *   payload (5 B): u32 unix_seconds LE, u8 is_set */
 #define EVT_TIME                  0x97u
 
+/* Diagnostic ADC snapshot for in-field characterisation of detectors
+ * whose thresholds aren't bench-pinnable. Emitted every ~5 s by
+ * safety_task. Currently carries PE (PC5) raw to support F10
+ * threshold/polarity work; CC raw and others can be added in-place
+ * if the payload is bumped on both sides.
+ *   payload (5 B): u16 pe_adc_raw LE, u8 j1772_state, u8 evse_state, u8 ac_present */
+#define EVT_DIAG_ADC              0x98u
+
 /* Result codes carried in EVT_RFID_AUTH_RESULT.result. */
 #define RFID_AUTH_RESULT_LEARNED       0u   /* UID added to list */
 #define RFID_AUTH_RESULT_START         1u   /* matched, drove pause→resume */

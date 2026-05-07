@@ -133,6 +133,14 @@ target_compile_definitions(${TARGET} PRIVATE
     # and routes a failure to FAULT_GFCI_SELF_TEST. See src/hal/gfci.c
     # for timing rationale.
     OPENEVCHARGER_GFCI_CAL_SELF_TEST=1
+    # F10: PE continuity sense topology characterisation pending real
+    # install data. Bench saw PC5 raw≤1 with no live mains regardless of
+    # PE state. F5 (2026-05-07 garage) found raw>400 with mains live and
+    # EV plugged — detector tripped FAULT_PE_CONTINUITY before the EV
+    # started drawing. Set to 0 below for the F5 session; safety_task.c
+    # still prints PE raw every 5 s so the install-side baseline is
+    # captured. Flip to 1 once the right threshold + polarity are pinned.
+    OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0
 )
 
 # Bench-time options. Default OFF unless explicitly passed via cmake.

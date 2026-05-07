@@ -164,6 +164,16 @@ sensor:
     ntc2_adc_raw:
       name: "NTC2 ADC Raw (diag)"
       entity_category: diagnostic
+    # PC5 PE-continuity sense, 12-bit. Updated every 5 s by the MCU
+    # via EVT_DIAG_ADC while F10 detector tuning is open. Bench saw
+    # raw≤1 with no live mains; F5 install (2026-05-07) saw raw>400
+    # with mains live + EV plugged. Watch this through plug/unplug/
+    # charge cycles to pin the right threshold + polarity, then
+    # flip OPENEVCHARGER_PE_CONTINUITY_DETECTOR back to 1 in
+    # CMakeLists.txt.
+    pe_adc_raw:
+      name: "PE ADC Raw (diag)"
+      entity_category: diagnostic
     # °C computed FC41D-side via β-model (R_pull=10 kΩ pulldown,
     # R0=10 kΩ at 25 °C, β=3380). Bench-anchored 2026-05-03 against
     # ntc1 raw≈2050 ↔ 23.9 °C / 75 °F. Re-fit β on a populated

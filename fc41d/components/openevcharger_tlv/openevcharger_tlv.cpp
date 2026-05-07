@@ -649,6 +649,19 @@ void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       break;
     }
 
+    case EVT_DIAG_ADC: {
+      // Payload (5 B): u16 pe_adc_raw LE, u8 j1772, u8 evse, u8 ac_present.
+      // Emitted ~5 s by safety_task while F10 detector tuning is open.
+      if (plen < 5) break;
+      uint16_t pe_raw = uint16_t(p[0] | (uint16_t(p[1]) << 8));
+      ESP_LOGD(TAG, "EVT_DIAG_ADC pe_raw=%u js=%u evse=%u",
+               unsigned(pe_raw), unsigned(p[2]), unsigned(p[3]));
+#ifdef USE_SENSOR
+      if (pe_adc_raw_sensor_) pe_adc_raw_sensor_->publish_state(pe_raw);
+#endif
+      break;
+    }
+
     default:
       ESP_LOGD(TAG, "unhandled cmd=0x%02x seq=%u plen=%u", cmd, seq, (unsigned) plen);
       break;

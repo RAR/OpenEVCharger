@@ -40,6 +40,7 @@ CONF_FAULT_COUNT = "fault_count"
 CONF_GUN_NTC_ADC_RAW = "gun_ntc_adc_raw"
 CONF_NTC1_ADC_RAW = "ntc1_adc_raw"
 CONF_NTC2_ADC_RAW = "ntc2_adc_raw"
+CONF_PE_ADC_RAW = "pe_adc_raw"
 CONF_BL0939_V_RMS_RAW = "bl0939_v_rms_raw"
 CONF_BL0939_IA_RMS_RAW = "bl0939_ia_rms_raw"
 CONF_BL0939_IB_RMS_RAW = "bl0939_ib_rms_raw"
@@ -137,6 +138,10 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
         ),
+        cv.Optional(CONF_PE_ADC_RAW): sensor.sensor_schema(
+            accuracy_decimals=0,
+            state_class=STATE_CLASS_MEASUREMENT,
+        ),
         cv.Optional(CONF_BL0939_V_RMS_RAW): sensor.sensor_schema(
             accuracy_decimals=0,
             state_class=STATE_CLASS_MEASUREMENT,
@@ -216,6 +221,7 @@ _SETTERS = {
     CONF_GUN_NTC_ADC_RAW: "set_gun_ntc_adc_raw_sensor",
     CONF_NTC1_ADC_RAW: "set_ntc1_adc_raw_sensor",
     CONF_NTC2_ADC_RAW: "set_ntc2_adc_raw_sensor",
+    CONF_PE_ADC_RAW: "set_pe_adc_raw_sensor",
     CONF_BL0939_V_RMS_RAW: "set_bl0939_v_rms_raw_sensor",
     CONF_BL0939_IA_RMS_RAW: "set_bl0939_ia_rms_raw_sensor",
     CONF_BL0939_IB_RMS_RAW: "set_bl0939_ib_rms_raw_sensor",

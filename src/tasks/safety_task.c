@@ -146,15 +146,16 @@ static void publish_rfid_config(void);
  * transients and the chip's own 400-800 ms RMS update window. */
 #define BL0939_DETECTOR_PERSIST  3U
 
-/* STUCK_OPEN needs a longer debounce than WELD/AC_ABSENT/OC because
- * it's a "startup" condition: relay closes, EV needs time to ramp
- * its current draw past the 500 mA detector threshold. Real EVs
- * typically engage within ~500 ms but bench testers with manual
- * load-current step controls (e.g. EVSE-tester current-pull plug,
- * 2026-05-06) take longer. 8 polls × 400 ms = 3.2 s settle window;
- * a real stuck contactor doesn't go away so the extra latency is
- * acceptable. */
-#define BL0939_STUCK_OPEN_PERSIST 8U
+/* STUCK_OPEN needs a long debounce because it's a "startup" condition:
+ * relay closes, EV needs time to ramp its current draw past the 500 mA
+ * detector threshold. Bench-observed 2026-05-07 on a real EV (F5
+ * garage session): EV's onboard charger / BMS takes >>3.2 s to begin
+ * drawing — the original 8-poll (3.2 s) window from bench-tester
+ * tuning was too tight and tripped before the EV started conducting.
+ * 75 polls × 400 ms = 30 s window. Real stuck contactor doesn't go
+ * away, so the extra latency is acceptable; GFCI / OC / AC-absent
+ * watchdogs still run on every tick if anything actually breaks. */
+#define BL0939_STUCK_OPEN_PERSIST 75U
 
 /* WELD also needs a "shutdown" settle window: when the relay opens
  * with a load drawing several amps, capacitance / inductance in the
@@ -1138,12 +1139,41 @@ static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
     }
 
     uint16_t raw = adc_scan_rank(ADC_RANK_PE);
+
+    /* F10 characterisation: publish EVT_DIAG_ADC every ~5 s so the
+     * install-side raw is visible from HA (printk goes to UART3 only
+     * which has no host-side reader on a deployed unit). Carries
+     * j1772/evse/ac_present for context — same values exist in
+     * EVT_STATE_REPORT but co-locating avoids a join. Drop once the
+     * detector's threshold + polarity are right. */
+    static uint32_t s_pe_log_tick;
+    if ((++s_pe_log_tick) >= (5000U / SAFETY_TASK_PERIOD_MS)) {
+        s_pe_log_tick = 0;
+        struct __attribute__((packed)) {
+            uint16_t pe_adc_raw;
+            uint8_t  j1772_state;
+            uint8_t  evse_state;
+            uint8_t  ac_present;
+        } evt = {
+            .pe_adc_raw  = raw,
+            .j1772_state = (uint8_t)js,
+            .evse_state  = (uint8_t)*es,
+            .ac_present  = 0u,  /* read-only-snapshot context; HA already
+                                 * has authoritative ac_present from
+                                 * EVT_STATE_REPORT. Leave 0 here. */
+        };
+        (void)comms_publish_event(EVT_DIAG_ADC, &evt, sizeof evt);
+        printk("safety: PE raw=%u js=%d evse=%s\n",
+               (unsigned)raw, (int)js, evse_state_name(*es));
+    }
+
     if (raw > (uint16_t)PE_OK_RAW_MAX) {
         if (*pe_streak < (int)PE_PERSIST_TICKS) ++(*pe_streak);
     } else {
         *pe_streak = 0;
     }
 
+#if OPENEVCHARGER_PE_CONTINUITY_DETECTOR
     if (*pe_streak >= (int)PE_PERSIST_TICKS &&
         !fault_is_active(fs, FAULT_PE_CONTINUITY)) {
         if (fault_raise(fs, FAULT_PE_CONTINUITY) == 1) {
@@ -1155,6 +1185,20 @@ static void check_pe_continuity(fault_state_t *fs, evse_state_t *es,
         }
         evse_transition(es, EVSE_FAULT);
     }
+#else
+    /* Detector gated off pending F10 install-side characterisation
+     * (raw value polarity / pin / threshold). Streak still counts so
+     * the periodic log shows when we'd have raised. */
+    (void)fs; (void)cp_mv;
+    if (*pe_streak >= (int)PE_PERSIST_TICKS) {
+        static uint32_t s_pe_warn_tick;
+        if ((++s_pe_warn_tick) >= (10000U / SAFETY_TASK_PERIOD_MS)) {
+            s_pe_warn_tick = 0;
+            printk("safety: PE detector gated (would-raise: raw=%u >%u)\n",
+                   (unsigned)raw, (unsigned)PE_OK_RAW_MAX);
+        }
+    }
+#endif
 }
 
 /* CP regression detector (spec § 4 #14). A J1772 C → B transition

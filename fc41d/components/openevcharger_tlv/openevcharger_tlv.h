@@ -96,6 +96,7 @@ static constexpr uint8_t EVT_OTA_CHUNK_ACK = 0x94;
 static constexpr uint8_t EVT_OTA_COMMITTED = 0x95;
 static constexpr uint8_t EVT_OTA_ABORTED   = 0x96;
 static constexpr uint8_t EVT_TIME          = 0x97;
+static constexpr uint8_t EVT_DIAG_ADC      = 0x98;
 
 // OTA status codes (mirror src/proto/commands.h).
 static constexpr uint8_t OTA_STATUS_OK              = 0;
@@ -300,6 +301,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   void set_gun_ntc_temp_sensor(sensor::Sensor *s) { gun_ntc_temp_sensor_ = s; }
   void set_ntc1_adc_raw_sensor(sensor::Sensor *s) { ntc1_adc_raw_sensor_ = s; }
   void set_ntc2_adc_raw_sensor(sensor::Sensor *s) { ntc2_adc_raw_sensor_ = s; }
+  void set_pe_adc_raw_sensor(sensor::Sensor *s) { pe_adc_raw_sensor_ = s; }
   void set_bl0939_v_rms_raw_sensor(sensor::Sensor *s) { bl0939_v_rms_raw_sensor_ = s; }
   void set_bl0939_ia_rms_raw_sensor(sensor::Sensor *s) { bl0939_ia_rms_raw_sensor_ = s; }
   void set_bl0939_ib_rms_raw_sensor(sensor::Sensor *s) { bl0939_ib_rms_raw_sensor_ = s; }
@@ -412,6 +414,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *gun_ntc_temp_sensor_{nullptr};
   sensor::Sensor *ntc1_adc_raw_sensor_{nullptr};
   sensor::Sensor *ntc2_adc_raw_sensor_{nullptr};
+  sensor::Sensor *pe_adc_raw_sensor_{nullptr};
   sensor::Sensor *bl0939_v_rms_raw_sensor_{nullptr};
   sensor::Sensor *bl0939_ia_rms_raw_sensor_{nullptr};
   sensor::Sensor *bl0939_ib_rms_raw_sensor_{nullptr};
