@@ -276,7 +276,12 @@ sensor:
     # mains_current_a publishing is gated on ia_ua_per_raw != 0 only.
     bl0939_ia_ua_per_raw: 7
     bl0939_ib_ua_per_raw: 0
-    bl0939_pa_uw_per_raw: -2575
+    # F5 high-current refinement 2026-05-07: bench F1 at 6/8/10 A
+    # extrapolated low at 44 A real-EV draw (EVSE reported 10672.8 W
+    # vs external monitor 11571 W; ratio 1.0842). New PA scale =
+    # -2575 × 1.0842 = -2792. IA scale stays at 7 (int16_t precision
+    # cap; sub-µA refinement deferred to v1.1 with field bump).
+    bl0939_pa_uw_per_raw: -2792
 
   # Power-in-kW shim for OCPP. The esphome-ocpp-server external
   # component assumes ESPHome power sensors report in kW and multiplies
