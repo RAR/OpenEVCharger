@@ -76,6 +76,35 @@ Updated channel roles:
   read-back daughterboard. Full investigation in
   `docs/diode-check-investigation.md`.
 
+### `FAULT_PE_CONTINUITY` — deferred to v1.1 hardware revision
+
+- **Why gated:** PC5 isn't a clean PE-bonded-to-earth voltage divider
+  on this PCB — it's mains-current-coupled. Install-side
+  characterisation 2026-05-07 garage:
+    - State A / B (no current flowing): raw ≈ 1
+    - State C (charging, AC flowing through contactor): raw ≈ 500–700
+  So "raw > 400" can mean either "PE broken" *or* "charging in
+  progress with PE intact." The original detector polarity
+  (low = OK) was based on the bench reading where mains was absent;
+  with mains coupling visible only when current flows, we cannot
+  distinguish "PE intact + charging" from "PE broken + charging"
+  using PC5 alone.
+- **Bench could not have caught this:** PC5 reads raw≤1 regardless
+  of PE state with no live mains, so the polarity ambiguity only
+  surfaces on a real install with current flowing. F10 was always
+  going to need install data — the data showed the channel isn't
+  fit-for-purpose, not that the threshold is off.
+- **Path forward:** v1.1 hardware revision adding a proper
+  PE-continuity sense (e.g. dedicated low-voltage PE-bond test pulse
+  on a separate pin, or a current-shunt across the PE bond). Real
+  PE-related safety in v1.0.0 comes from `FAULT_GFCI` — which trips
+  on stray earth current regardless of PE-wire continuity, and is
+  live + bench-validated.
+- **`OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0`** in `CMakeLists.txt`.
+  The detector still computes the streak (so the gated-but-would-
+  raise warn surfaces in printk) and the periodic EVT_DIAG_ADC
+  publish exposes `pe_adc_raw` to HA for ongoing observation.
+
 ### `FAULT_CC_OUT_OF_RANGE` — gated, F6
 
 - **Why gated:** OEM CC divider on PA7 is **not** the standard SAE

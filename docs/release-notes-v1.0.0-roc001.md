@@ -46,8 +46,14 @@ fork — see `docs/mcu-re/` for the reverse-engineering trail.
   still over. UI alert (red flash + buzzer) suppressed via
   `FAULT_LATCHED_MASK` since SOFT_OC is informational — log + raise,
   no halt.
-- **PE continuity, CP=E sustained, AC absent, over-temp, runtime
-  ADC out-of-range, CP regression** — all live.
+- **CP=E sustained, AC absent, over-temp, runtime ADC out-of-range,
+  CP regression** — all live.
+- **PE continuity** — deferred to v1.1 hardware revision. Install-
+  side characterisation 2026-05-07 found PC5 is mains-current-coupled,
+  not a clean PE-bonded voltage divider — raw ≈ 1 idle, 500–700 while
+  charging, so "raw > 400" cannot distinguish "PE broken" from
+  "charging with PE intact." Real PE safety in v1.0.0 is via
+  `FAULT_GFCI` (stray earth-current trip, live + bench-validated).
 - **Boot self-test** — ADC sanity / relay-open / CP pilot floor /
   GFCI CAL all run on every boot. Failure → FAULT_BOOT_SELF_TEST or
   FAULT_GFCI_SELF_TEST, EVSE → FAULT.
@@ -170,18 +176,24 @@ Cal items still TODO before the firmware is "done" rather than "shipped":
   **Deferred to v1.1**; needs a hardware revision (bipolar CP read-back
   daughterboard). Stock V1.0.066 also skips diode check on this PCB.
 - ~~**F3** — GFCI 8-state CAL self-test scope-validation~~ ✅ DONE 2026-05-06.
-- **F5** — full charging session with a real EV (M10). Last
-  bench-blocking milestone before tag.
+- ~~**F5** — full charging session with a real EV (M10).~~ ✅ DONE
+  2026-05-07 morning, garage. V cal confirmed L-L scaled (no rescale),
+  CT polarity correct, PWM duty correct, no faults during charging,
+  session_mwh integrating cleanly. STUCK_OPEN settle bumped 3.2 s →
+  30 s for real-EV BMS pre-charge ramp.
 - **F6** — CC ladder bench characterisation → lift the
-  `OPENEVCHARGER_CC_DETECTOR` build flag.
+  `OPENEVCHARGER_CC_DETECTOR` build flag. Deferred until a tester
+  with built-in CC resistor decade is available.
 - ~~**F7** — Relay actuate-readback under live AC mains.~~ ✅ CLOSED N/A
   2026-05-06 — no closed-feedback sense pin on this hardware revision.
 - **F8** — AC-absent threshold tuning. Now possible in real volts
   (V cal landed via F1).
-- **F10** — PE continuity sense topology characterisation. Bench
-  shows PC5 raw≤1 whether PE is connected or fully disconnected
-  with no live mains; needs install-side or circuit trace to
-  validate.
+- ~~**F10** — PE continuity sense topology characterisation.~~
+  ✅ CHARACTERISED 2026-05-07 garage; **deferred to v1.1**. PC5 is
+  mains-current-coupled (raw 1 idle / 500–700 charging), so we can't
+  distinguish "PE broken" from "AC flowing." Needs proper PE-sense
+  hardware (active bond test pulse on dedicated pin). GFCI is the
+  v1.0.0 PE-related safety.
 
 ## License
 
