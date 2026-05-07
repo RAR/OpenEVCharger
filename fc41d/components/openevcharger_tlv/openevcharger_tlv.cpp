@@ -1030,10 +1030,13 @@ uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
     if (v <  INT16_MIN) return INT16_MIN;
     return int16_t(v);
   };
-  return send_write_bl0939_cal(clamp_i16(bl0939_v_uv_per_raw_),
-                               clamp_i16(bl0939_ia_ua_per_raw_),
-                               clamp_i16(bl0939_ib_ua_per_raw_),
-                               clamp_i16(bl0939_pa_uw_per_raw_));
+  int16_t v  = clamp_i16(bl0939_v_uv_per_raw_);
+  int16_t ia = clamp_i16(bl0939_ia_ua_per_raw_);
+  int16_t ib = clamp_i16(bl0939_ib_ua_per_raw_);
+  int16_t pa = clamp_i16(bl0939_pa_uw_per_raw_);
+  ESP_LOGI(TAG, "Push BL0939 cal: V=%d IA=%d IB=%d PA=%d (uV/uA/uW per raw)",
+           int(v), int(ia), int(ib), int(pa));
+  return send_write_bl0939_cal(v, ia, ib, pa);
 #else
   return 0;
 #endif
