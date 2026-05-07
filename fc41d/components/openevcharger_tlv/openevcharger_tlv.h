@@ -195,7 +195,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   uint8_t send_buzzer_beep(uint16_t ms);
   uint8_t send_set_led_override(uint8_t mode, uint8_t r, uint8_t g, uint8_t b);
   uint8_t send_write_bl0939_cal(int16_t v_uv_per_raw,
-                                int16_t ia_ua_per_raw,
+                                int16_t ia_na_per_raw,
                                 int16_t ib_ua_per_raw,
                                 int16_t pa_uw_per_raw);
   // Convenience: ship the four per-chassis scales already loaded from
@@ -317,7 +317,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   // Per-chassis BL0939 raw → engineering-unit scales. Pulled from YAML
   // substitutions; default 0 = no conversion (raw-only mode).
   void set_bl0939_v_uv_per_raw(int32_t s) { bl0939_v_uv_per_raw_ = s; }
-  void set_bl0939_ia_ua_per_raw(int32_t s) { bl0939_ia_ua_per_raw_ = s; }
+  void set_bl0939_ia_na_per_raw(int32_t s) { bl0939_ia_na_per_raw_ = s; }
   void set_bl0939_ib_ua_per_raw(int32_t s) { bl0939_ib_ua_per_raw_ = s; }
   void set_bl0939_pa_uw_per_raw(int32_t s) { bl0939_pa_uw_per_raw_ = s; }
 #endif
@@ -428,7 +428,7 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   sensor::Sensor *rfid_authlist_count_sensor_{nullptr};
   sensor::Sensor *ota_progress_sensor_{nullptr};
   int32_t bl0939_v_uv_per_raw_{0};
-  int32_t bl0939_ia_ua_per_raw_{0};
+  int32_t bl0939_ia_na_per_raw_{0};
   int32_t bl0939_ib_ua_per_raw_{0};
   int32_t bl0939_pa_uw_per_raw_{0};
 #endif

@@ -1464,7 +1464,7 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
                                     unsigned *streak)
 {
     if (!bl->valid) return;
-    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    int16_t scale = calibration_bl0939_ia_na_per_raw();
     if (scale <= 0) { *streak = 0; return; }
 
     /* Post-open settle window: load capacitance bleeds residual
@@ -1490,7 +1490,7 @@ static void check_relay_weld_bl0939(fault_state_t *fs, evse_state_t *es,
      * contactor while we commanded it open is a weld. 500 mA is well
      * above the bench-observed ~44 mA BL0939 noise floor — but still
      * ~24× below the smallest realistic EV load (6 A min). */
-    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000000u;
     int sensing_flow = (ma >= 500u);
     if (sensing_flow && !relay_main_commanded()) {
         if (*streak < BL0939_DETECTOR_PERSIST) ++(*streak);
@@ -1522,7 +1522,7 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
                                           unsigned *streak)
 {
     if (!bl->valid) return;
-    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    int16_t scale = calibration_bl0939_ia_na_per_raw();
     if (scale <= 0) { *streak = 0; return; }
     if (*es != EVSE_CHARGING || !relay_main_commanded()) {
         *streak = 0;
@@ -1532,7 +1532,7 @@ static void check_relay_stuck_open_bl0939(fault_state_t *fs, evse_state_t *es,
      * the contactor isn't actually conducting. EVs draw at least
      * a few amps when actively charging; 500 mA is a generous
      * floor that won't trip on idle pre-charge currents. */
-    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000000u;
     if (ma < 500u) {
         if (*streak < BL0939_STUCK_OPEN_PERSIST) ++(*streak);
     } else {
@@ -1571,12 +1571,12 @@ static void check_hard_over_current(fault_state_t *fs, evse_state_t *es,
                                     unsigned *streak)
 {
     if (!bl->valid) return;
-    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    int16_t scale = calibration_bl0939_ia_na_per_raw();
     if (scale <= 0) { *streak = 0; return; }
     uint8_t adv = effective_advertised_amps();
     if (adv == 0) { *streak = 0; return; }
-    /* mA = raw * (uA/raw) / 1000. Use uint64_t for headroom. */
-    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    /* mA = raw [count] × scale [nA/raw] / 1_000_000. Cal v2 schema. */
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000000u;
     uint64_t spec_threshold_ma = (uint64_t)adv * 1000u
                                  * BL0939_HOC_TOL_NUM / BL0939_HOC_TOL_DEN;
     uint64_t hw_ceiling_ma = (uint64_t)HW_AMPS_MAX * 1000u * 125u / 100u;
@@ -1626,11 +1626,11 @@ static void check_soft_over_current(fault_state_t *fs, evse_state_t *es,
                                     unsigned *streak)
 {
     if (!bl->valid) return;
-    int16_t scale = calibration_bl0939_ia_ua_per_raw();
+    int16_t scale = calibration_bl0939_ia_na_per_raw();
     if (scale <= 0) { *streak = 0; return; }
     uint8_t adv = effective_advertised_amps();
     if (adv == 0) { *streak = 0; return; }
-    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000u;
+    uint64_t ma = ((uint64_t)bl->ia_rms * (uint64_t)scale) / 1000000u;
     uint64_t threshold_ma = (uint64_t)adv * 1000u
                             * BL0939_SOC_TOL_NUM / BL0939_SOC_TOL_DEN;
 
@@ -2109,19 +2109,19 @@ static void safety_task_run(void *arg)
              * 240 V EV before the metering can be trusted in
              * production. The bench-tester current-pull plug runs
              * single-leg, which is why F1 cal could fit cleanly.
-             * Stays 0 until ia_ua_per_raw is calibrated (factory
+             * Stays 0 until ia_na_per_raw is calibrated (factory
              * default 0 = uncalibrated).
-             * Computation: raw [count] × scale [µA/raw] = µA; /100000
+             * Computation: raw [count] × scale [nA/raw] = nA; /1e8
              * = amps × 10. Sign-tolerant for inverted-sense channels
              * (matches the pa_uw_per_raw pattern). u16 range caps at
              * 6553.5 A — well above any real EV load. */
             .active_amps_x10   = ({
-                int16_t _ia_scale = calibration_bl0939_ia_ua_per_raw();
+                int16_t _ia_scale = calibration_bl0939_ia_na_per_raw();
                 uint16_t _ax10 = 0;
                 if (_ia_scale != 0 && bl.valid) {
-                    int64_t _ua = (int64_t)bl.ia_rms * (int64_t)_ia_scale;
-                    if (_ua < 0) _ua = -_ua;
-                    int64_t _v = _ua / 100000;
+                    int64_t _na = (int64_t)bl.ia_rms * (int64_t)_ia_scale;
+                    if (_na < 0) _na = -_na;
+                    int64_t _v = _na / 100000000;
                     _ax10 = (_v > 65535) ? 65535u : (uint16_t)_v;
                 }
                 _ax10;

@@ -19,9 +19,9 @@ int16_t calibration_bl0939_v_uv_per_raw(void)
 {
     return s_cal.bl0939_v_uv_per_raw;
 }
-int16_t calibration_bl0939_ia_ua_per_raw(void)
+int16_t calibration_bl0939_ia_na_per_raw(void)
 {
-    return s_cal.bl0939_ia_ua_per_raw;
+    return s_cal.bl0939_ia_na_per_raw;
 }
 int16_t calibration_bl0939_ib_ua_per_raw(void)
 {
@@ -33,12 +33,12 @@ int16_t calibration_bl0939_pa_uw_per_raw(void)
 }
 
 int calibration_set_bl0939(int16_t v_uv_per_raw,
-                           int16_t ia_ua_per_raw,
+                           int16_t ia_na_per_raw,
                            int16_t ib_ua_per_raw,
                            int16_t pa_uw_per_raw)
 {
     if (s_cal.bl0939_v_uv_per_raw  == v_uv_per_raw  &&
-        s_cal.bl0939_ia_ua_per_raw == ia_ua_per_raw &&
+        s_cal.bl0939_ia_na_per_raw == ia_na_per_raw &&
         s_cal.bl0939_ib_ua_per_raw == ib_ua_per_raw &&
         s_cal.bl0939_pa_uw_per_raw == pa_uw_per_raw) {
         return 0;
@@ -46,7 +46,7 @@ int calibration_set_bl0939(int16_t v_uv_per_raw,
 
     s_cal.version              = CALIBRATION_VERSION;
     s_cal.bl0939_v_uv_per_raw  = v_uv_per_raw;
-    s_cal.bl0939_ia_ua_per_raw = ia_ua_per_raw;
+    s_cal.bl0939_ia_na_per_raw = ia_na_per_raw;
     s_cal.bl0939_ib_ua_per_raw = ib_ua_per_raw;
     s_cal.bl0939_pa_uw_per_raw = pa_uw_per_raw;
 
@@ -59,9 +59,9 @@ int calibration_set_bl0939(int16_t v_uv_per_raw,
         return rc;
     }
     printk("calibration: BL0939 stored -> slot %c (counter=%u, "
-           "v=%d uV/raw, ia=%d uA/raw, ib=%d uA/raw, pa=%d uW/raw)\n",
+           "v=%d uV/raw, ia=%d nA/raw, ib=%d uA/raw, pa=%d uW/raw)\n",
            'A' + slot, (unsigned)counter,
-           (int)v_uv_per_raw, (int)ia_ua_per_raw,
+           (int)v_uv_per_raw, (int)ia_na_per_raw,
            (int)ib_ua_per_raw, (int)pa_uw_per_raw);
     return 0;
 }
@@ -107,7 +107,26 @@ int calibration_load(void)
         return 0;
     }
 
-    if (s_cal.version != CALIBRATION_VERSION) {
+    if (s_cal.version == 1U) {
+        /* v1→v2 migration: ia field semantics change µA/raw → nA/raw.
+         * Multiply the legacy value by 1000 and clamp to int16. Re-stamp
+         * + persist so subsequent boots load straight as v2. */
+        int32_t na = (int32_t)s_cal.bl0939_ia_na_per_raw * 1000;
+        if (na > INT16_MAX) na = INT16_MAX;
+        if (na < INT16_MIN) na = INT16_MIN;
+        int16_t was_ua = s_cal.bl0939_ia_na_per_raw;
+        s_cal.bl0939_ia_na_per_raw = (int16_t)na;
+        s_cal.version = CALIBRATION_VERSION;
+        int wrc = pingpong_store(CALIBRATION_SLOT_A, CALIBRATION_SLOT_B,
+                                 &s_cal, sizeof s_cal, &slot, &counter);
+        if (wrc < 0) {
+            printk("calibration: v1→v2 migration store FAIL rc=%d\n", wrc);
+            /* Continue with the migrated in-RAM value even on store fail
+             * — next reboot will retry. */
+        }
+        printk("calibration: v1→v2 migrated ia=%d uA/raw → %d nA/raw\n",
+               (int)was_ua, (int)s_cal.bl0939_ia_na_per_raw);
+    } else if (s_cal.version != CALIBRATION_VERSION) {
         printk("calibration: unknown version=%u, using as-is\n",
                (unsigned)s_cal.version);
     }

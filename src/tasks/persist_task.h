@@ -51,7 +51,7 @@ int persist_post_calibration(int16_t anchor_raw,
 /* Persist BL0939 chassis scales (V/IA/IB/PA per raw). Single-owner via
  * persist_task; calibration_set_bl0939 talks to W25Q ping-pong. */
 int persist_post_bl0939_cal(int16_t v_uv_per_raw,
-                            int16_t ia_ua_per_raw,
+                            int16_t ia_na_per_raw,
                             int16_t ib_ua_per_raw,
                             int16_t pa_uw_per_raw);
 

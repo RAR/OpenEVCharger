@@ -716,8 +716,11 @@ void OpenevchargerTlv::publish_state_() {
       double v = double(s.bl0939_v_rms) * double(bl0939_v_uv_per_raw_) / 1.0e6;
       mains_voltage_sensor_->publish_state(float(v));
     }
-    if (mains_current_a_sensor_ && bl0939_ia_ua_per_raw_ != 0) {
-      double a = double(s.bl0939_ia_rms) * double(bl0939_ia_ua_per_raw_) / 1.0e6;
+    if (mains_current_a_sensor_ && bl0939_ia_na_per_raw_ != 0) {
+      // raw [count] × scale [nA/raw] / 1e9 = A. Cal v2 schema —
+      // µA-resolution lacked precision at high current (F1 cal at 6/8/10
+      // A extrapolated low at 44 A real-EV draw, 5.5% under).
+      double a = double(s.bl0939_ia_rms) * double(bl0939_ia_na_per_raw_) / 1.0e9;
       mains_current_a_sensor_->publish_state(float(a));
     }
     if (mains_current_b_sensor_ && bl0939_ib_ua_per_raw_ != 0) {
@@ -1031,10 +1034,10 @@ uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
     return int16_t(v);
   };
   int16_t v  = clamp_i16(bl0939_v_uv_per_raw_);
-  int16_t ia = clamp_i16(bl0939_ia_ua_per_raw_);
+  int16_t ia = clamp_i16(bl0939_ia_na_per_raw_);
   int16_t ib = clamp_i16(bl0939_ib_ua_per_raw_);
   int16_t pa = clamp_i16(bl0939_pa_uw_per_raw_);
-  ESP_LOGI(TAG, "Push BL0939 cal: V=%d IA=%d IB=%d PA=%d (uV/uA/uW per raw)",
+  ESP_LOGI(TAG, "Push BL0939 cal: V=%d uV/raw IA=%d nA/raw IB=%d uA/raw PA=%d uW/raw",
            int(v), int(ia), int(ib), int(pa));
   return send_write_bl0939_cal(v, ia, ib, pa);
 #else

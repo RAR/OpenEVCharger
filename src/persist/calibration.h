@@ -5,7 +5,11 @@
 
 #define CALIBRATION_SLOT_A   0x002000U
 #define CALIBRATION_SLOT_B   0x003000U
-#define CALIBRATION_VERSION  1U
+/* v1: ia field is uA/raw  (legacy). v2: ia field is nA/raw — gives
+ * +1000× sub-µA precision at the int16_t cap (max 32.767 µA/raw,
+ * plenty for our hardware). calibration_load() auto-migrates v1
+ * records (multiplies ia_ua×1000, clamps, restamps as v2). */
+#define CALIBRATION_VERSION  2U
 
 /* Defaults committed M3.4.5 (bench Rippleon ROC001 2026-05-02).
  * Formula: cp_mv = (raw - anchor) * slope_num / slope_den + 12000 */
@@ -31,8 +35,13 @@ struct __attribute__((packed)) calibration {
     int16_t  cp_slope_num;              /* mV/raw numerator */
     int16_t  cp_slope_den;              /* mV/raw denominator */
     int16_t  bl0939_v_uv_per_raw;       /* V_RMS raw × this = mains µV */
-    int16_t  bl0939_ia_ua_per_raw;      /* IA_RMS raw × this = mains µA */
-    int16_t  bl0939_ib_ua_per_raw;      /* IB_RMS raw × this = mains µA */
+    int16_t  bl0939_ia_na_per_raw;      /* IA_RMS raw × this = mains nA
+                                         * (v2; was µA/raw in v1 — migrated
+                                         * automatically on load). */
+    int16_t  bl0939_ib_ua_per_raw;      /* IB_RMS raw × this = mains µA
+                                         * (IB stays µA — IB is unused on
+                                         * this hardware so precision bump
+                                         * not needed). */
     int16_t  bl0939_pa_uw_per_raw;      /* A_WATT raw × this = mains µW
                                          * (matches v_uv_per_raw, ia_ua_per_raw).
                                          * May be NEGATIVE on boards where the
@@ -68,14 +77,18 @@ int32_t calibration_cp_slope_den(void);
  * treat 0 as "use raw count for diagnostic; don't compute engineering
  * units". */
 int16_t calibration_bl0939_v_uv_per_raw(void);
-int16_t calibration_bl0939_ia_ua_per_raw(void);
+int16_t calibration_bl0939_ia_na_per_raw(void);
 int16_t calibration_bl0939_ib_ua_per_raw(void);
 int16_t calibration_bl0939_pa_uw_per_raw(void);
 
 /* Replace the BL0939 chassis scales and persist. Idempotent if all
- * four fields match. Returns 0 on success, <0 on error. */
+ * four fields match. Returns 0 on success, <0 on error.
+ * NOTE: ia_na_per_raw is in nA/raw (v2 schema); persist_post_bl0939_cal
+ * accepts the same units. FC41D-side WRITE_BL0939_CAL TLV payload
+ * (commands.h §CMD_WRITE_BL0939_CAL) carries the IA value in nA/raw
+ * starting with this firmware. */
 int calibration_set_bl0939(int16_t v_uv_per_raw,
-                           int16_t ia_ua_per_raw,
+                           int16_t ia_na_per_raw,
                            int16_t ib_ua_per_raw,
                            int16_t pa_uw_per_raw);
 

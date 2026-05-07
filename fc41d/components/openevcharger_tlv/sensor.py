@@ -54,7 +54,7 @@ CONF_LAST_RFID_UID = "last_rfid_uid"
 CONF_RFID_AUTHLIST_COUNT = "rfid_authlist_count"
 CONF_OTA_PROGRESS = "ota_progress"
 CONF_BL0939_V_UV_PER_RAW = "bl0939_v_uv_per_raw"
-CONF_BL0939_IA_UA_PER_RAW = "bl0939_ia_ua_per_raw"
+CONF_BL0939_IA_NA_PER_RAW = "bl0939_ia_na_per_raw"
 CONF_BL0939_IB_UA_PER_RAW = "bl0939_ib_ua_per_raw"
 CONF_BL0939_PA_UW_PER_RAW = "bl0939_pa_uw_per_raw"
 
@@ -199,7 +199,7 @@ CONFIG_SCHEMA = cv.Schema(
         # Per-chassis BL0939 raw → engineering scales. Default 0 means
         # skip the engineering-unit publish (raw counts still post).
         cv.Optional(CONF_BL0939_V_UV_PER_RAW, default=0): cv.int_,
-        cv.Optional(CONF_BL0939_IA_UA_PER_RAW, default=0): cv.int_,
+        cv.Optional(CONF_BL0939_IA_NA_PER_RAW, default=0): cv.int_,
         cv.Optional(CONF_BL0939_IB_UA_PER_RAW, default=0): cv.int_,
         cv.Optional(CONF_BL0939_PA_UW_PER_RAW, default=0): cv.int_,
     }
@@ -238,7 +238,7 @@ _SETTERS = {
 
 _SCALE_SETTERS = {
     CONF_BL0939_V_UV_PER_RAW: "set_bl0939_v_uv_per_raw",
-    CONF_BL0939_IA_UA_PER_RAW: "set_bl0939_ia_ua_per_raw",
+    CONF_BL0939_IA_NA_PER_RAW: "set_bl0939_ia_na_per_raw",
     CONF_BL0939_IB_UA_PER_RAW: "set_bl0939_ib_ua_per_raw",
     CONF_BL0939_PA_UW_PER_RAW: "set_bl0939_pa_uw_per_raw",
 }

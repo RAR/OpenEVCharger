@@ -198,9 +198,9 @@ sensor:
     # to non-zero values. Calibrate against a Fluke + clamp at
     # one operating point and solve for the slope:
     #   bl0939_v_uv_per_raw  = round(meter_mV * 1000 / V_RMS_raw)
-    #   bl0939_ia_ua_per_raw = round(meter_mA * 1000 / IA_RMS_raw)
+    #   bl0939_ia_na_per_raw = round(meter_mA * 1e6  / IA_RMS_raw)
     #   bl0939_ib_ua_per_raw = round(meter_mA * 1000 / IB_RMS_raw)
-    #   bl0939_pa_mw_per_raw = round(meter_W   * 1000 / A_WATT_raw)
+    #   bl0939_pa_uw_per_raw = round(meter_W  * 1e6  / A_WATT_raw)
     bl0939_v_rms_raw:
       name: "BL0939 V_RMS Raw"
       entity_category: diagnostic
@@ -255,32 +255,33 @@ sensor:
     bl0939_v_uv_per_raw: 58
     # Current / power scales need a known load to fit (no-load IA_RMS
     # has a bias offset). Solve from the load-cycle reading:
-    #   bl0939_ia_ua_per_raw = round(meter_mA * 1000 / IA_RMS_raw)
+    #   bl0939_ia_na_per_raw = round(meter_mA * 1e6 / IA_RMS_raw)
     #   bl0939_pa_uw_per_raw = round(meter_W  * 1e6 / A_WATT_raw)
     #
     # F1 cal 2026-05-06 against an EVSE-tester current-pull plug, three
-    # points (6 / 8 / 10 A). All three round to the same ia_ua_per_raw
-    # (6.94 / 6.99 / 7.03 µA/raw), so the i16 quantisation absorbs the
-    # spread cleanly. Residual ±0.05 A across the 6–10 A range — fine
-    # for the BL0939-gated safety detectors (1.25× / 1.05× margins).
+    # points (6 / 8 / 10 A) → ~7 µA/raw, but extrapolated 5.5% low at
+    # 44 A real-EV draw 2026-05-07. F1.1 refinement: bumped IA scale
+    # 7000 → 7405 nA/raw (×1.058 to land 44.4 A reported → 46.97 A
+    # actual per external monitor). Cal v2 schema bumped IA semantics
+    # to nA/raw for sub-µA precision (int16_t µA/raw quantised at 14%
+    # which was too coarse for 6% target).
     #
     # A_WATT raw is signed-NEGATIVE on this PCB (current-sense direction
     # opposite the BL0939 expectation) — pa_uw_per_raw carries that sign
-    # so raw × scale / 1e6 = positive watts. Unit is µW/raw (matching
-    # V's µV/raw and IA's µA/raw) — earlier mW/raw choice quantised to
-    # i16 with ~16% error since the actual scale is ~2.575 mW/raw.
-    # i16 µW/raw range is ±32767 µW/raw, plenty of room.
+    # so raw × scale / 1e6 = positive watts. Unit is µW/raw — earlier
+    # mW/raw choice quantised to i16 with ~16% error since the actual
+    # scale is ~2.575 mW/raw. i16 µW/raw range is ±32767 µW/raw, plenty
+    # of room.
     #
     # IB stays 0: the second BL0939 current channel reads zero across
     # all loads on this PCB — single-CT hardware, IB pin not wired.
-    # mains_current_a publishing is gated on ia_ua_per_raw != 0 only.
-    bl0939_ia_ua_per_raw: 7
+    # mains_current_a publishing is gated on ia_na_per_raw != 0 only.
+    bl0939_ia_na_per_raw: 7405
     bl0939_ib_ua_per_raw: 0
     # F5 high-current refinement 2026-05-07: bench F1 at 6/8/10 A
     # extrapolated low at 44 A real-EV draw (EVSE reported 10672.8 W
     # vs external monitor 11571 W; ratio 1.0842). New PA scale =
-    # -2575 × 1.0842 = -2792. IA scale stays at 7 (int16_t precision
-    # cap; sub-µA refinement deferred to v1.1 with field bump).
+    # -2575 × 1.0842 = -2792.
     bl0939_pa_uw_per_raw: -2792
 
   # Power-in-kW shim for OCPP. The esphome-ocpp-server external

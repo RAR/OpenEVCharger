@@ -212,7 +212,7 @@ static void handle_write_bl0939_cal(const uint8_t *p, size_t plen)
 {
     /* Payload (packed LE): 4× i16 = 8 B
      *   i16 bl0939_v_uv_per_raw
-     *   i16 bl0939_ia_ua_per_raw
+     *   i16 bl0939_ia_na_per_raw  (cal v2; was µA/raw in v1)
      *   i16 bl0939_ib_ua_per_raw
      *   i16 bl0939_pa_uw_per_raw  (sign carries on inverted-sense PCBs)
      * 0 in any slot means "uncalibrated" — the detectors gated on
