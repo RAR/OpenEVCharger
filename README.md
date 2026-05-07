@@ -24,12 +24,17 @@ over UART4 with a binary TLV protocol.
 
 ## Why
 
-Rippleon ROC001 ships locked to a vendor cloud (api.rippleonenergy.com)
-that frequently 504s on the OCPP backend, leaving the unit unable to
-charge until the cloud comes back. OpenEVCharger replaces both halves of
-the firmware so the unit charges fully offline, integrates directly into
-Home Assistant, and exposes a standards-compliant OCPP 1.6-J Charge Point
-for evcc / SteVe / any OCPP CSMS.
+Rippleon ROC001 ships dependent on a vendor cloud
+(`api.rippleonenergy.com`) whose OCPP backend frequently 504s. Local
+BLE-proximity control via the vendor app still works when the cloud is
+down, but **remote** control, scheduling, and any third-party
+integration (Home Assistant, evcc, an external OCPP CSMS) all route
+through the cloud and break with it. There is no first-party path off
+the cloud. OpenEVCharger replaces both halves of the firmware so the
+unit operates fully locally — Wi-Fi LAN is enough, no cloud
+dependency — and exposes a standards-compliant OCPP 1.6-J Charge Point
++ ESPHome native API for direct HA / evcc / SteVe / any OCPP CSMS
+integration.
 
 ## Features
 
