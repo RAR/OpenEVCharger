@@ -16,7 +16,20 @@ above the HAL should compile unchanged.
 
 | Board | MCU | Status | Notes |
 |---|---|---|---|
-| **Rippleon ROC001** (FCC `ROCHL2US`) | GD32F205VG | ✅ Bench-validated through M7 + GFCI live, OTA, RTC bridge | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE module on UART4. Pin map fully reverse-engineered from stock V1.0.066. US brand: Rippleon (FCC entity Rippleon Ltd., FCC ID `2BLBS-ROCHL2US`); ODM: Beizide / NewEnergyCS (CN — `beizide.com` / `newenergycs.com` are the same parent factory). Cloud-side SKU range ROC002–010 likely close siblings but bench-unverified. |
+| **Rippleon ROC001** (FCC `ROCHL2US`) | GD32F205VG | ✅ Bench-validated through M7 + GFCI live, OTA, RTC bridge | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE module on UART4. Pin map fully reverse-engineered from stock V1.0.066. US brand: Rippleon (FCC entity Rippleon Ltd., FCC ID `2BLBS-ROCHL2US`); ODM: Beizide / NewEnergyCS (CN — `beizide.com` / `newenergycs.com` are the same parent factory). |
+
+## In scope per Rippleon's FCC filing — sibling SKUs
+
+Rippleon's FCC filing for ID `2BLBS-ROCHL2US` declares the following 73 SKUs
+electrically identical aside from spec / appearance / color. They have not been
+individually bench-validated, but should drop in without code changes:
+
+**ROC residential family (40 SKUs)** — `ROC{001,002,003,004,005,006,007,008,009,010}{W,B,G,L}`
+
+**NECS-ACW commercial family (33 SKUs)** — `NECS-ACW-{7, 9.6, 11.5}-1-US-{3010, 3018, 3020, 3027, 3028, 3110, 3111, 3112, 3113, 3114, 3115}` (single-phase, US, 7 / 9.6 / 11.5 kW tiers).
+
+The "NECS-ACW" prefix here is Rippleon's own commercial SKU naming. It is
+**not** related to the unrelated company **Nexcyber** despite the lookalike.
 
 ## Wishlist / open ports
 

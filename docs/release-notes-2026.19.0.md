@@ -14,11 +14,12 @@ within hardware noise floor.
 
 A clean-room replacement firmware for the Rippleon ROC001 EVSE
 (FCC model `ROCHL2US`, FCC ID `2BLBS-ROCHL2US`; US brand Rippleon /
-ODM Beizide-NewEnergyCS in China). The same FCC filing covers the
-full ROC001–ROC010 family in W/B/G/L trim (40 SKUs declared
-electrically identical aside from spec/appearance/color), so siblings
-should be in scope without code changes — bench-validated only on
-ROC001.
+ODM Beizide-NewEnergyCS in China). The same FCC filing covers 73
+sibling SKUs declared electrically identical aside from spec /
+appearance / color — the residential **ROC001–ROC010** family in
+**W/B/G/L** trim (40 SKUs) and the commercial **NECS-ACW-{7, 9.6,
+11.5}-1-US-{3010, 3018, 3020, 3027, 3028, 3110–3115}** family (33
+SKUs). All in scope without code changes; bench-validated on ROC001.
 GD32F205VG-based safety core in C; FreeRTOS task layout; FC41D
 Wi-Fi/BLE/cloud module on UART4 driven by ESPHome + MicroOcpp;
 OCPP 1.6-J + Home Assistant integration via TLV.
