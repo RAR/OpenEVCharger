@@ -134,7 +134,7 @@ other tasks request via inboxes.
 
 | Target | Status | Notes |
 |---|---|---|
-| Rippleon ROC001 (FCC `ROCHL2US`) | ✅ Production-validated | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE, GD32F205VG. US brand: Rippleon (FCC entity Rippleon Ltd.); ODM: Beizide / NewEnergyCS (CN). Cloud-side SKU range ROC002–010 likely close siblings; not bench-verified. |
+| Rippleon ROC001 (FCC `ROCHL2US`) | ✅ Production-validated | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE, GD32F205VG. US brand: Rippleon (FCC entity Rippleon Ltd.); ODM: Beizide / NewEnergyCS (CN). Per FCC filing, the full ROC family is **ROC001–ROC010** in **W/B/G/L** trims (40 SKUs total) — declared electrically identical aside from spec/appearance/color. Bench-validated only on ROC001; siblings should drop in. |
 | Other GD32F2-class EVSE | 🔲 needs port | Pin-map + per-chassis cal in `BOARDS.md`. |
 
 The reverse-engineering trail (full SWD dump of stock V1.0.066,

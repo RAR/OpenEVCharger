@@ -20,13 +20,14 @@ above the HAL should compile unchanged.
 
 ## Wishlist / open ports
 
-- **Nexcyber NECS-ACW family.** Different brand, different MCU
-  (Nations N32G45x), different Wi-Fi module (Tuya WBR2 / RTL8720CF
-  AmebaZ2), and a different cloud architecture — Nexcyber is a stock
-  Tuya device (Tuya cloud directly via the WBR2), whereas Rippleon
-  runs a custom OCPP/REST backend behind the FC41D. Not
-  interchangeable with Rippleon ROC. Hardware on hand; port not
-  started.
+- **Nexcyber AC EVSE.** Completely different company from Rippleon
+  (the lookalike "NECS-ACW" SKU prefix on Rippleon's FCC filing is
+  unrelated coincidence). Different MCU (Nations N32G45x), different
+  Wi-Fi module (Tuya WBR2 / RTL8720CF AmebaZ2), and a different
+  cloud architecture — Nexcyber is a stock Tuya device (Tuya cloud
+  directly via the WBR2), whereas Rippleon runs a custom OCPP/REST
+  backend behind the FC41D. Not interchangeable with Rippleon ROC.
+  Hardware on hand; port not started.
 
 If you have an EVSE PCB you'd like to add, open an issue with:
 
