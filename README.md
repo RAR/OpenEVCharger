@@ -1,10 +1,16 @@
 # OpenEVCharger
 
-Replacement firmware for the **Rippleon ROC001** EV charger (and other
-**NewEnergyCS ROC-family** rebadges), targeting the GigaDevice
+Replacement firmware for the **Rippleon ROC001** EV charger (FCC model
+**ROCHL2US**, FCC ID `2BLBS-ROCHL2US`), targeting the GigaDevice
 **GD32F205VG** main MCU paired with a Quectel **FC41D** (BK7231N)
 Wi-Fi/BLE module. Restores the unit to local control — Home Assistant,
-OCPP 1.6-J, evcc — when the OEM cloud is unreliable or unavailable.
+OCPP 1.6-J, evcc — when the vendor cloud is unreliable or unavailable.
+
+The hardware comes out of **Beizide / NewEnergyCS** (Chinese
+parent/factory, sites at `beizide.com` + `newenergycs.com`); **Rippleon
+Ltd.** is their US-facing sub-brand and FCC-registered entity. Same
+factory firmware also serves the BeiZide-branded SKUs (both cloud URLs
+are hardcoded in stock V1.0.066).
 
 **Latest release:** [`2026.19.0`](https://github.com/RAR/OpenEVCharger/releases/tag/2026.19.0)
 — first production cut, validated end-to-end against a real 240 V EV
@@ -128,7 +134,7 @@ other tasks request via inboxes.
 
 | Target | Status | Notes |
 |---|---|---|
-| Rippleon ROC001 | ✅ Production-validated | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE, GD32F205VG. OEM is New Energy CS (`newenergycs.com`); ROC002–010 likely close siblings (unverified). |
+| Rippleon ROC001 (FCC `ROCHL2US`) | ✅ Production-validated | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE, GD32F205VG. US brand: Rippleon (FCC entity Rippleon Ltd.); ODM: Beizide / NewEnergyCS (CN). Cloud-side SKU range ROC002–010 likely close siblings; not bench-verified. |
 | Other GD32F2-class EVSE | 🔲 needs port | Pin-map + per-chassis cal in `BOARDS.md`. |
 
 The reverse-engineering trail (full SWD dump of stock V1.0.066,
@@ -205,6 +211,6 @@ GPL-3.0-only. See [`LICENSE`](LICENSE).
 ## Acknowledgements
 
 - **OpenEVSE** for the J1772 / state-machine model
-- **New Energy CS** (Rippleon OEM) for shipping reasonably
+- **Beizide / NewEnergyCS** (Rippleon ODM) for shipping reasonably
   reverse-engineerable hardware
 - **evcc**, **MicroOcpp**, **ESPHome**, **LibreTiny** upstream maintainers

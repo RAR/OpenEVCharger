@@ -13,8 +13,9 @@ within hardware noise floor.
 ## What this is
 
 A clean-room replacement firmware for the Rippleon ROC001 EVSE
-(OEM: New Energy CS; the Nexcyber NECS-ACW family is a separate
-product line, not in scope for this release).
+(FCC model `ROCHL2US`, FCC ID `2BLBS-ROCHL2US`; US brand Rippleon /
+ODM Beizide-NewEnergyCS in China; the Nexcyber NECS-ACW family is
+a separate product line, not in scope for this release).
 GD32F205VG-based safety core in C; FreeRTOS task layout; FC41D
 Wi-Fi/BLE/cloud module on UART4 driven by ESPHome + MicroOcpp;
 OCPP 1.6-J + Home Assistant integration via TLV.
@@ -203,8 +204,8 @@ adapted to GD32F2 hardware; no upstream OpenEVSE code is incorporated.
 ## Acknowledgements
 
 - OpenEVSE project for the J1772 / state-machine model.
-- New Energy CS (Rippleon ROC OEM) for shipping reasonable hardware
-  that's reverse-engineerable.
+- Beizide / NewEnergyCS (Rippleon ODM) for shipping reasonable
+  hardware that's reverse-engineerable.
 - evcc, MicroOcpp, ESPHome, LibreTiny upstream maintainers.
 
 ---

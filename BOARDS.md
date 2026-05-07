@@ -16,11 +16,11 @@ above the HAL should compile unchanged.
 
 | Board | MCU | Status | Notes |
 |---|---|---|---|
-| **Rippleon ROC001** | GD32F205VG | ✅ Bench-validated through M7 + GFCI live, OTA, RTC bridge | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE module on UART4. Pin map fully reverse-engineered from stock V1.0.066. OEM is New Energy CS (newenergycs.com); ROC002–010 are likely close siblings but unverified. |
+| **Rippleon ROC001** (FCC `ROCHL2US`) | GD32F205VG | ✅ Bench-validated through M7 + GFCI live, OTA, RTC bridge | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE module on UART4. Pin map fully reverse-engineered from stock V1.0.066. US brand: Rippleon (FCC entity Rippleon Ltd., FCC ID `2BLBS-ROCHL2US`); ODM: Beizide / NewEnergyCS (CN — `beizide.com` / `newenergycs.com` are the same parent factory). Cloud-side SKU range ROC002–010 likely close siblings but bench-unverified. |
 
 ## Wishlist / open ports
 
-- **Nexcyber NECS-ACW family.** Different OEM, different MCU
+- **Nexcyber NECS-ACW family.** Different brand, different MCU
   (Nations N32G45x), different Wi-Fi module (Tuya WBR2 / RTL8720CF
   AmebaZ2), and a different cloud architecture — Nexcyber is a stock
   Tuya device (Tuya cloud directly via the WBR2), whereas Rippleon
