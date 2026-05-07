@@ -639,3 +639,36 @@ ocpp:
     - lambda: id(openevcharger_mcu)->send_request_start_resume();
   on_remote_stop:
     - lambda: id(openevcharger_mcu)->send_request_stop();
+  # CSMS SmartCharging: SetChargingProfile-resolved limit fires here.
+  # current_limit_a / power_limit_w negative = "no active constraint"
+  # (no profile or all profiles expired) — leave the user's
+  # advertised_amps untouched so the manual HA setting prevails.
+  # limit==0 = explicit disable → MCU stop. Otherwise clamp to the
+  # Number's [6,48] range and publish; advertised_amps_n's set path
+  # propagates through TLV to the MCU which re-derives PWM duty.
+  on_charging_profile_change:
+    - lambda: |-
+        if (current_limit_a == 0.0f || power_limit_w == 0.0f) {
+          ESP_LOGI("ocpp", "SmartCharging disable → MCU stop");
+          id(openevcharger_mcu)->send_request_stop();
+          return;
+        }
+        float a = current_limit_a;
+        if (a < 0.0f && power_limit_w > 0.0f) {
+          float v = id(ocpp_cp).get_nominal_voltage();
+          if (v < 1.0f) v = 240.0f;
+          a = power_limit_w / v;
+          ESP_LOGI("ocpp", "SmartCharging W_limit=%.1f → %.1f A (V=%.0f)",
+                   power_limit_w, a, v);
+        }
+        if (a < 0.0f) {
+          ESP_LOGD("ocpp", "SmartCharging: no constraint — keeping user setting");
+          return;
+        }
+        if (a < 6.0f)  a = 6.0f;
+        if (a > 48.0f) a = 48.0f;
+        ESP_LOGI("ocpp", "SmartCharging A_limit=%.1f → advertised_amps=%.0f",
+                 current_limit_a, a);
+        auto call = id(advertised_amps_n).make_call();
+        call.set_value(a);
+        call.perform();
