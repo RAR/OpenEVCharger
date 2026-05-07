@@ -1,6 +1,7 @@
 #include "bl0939.h"
 #include "../core/pin_map.h"
 #include "../hal/uart.h"
+#include "../persist/calibration.h"
 #include "gd32f20x.h"
 
 /* Per-bit delay loop. ~600 NOPs at 120 MHz ≈ 5 µs → SCLK ~100 kHz
@@ -139,14 +140,18 @@ void bl0939_poll(void)
     if (rc_aw == 0) snap.a_watt = bl0939_sx24(aw); else snap.checksum_fail++;
     if (rc_tp == 0) {
         snap.v_period = tp;
-        /* Empirical TPS calibration 2026-05-04: TPS_raw ≈ 453 at 60.02 Hz
-         * (Fluke). f_line × 10 = 271900 / TPS. The BL0939's internal
-         * period reference is ~27.19 kHz, not the 4 MHz MCLK the
-         * datasheet implies. Guard divide-by-zero / nonsense values;
-         * TPS < 50 would imply f > 540 Hz which is not a power-line
-         * frequency. */
-        snap.v_freq_hz_x10 = (tp >= 50u && tp <= 0x00FFFFFFu)
-            ? (uint16_t)(271900u / tp) : 0u;
+        /* TPS calibration: f_line × 10 = const / TPS. The BL0939's
+         * internal period reference is ~27.19 kHz (not the 4 MHz MCLK
+         * the datasheet implies); the exact value drifts unit-to-unit
+         * with the on-die RC oscillator. Bench unit lands at 271900
+         * (TPS≈453 at 60.02 Hz, Fluke 2026-05-04); other units differ
+         * 10–20 %. Per-chassis cal via calibration_bl0939_freq_const()
+         * (cal v3); falls back to CAL_DEFAULT_BL0939_FREQ_CONST when
+         * uncalibrated. Guard divide-by-zero / nonsense values; TPS
+         * < 50 would imply f > 540 Hz (not a power-line frequency). */
+        int32_t fc = calibration_bl0939_freq_const();
+        snap.v_freq_hz_x10 = (tp >= 50u && tp <= 0x00FFFFFFu && fc > 0)
+            ? (uint16_t)((uint32_t)fc / tp) : 0u;
     } else {
         snap.checksum_fail++;
     }

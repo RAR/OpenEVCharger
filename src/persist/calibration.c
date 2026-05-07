@@ -31,16 +31,24 @@ int16_t calibration_bl0939_pa_uw_per_raw(void)
 {
     return s_cal.bl0939_pa_uw_per_raw;
 }
+int32_t calibration_bl0939_freq_const(void)
+{
+    return s_cal.bl0939_freq_const != 0
+               ? s_cal.bl0939_freq_const
+               : (int32_t)CAL_DEFAULT_BL0939_FREQ_CONST;
+}
 
 int calibration_set_bl0939(int16_t v_uv_per_raw,
                            int16_t ia_na_per_raw,
                            int16_t ib_ua_per_raw,
-                           int16_t pa_uw_per_raw)
+                           int16_t pa_uw_per_raw,
+                           int32_t freq_const)
 {
     if (s_cal.bl0939_v_uv_per_raw  == v_uv_per_raw  &&
         s_cal.bl0939_ia_na_per_raw == ia_na_per_raw &&
         s_cal.bl0939_ib_ua_per_raw == ib_ua_per_raw &&
-        s_cal.bl0939_pa_uw_per_raw == pa_uw_per_raw) {
+        s_cal.bl0939_pa_uw_per_raw == pa_uw_per_raw &&
+        s_cal.bl0939_freq_const    == freq_const) {
         return 0;
     }
 
@@ -49,6 +57,7 @@ int calibration_set_bl0939(int16_t v_uv_per_raw,
     s_cal.bl0939_ia_na_per_raw = ia_na_per_raw;
     s_cal.bl0939_ib_ua_per_raw = ib_ua_per_raw;
     s_cal.bl0939_pa_uw_per_raw = pa_uw_per_raw;
+    s_cal.bl0939_freq_const    = freq_const;
 
     uint8_t  slot = 0;
     uint32_t counter = 0;
@@ -59,10 +68,12 @@ int calibration_set_bl0939(int16_t v_uv_per_raw,
         return rc;
     }
     printk("calibration: BL0939 stored -> slot %c (counter=%u, "
-           "v=%d uV/raw, ia=%d nA/raw, ib=%d uA/raw, pa=%d uW/raw)\n",
+           "v=%d uV/raw, ia=%d nA/raw, ib=%d uA/raw, pa=%d uW/raw, "
+           "freq_const=%ld)\n",
            'A' + slot, (unsigned)counter,
            (int)v_uv_per_raw, (int)ia_na_per_raw,
-           (int)ib_ua_per_raw, (int)pa_uw_per_raw);
+           (int)ib_ua_per_raw, (int)pa_uw_per_raw,
+           (long)freq_const);
     return 0;
 }
 
@@ -107,28 +118,44 @@ int calibration_load(void)
         return 0;
     }
 
+    int migrated = 0;
     if (s_cal.version == 1U) {
-        /* v1→v2 migration: ia field semantics change µA/raw → nA/raw.
-         * Multiply the legacy value by 1000 and clamp to int16. Re-stamp
-         * + persist so subsequent boots load straight as v2. */
+        /* v1→v2: ia field semantics change µA/raw → nA/raw. Multiply
+         * the legacy value by 1000 and clamp to int16. */
         int32_t na = (int32_t)s_cal.bl0939_ia_na_per_raw * 1000;
         if (na > INT16_MAX) na = INT16_MAX;
         if (na < INT16_MIN) na = INT16_MIN;
         int16_t was_ua = s_cal.bl0939_ia_na_per_raw;
         s_cal.bl0939_ia_na_per_raw = (int16_t)na;
+        printk("calibration: v1→v2 migrated ia=%d uA/raw → %d nA/raw\n",
+               (int)was_ua, (int)s_cal.bl0939_ia_na_per_raw);
+        s_cal.version = 2U;
+        migrated = 1;
+    }
+    if (s_cal.version == 2U) {
+        /* v2→v3: freq_const lands where reserved[0..3] was. Old
+         * records had zeros there → accessor returns the compiled
+         * default (CAL_DEFAULT_BL0939_FREQ_CONST). No translation. */
+        s_cal.bl0939_freq_const = 0;
         s_cal.version = CALIBRATION_VERSION;
+        printk("calibration: v2→v3 migrated freq_const=0 (default %d)\n",
+               CAL_DEFAULT_BL0939_FREQ_CONST);
+        migrated = 1;
+    }
+    if (s_cal.version != CALIBRATION_VERSION) {
+        printk("calibration: unknown version=%u, using as-is\n",
+               (unsigned)s_cal.version);
+    }
+    if (migrated) {
         int wrc = pingpong_store(CALIBRATION_SLOT_A, CALIBRATION_SLOT_B,
                                  &s_cal, sizeof s_cal, &slot, &counter);
         if (wrc < 0) {
-            printk("calibration: v1→v2 migration store FAIL rc=%d\n", wrc);
-            /* Continue with the migrated in-RAM value even on store fail
-             * — next reboot will retry. */
+            printk("calibration: migration store FAIL rc=%d\n", wrc);
+            /* In-RAM value still good — next reboot retries. */
+        } else {
+            printk("calibration: migration persisted -> slot %c (counter=%u)\n",
+                   'A' + slot, (unsigned)counter);
         }
-        printk("calibration: v1→v2 migrated ia=%d uA/raw → %d nA/raw\n",
-               (int)was_ua, (int)s_cal.bl0939_ia_na_per_raw);
-    } else if (s_cal.version != CALIBRATION_VERSION) {
-        printk("calibration: unknown version=%u, using as-is\n",
-               (unsigned)s_cal.version);
     }
     printk("calibration: loaded from slot %c (counter=%u, anchor=%d, slope=%d/%d)\n",
            'A' + slot, (unsigned)counter,

@@ -210,13 +210,16 @@ static void handle_write_calibration(const uint8_t *p, size_t plen)
 
 static void handle_write_bl0939_cal(const uint8_t *p, size_t plen)
 {
-    /* Payload (packed LE): 4× i16 = 8 B
+    /* Payload (packed LE): 4× i16 + i32 = 12 B (cal v3); old 8 B
+     * payload still accepted (freq_const defaults to 0 → use compiled
+     * default).
      *   i16 bl0939_v_uv_per_raw
-     *   i16 bl0939_ia_na_per_raw  (cal v2; was µA/raw in v1)
+     *   i16 bl0939_ia_na_per_raw  (cal v2+; was µA/raw in v1)
      *   i16 bl0939_ib_ua_per_raw
      *   i16 bl0939_pa_uw_per_raw  (sign carries on inverted-sense PCBs)
-     * 0 in any slot means "uncalibrated" — the detectors gated on
-     * IA scale stay silent and the FC41D-side engineering-unit
+     *   i32 bl0939_freq_const     (cal v3+; 0 = use compiled default)
+     * 0 in any V/IA/IB/PA slot means "uncalibrated" — the detectors
+     * gated on IA scale stay silent and FC41D-side engineering-unit
      * sensors stay unpublished. */
     if (plen < 8) {
         printk("comms: WRITE_BL0939_CAL rejected (plen=%u <8)\n",
@@ -227,12 +230,17 @@ static void handle_write_bl0939_cal(const uint8_t *p, size_t plen)
     int16_t ia = (int16_t)((uint16_t)p[2] | ((uint16_t)p[3] << 8));
     int16_t ib = (int16_t)((uint16_t)p[4] | ((uint16_t)p[5] << 8));
     int16_t pa = (int16_t)((uint16_t)p[6] | ((uint16_t)p[7] << 8));
-    int rc = persist_post_bl0939_cal(v, ia, ib, pa);
+    int32_t fc = 0;
+    if (plen >= 12) {
+        fc = (int32_t)((uint32_t)p[ 8]        | ((uint32_t)p[ 9] <<  8) |
+                       ((uint32_t)p[10] << 16) | ((uint32_t)p[11] << 24));
+    }
+    int rc = persist_post_bl0939_cal(v, ia, ib, pa, fc);
     if (rc != 0) {
         printk("comms: WRITE_BL0939_CAL persist post FAIL rc=%d\n", rc);
     } else {
-        printk("comms: WRITE_BL0939_CAL (V=%d IA=%d IB=%d PA=%d) queued\n",
-               (int)v, (int)ia, (int)ib, (int)pa);
+        printk("comms: WRITE_BL0939_CAL (V=%d IA=%d IB=%d PA=%d FC=%ld) queued\n",
+               (int)v, (int)ia, (int)ib, (int)pa, (long)fc);
     }
 }
 

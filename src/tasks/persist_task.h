@@ -53,7 +53,8 @@ int persist_post_calibration(int16_t anchor_raw,
 int persist_post_bl0939_cal(int16_t v_uv_per_raw,
                             int16_t ia_na_per_raw,
                             int16_t ib_ua_per_raw,
-                            int16_t pa_uw_per_raw);
+                            int16_t pa_uw_per_raw,
+                            int32_t freq_const);
 
 /* Read up to `max_count` most-recent fault records from event_log and
  * publish them as EVT_FAULT_LOG_ENTRY frames (one per record), tagged

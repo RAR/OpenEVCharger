@@ -919,15 +919,18 @@ uint8_t OpenevchargerTlv::send_set_led_override(uint8_t mode, uint8_t r, uint8_t
   return s;
 }
 
-uint8_t OpenevchargerTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib, int16_t pa) {
+uint8_t OpenevchargerTlv::send_write_bl0939_cal(int16_t v, int16_t ia, int16_t ib,
+                                                int16_t pa, int32_t freq_const) {
   uint8_t s = next_seq_();
-  uint8_t buf[8] = {
-      uint8_t(uint16_t(v)),       uint8_t(uint16_t(v) >> 8),
-      uint8_t(uint16_t(ia)),      uint8_t(uint16_t(ia) >> 8),
-      uint8_t(uint16_t(ib)),      uint8_t(uint16_t(ib) >> 8),
-      uint8_t(uint16_t(pa)),      uint8_t(uint16_t(pa) >> 8),
+  uint8_t buf[12] = {
+      uint8_t(uint16_t(v)),         uint8_t(uint16_t(v) >> 8),
+      uint8_t(uint16_t(ia)),        uint8_t(uint16_t(ia) >> 8),
+      uint8_t(uint16_t(ib)),        uint8_t(uint16_t(ib) >> 8),
+      uint8_t(uint16_t(pa)),        uint8_t(uint16_t(pa) >> 8),
+      uint8_t(uint32_t(freq_const)),         uint8_t(uint32_t(freq_const) >>  8),
+      uint8_t(uint32_t(freq_const) >> 16),   uint8_t(uint32_t(freq_const) >> 24),
   };
-  send_frame_(CMD_WRITE_BL0939_CAL, s, buf, 8);
+  send_frame_(CMD_WRITE_BL0939_CAL, s, buf, 12);
   return s;
 }
 
@@ -1037,9 +1040,11 @@ uint8_t OpenevchargerTlv::send_write_bl0939_cal_from_yaml() {
   int16_t ia = clamp_i16(bl0939_ia_na_per_raw_);
   int16_t ib = clamp_i16(bl0939_ib_ua_per_raw_);
   int16_t pa = clamp_i16(bl0939_pa_uw_per_raw_);
-  ESP_LOGI(TAG, "Push BL0939 cal: V=%d uV/raw IA=%d nA/raw IB=%d uA/raw PA=%d uW/raw",
-           int(v), int(ia), int(ib), int(pa));
-  return send_write_bl0939_cal(v, ia, ib, pa);
+  int32_t fc = bl0939_freq_const_;
+  ESP_LOGI(TAG, "Push BL0939 cal: V=%d uV/raw IA=%d nA/raw IB=%d uA/raw "
+                "PA=%d uW/raw freq_const=%d (0=use default)",
+           int(v), int(ia), int(ib), int(pa), int(fc));
+  return send_write_bl0939_cal(v, ia, ib, pa, fc);
 #else
   return 0;
 #endif

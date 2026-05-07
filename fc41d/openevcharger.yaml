@@ -283,6 +283,13 @@ sensor:
     # vs external monitor 11571 W; ratio 1.0842). New PA scale =
     # -2575 × 1.0842 = -2792.
     bl0939_pa_uw_per_raw: -2792
+    # Per-chassis BL0939 line-period reference (cal v3). Formula:
+    # freq_x10 = freq_const / TPS1_raw. Bench unit landed at 271900
+    # (TPS≈453 at 60.02 Hz Fluke, 2026-05-04). Garage unit's chip
+    # reads 50.4 Hz with that same const → ratio (60/50.4) = 1.1905
+    # → const = 271900 × 1.1905 ≈ 323691. Set to 0 to fall back to
+    # the compiled default (CAL_DEFAULT_BL0939_FREQ_CONST).
+    bl0939_freq_const: 323691
 
   # Power-in-kW shim for OCPP. The esphome-ocpp-server external
   # component assumes ESPHome power sensors report in kW and multiplies

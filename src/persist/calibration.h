@@ -7,9 +7,12 @@
 #define CALIBRATION_SLOT_B   0x003000U
 /* v1: ia field is uA/raw  (legacy). v2: ia field is nA/raw — gives
  * +1000× sub-µA precision at the int16_t cap (max 32.767 µA/raw,
- * plenty for our hardware). calibration_load() auto-migrates v1
- * records (multiplies ia_ua×1000, clamps, restamps as v2). */
-#define CALIBRATION_VERSION  2U
+ * plenty for our hardware). v3: adds bl0939_freq_const for per-
+ * chassis BL0939 TPS1 RC-reference cal (default 271900 from bench
+ * unit; differs unit-to-unit ~10–20 %). calibration_load() auto-
+ * migrates v1 → v2 → v3. */
+#define CALIBRATION_VERSION  3U
+#define CAL_DEFAULT_BL0939_FREQ_CONST  271900  /* bench unit (TPS=453 @ 60 Hz) */
 
 /* Defaults committed M3.4.5 (bench Rippleon ROC001 2026-05-02).
  * Formula: cp_mv = (raw - anchor) * slope_num / slope_den + 12000 */
@@ -51,7 +54,13 @@ struct __attribute__((packed)) calibration {
                                          * != 0 (not > 0) and abs() the result
                                          * when accumulating positive-only
                                          * energy. */
-    uint8_t  reserved[6];
+    int32_t  bl0939_freq_const;         /* cal v3. BL0939 line-period reference
+                                         * constant — TPS1 raw × 10 = const /
+                                         * freq_x10. Default 0 → fall back to
+                                         * CAL_DEFAULT_BL0939_FREQ_CONST. Per-
+                                         * chassis: chip's internal ~27.19 kHz
+                                         * RC ref drifts unit-to-unit. */
+    uint8_t  reserved[2];
     uint32_t crc32;                     /* helper-managed */
 };
 _Static_assert(sizeof(struct calibration) == 32, "calibration must be 32 B");
@@ -80,16 +89,18 @@ int16_t calibration_bl0939_v_uv_per_raw(void);
 int16_t calibration_bl0939_ia_na_per_raw(void);
 int16_t calibration_bl0939_ib_ua_per_raw(void);
 int16_t calibration_bl0939_pa_uw_per_raw(void);
+int32_t calibration_bl0939_freq_const(void);
 
 /* Replace the BL0939 chassis scales and persist. Idempotent if all
- * four fields match. Returns 0 on success, <0 on error.
- * NOTE: ia_na_per_raw is in nA/raw (v2 schema); persist_post_bl0939_cal
- * accepts the same units. FC41D-side WRITE_BL0939_CAL TLV payload
- * (commands.h §CMD_WRITE_BL0939_CAL) carries the IA value in nA/raw
- * starting with this firmware. */
+ * fields match. Returns 0 on success, <0 on error.
+ * Units: ia in nA/raw (v2+), ib in µA/raw (legacy precision OK —
+ * IB unused on this hardware), pa in µW/raw, freq_const in raw
+ * counts (BL0939 TPS1 reference period multiplier). freq_const=0
+ * means "use compiled default" (CAL_DEFAULT_BL0939_FREQ_CONST). */
 int calibration_set_bl0939(int16_t v_uv_per_raw,
                            int16_t ia_na_per_raw,
                            int16_t ib_ua_per_raw,
-                           int16_t pa_uw_per_raw);
+                           int16_t pa_uw_per_raw,
+                           int32_t freq_const);
 
 #endif
