@@ -219,3 +219,50 @@ GPL-3.0-only. See [`LICENSE`](LICENSE).
 - **Beizide / NewEnergyCS** (Rippleon ODM) for shipping reasonably
   reverse-engineerable hardware
 - **evcc**, **MicroOcpp**, **ESPHome**, **LibreTiny** upstream maintainers
+
+## Disclaimer — independent, unaffiliated project
+
+This is an independent, community-developed project. It is not
+affiliated with, sponsored by, endorsed by, or in any way associated
+with RIPPLEON Energy or any of its subsidiaries. The names "Rippleon"
+and "ROC001" are used solely in a descriptive (nominative) capacity to
+identify the hardware this project interoperates with; all trademarks,
+service marks, and product names remain the property of their
+respective owners.
+
+No RIPPLEON Energy proprietary firmware, source code, signing keys, or
+other protected material is redistributed by this project.
+
+**Scope of firmware replacement.** OpenEVCharger replaces *both* halves
+of the stock firmware on the user's own hardware:
+
+- **GD32F205VG main MCU** — bare-metal C + FreeRTOS safety core. A
+  clean-room rewrite modelled on the OpenEVSE J1772 / fault / self-test
+  approach (see [`docs/superpowers/specs/`](docs/superpowers/specs/));
+  no upstream OpenEVSE source code is incorporated, and no portion of
+  the stock V1.0.066 vendor firmware is included or derived.
+- **FC41D Wi-Fi/BLE module (BK7231N)** — ESPHome + LibreTiny,
+  original integration code (`fc41d/openevcharger.yaml` + the local
+  `openevcharger_tlv` component) talking to the MCU over a custom TLV
+  protocol on UART4.
+
+Both images are original work and ship as a complete, voluntary
+replacement for the stock vendor firmware on each chip. Stock firmware
+is preserved via the documented `tools/stock_backup.sh` workflow before
+flashing, so installation is reversible if a stock SWD dump was taken
+beforehand.
+
+Protocol documentation and reverse-engineering artefacts in this
+repository (`docs/NOTES.md`, UART/Bluetooth captures of the FC41D ↔
+MCU TLV dialect, SWD dump and disassembly notes for stock V1.0.066)
+were developed independently from publicly observable behaviour and
+from analysis of the user's own purchased hardware, for the sole
+purpose of interoperability — a use expressly permitted by 17 U.S.C.
+§ 1201(f) (US) and Article 6 of EU Directive 2009/24/EC.
+
+Installing this firmware will void the manufacturer's warranty and may
+render the device unusable. Use at your own risk.
+
+If you are a representative of RIPPLEON Energy and have a concern
+about this repository, please open a GitHub issue and we will engage
+in good faith.
