@@ -1,14 +1,14 @@
-# OpenEVCharger v1.0.0-roc001 — release notes (DRAFT)
+# OpenEVCharger 2026.19.0 — release notes
 
-**Date:** 2026-05-07 (anticipated)
+**Date:** 2026-05-07
 **Target:** Rippleon ROC001 (GD32F205VG)
-**Tag:** `v1.0.0-roc001` (cut after F5 — full charging session against
-a real 240 V EV — passes against the bench-validated unit)
+**Tag:** `2026.19.0`
 
-> Draft updated 2026-05-06 evening: F1 BL0939 calibration landed,
-> WELD / STUCK_OPEN / HARD_OC / SOFT_OC / F3 GFCI-CAL all
-> bench-validated, F7 closed as N/A on this hardware revision.
-> One bench item between draft and tag: F5.
+First production-ready cut. F5 (full real-EV charging session)
+passed end-to-end with metering accuracy < 0.1 % (Active Power
+11576.4 W vs external monitor 11571 W). Cal v3 schema with per-
+chassis BL0939 IA / PA / freq scales lands all three sensors
+within hardware noise floor.
 
 ## What this is
 
@@ -52,7 +52,7 @@ fork — see `docs/mcu-re/` for the reverse-engineering trail.
   side characterisation 2026-05-07 found PC5 is mains-current-coupled,
   not a clean PE-bonded voltage divider — raw ≈ 1 idle, 500–700 while
   charging, so "raw > 400" cannot distinguish "PE broken" from
-  "charging with PE intact." Real PE safety in v1.0.0 is via
+  "charging with PE intact." Real PE safety in 2026.19.0 is via
   `FAULT_GFCI` (stray earth-current trip, live + bench-validated).
 - **Boot self-test** — ADC sanity / relay-open / CP pilot floor /
   GFCI CAL all run on every boot. Failure → FAULT_BOOT_SELF_TEST or
@@ -193,7 +193,7 @@ Cal items still TODO before the firmware is "done" rather than "shipped":
   mains-current-coupled (raw 1 idle / 500–700 charging), so we can't
   distinguish "PE broken" from "AC flowing." Needs proper PE-sense
   hardware (active bond test pulse on dedicated pin). GFCI is the
-  v1.0.0 PE-related safety.
+  2026.19.0 PE-related safety.
 
 ## License
 
@@ -209,9 +209,9 @@ adapted to GD32F2 hardware; no upstream OpenEVSE code is incorporated.
 
 ---
 
-**Tag command** (run in OpenEVCharger submodule once F5 passes):
+**Tag command** (run in OpenEVCharger submodule):
 
 ```bash
-git tag -a v1.0.0-roc001 -m "OpenEVCharger v1.0.0 — Rippleon ROC001"
-git push origin v1.0.0-roc001
+git tag -a 2026.19.0 -m "OpenEVCharger 2026.19.0 — first production cut on Rippleon ROC001"
+git push origin 2026.19.0
 ```

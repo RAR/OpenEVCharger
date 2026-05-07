@@ -624,7 +624,7 @@ ocpp:
   charge_point_id: !secret ocpp_charge_point_id
   vendor: OpenEVCharger
   model: ROC001-OpenEVCharger
-  firmware_version: "1.0.0"
+  firmware_version: "2026.19.0"
   phase: L1
   nominal_voltage: 240.0
   phase_switching_supported: false
