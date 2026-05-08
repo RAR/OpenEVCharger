@@ -385,25 +385,14 @@ binary_sensor:
     vehicle_connected:
       id: plugged_bsensor
       name: "Vehicle Connected"
-    charging:
-      id: charging_bsensor
-      name: "Charging"
-      # Auto-fire OCPP StartTransaction / StopTransaction when the EVSE
-      # enters / leaves the CHARGING state with "Require RFID for
-      # Charging" toggled OFF. Without this, the CSMS sees a status flip
-      # to Charging but no StartTransaction.req, so evcc reads it as
-      # "still waiting on auth" and the loadpoint never activates.
-      # When require_rfid_auth is ON, the RFID-swipe path
-      # (on_rfid_auth_result above) sends StartTransaction with the
-      # matched UID — these auto-actions stay quiet.
-      on_press:
-        - if:
-            condition:
-              switch.is_off: require_rfid_auth_switch
-            then:
-              - ocpp.start_transaction:
-                  id: ocpp_cp
-                  id_tag: "auto"
+      # The OCPP transaction lifecycle aligns with vehicle plug/unplug,
+      # NOT with charging on/off. A pause for any reason (PV smart-
+      # charging, schedule, user pause, fault recovery, ramp-down for
+      # over-current) only changes ChargePointStatus to SuspendedEVSE
+      # via the status_from mapping; the transaction itself stays open
+      # for the duration of the connection. Closing the tx prematurely
+      # makes evcc throw "session terminated, please reconnect" and
+      # tears down the auth state on the CSMS side.
       on_release:
         - if:
             condition:
@@ -412,7 +401,33 @@ binary_sensor:
               - ocpp.end_transaction:
                   id: ocpp_cp
                   id_tag: "auto"
-                  reason: "Local"
+                  reason: "EVDisconnected"
+    charging:
+      id: charging_bsensor
+      name: "Charging"
+      # Fire OCPP StartTransaction when the EVSE first enters CHARGING
+      # in a session with require_rfid_auth=off. Without this, the CSMS
+      # sees the status flip to Charging but no StartTransaction.req and
+      # evcc reads the loadpoint as "waiting on auth". When
+      # require_rfid_auth is ON the RFID-swipe path
+      # (on_rfid_auth_result) drives StartTransaction with the matched
+      # UID instead, so this stays quiet.
+      #
+      # Subsequent on_press calls during the same session (after a
+      # PV/smart-charging pause, etc.) are no-ops — MicroOcpp's
+      # beginTransaction returns false when a transaction is already
+      # active, so we just get an extra log line.
+      #
+      # NO on_release end_transaction here: pause != session end. Only
+      # vehicle_connected.on_release ends the OCPP transaction.
+      on_press:
+        - if:
+            condition:
+              switch.is_off: require_rfid_auth_switch
+            then:
+              - ocpp.start_transaction:
+                  id: ocpp_cp
+                  id_tag: "auto"
     ac_present:
       name: "AC Present"
       entity_category: diagnostic
