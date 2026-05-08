@@ -105,12 +105,20 @@ openevcharger_tlv:
   #   2 STOP          — matched tag, EVSE exiting CHARGING (toggle stop)
   #   3 MATCHED_NOOP  — matched tag, no state-change applicable; ignore
   on_rfid_auth_result:
-    - lambda: |-
-        if (result == 1) {                          // START
-          id(ocpp_cp)->start_transaction(x);
-        } else if (result == 2) {                   // STOP (toggle)
-          id(ocpp_cp)->end_transaction_with_idtag(x);
-        }
+    - if:
+        condition:
+          lambda: 'return result == 1;'              # START
+        then:
+          - ocpp.start_transaction:
+              id: ocpp_cp
+              id_tag: !lambda 'return x;'
+    - if:
+        condition:
+          lambda: 'return result == 2;'              # STOP (toggle)
+        then:
+          - ocpp.end_transaction:
+              id: ocpp_cp
+              id_tag: !lambda 'return x;'
 
 sensor:
   - platform: openevcharger_tlv
@@ -346,7 +354,33 @@ binary_sensor:
       id: plugged_bsensor
       name: "Vehicle Connected"
     charging:
+      id: charging_bsensor
       name: "Charging"
+      # Auto-fire OCPP StartTransaction / StopTransaction when the EVSE
+      # enters / leaves the CHARGING state with "Require RFID for
+      # Charging" toggled OFF. Without this, the CSMS sees a status flip
+      # to Charging but no StartTransaction.req, so evcc reads it as
+      # "still waiting on auth" and the loadpoint never activates.
+      # When require_rfid_auth is ON, the RFID-swipe path
+      # (on_rfid_auth_result above) sends StartTransaction with the
+      # matched UID — these auto-actions stay quiet.
+      on_press:
+        - if:
+            condition:
+              switch.is_off: require_rfid_auth_switch
+            then:
+              - ocpp.start_transaction:
+                  id: ocpp_cp
+                  id_tag: "auto"
+      on_release:
+        - if:
+            condition:
+              switch.is_off: require_rfid_auth_switch
+            then:
+              - ocpp.end_transaction:
+                  id: ocpp_cp
+                  id_tag: "auto"
+                  reason: "Local"
     ac_present:
       name: "AC Present"
       entity_category: diagnostic
@@ -405,6 +439,7 @@ number:
 switch:
   - platform: openevcharger_tlv
     require_rfid_auth:
+      id: require_rfid_auth_switch
       name: "Require RFID for Charging"
       entity_category: config
 
