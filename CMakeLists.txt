@@ -101,6 +101,48 @@ set(APP_SRCS
     src/diag/stack_watch.c
 )
 
+# ---------- Build info ----------
+#
+# Derive OPENEVCHARGER_VERSION + OPENEVCHARGER_GIT_SHA from git so the
+# MCU's build_info string ("version|sha", reported via CMD_GET_BUILD_INFO
+# / EVT_BUILD_INFO and surfaced as the FC41D's "MCU Build" sensor)
+# matches the source it was actually built from. The defaults in
+# src/proto/build_info.h ("0.1.0-dev" / "unset") apply if git isn't
+# available.
+#
+# CMake's execute_process is configure-time only; the configure_file
+# calls below copy .git/HEAD and the active branch ref into the build
+# directory so any commit on the current branch (or branch checkout)
+# triggers a CMake reconfigure on the next build. Detached-HEAD case
+# is handled implicitly by the .git/HEAD copy alone.
+execute_process(
+    COMMAND git describe --tags --always --dirty
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE _OEVC_GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE _OEVC_GIT_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(EXISTS "${CMAKE_SOURCE_DIR}/.git/HEAD")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/.git/HEAD"
+        "${CMAKE_BINARY_DIR}/_git_head_dep" COPYONLY)
+    file(STRINGS "${CMAKE_SOURCE_DIR}/.git/HEAD" _OEVC_GIT_HEAD_LINE)
+    if(_OEVC_GIT_HEAD_LINE MATCHES "^ref: (.+)$")
+        set(_OEVC_GIT_REF_FILE "${CMAKE_SOURCE_DIR}/.git/${CMAKE_MATCH_1}")
+        if(EXISTS "${_OEVC_GIT_REF_FILE}")
+            configure_file("${_OEVC_GIT_REF_FILE}"
+                "${CMAKE_BINARY_DIR}/_git_ref_dep" COPYONLY)
+        endif()
+    endif()
+endif()
+
 # ---------- Target ----------
 
 set(TARGET ${PROJECT_NAME})
@@ -142,6 +184,18 @@ target_compile_definitions(${TARGET} PRIVATE
     # captured. Flip to 1 once the right threshold + polarity are pinned.
     OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0
 )
+
+# Wire the git-derived version + SHA into the C define namespace from
+# src/proto/build_info.h. Skipped (defaults retained) if either git
+# command failed (no git, shallow clone, etc.).
+if(_OEVC_GIT_VERSION)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENEVCHARGER_VERSION="${_OEVC_GIT_VERSION}")
+endif()
+if(_OEVC_GIT_SHA)
+    target_compile_definitions(${TARGET} PRIVATE
+        OPENEVCHARGER_GIT_SHA="${_OEVC_GIT_SHA}")
+endif()
 
 # Bench-time options. Default OFF unless explicitly passed via cmake.
 if(OPENEVCHARGER_SEMIHOSTING)

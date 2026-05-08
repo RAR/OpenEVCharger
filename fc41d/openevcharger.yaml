@@ -234,8 +234,17 @@ sensor:
       name: "Active Power"
     # BL0939 measures line period directly (TPS1 register); no per-
     # chassis scale needed.
-    mains_frequency:
-      name: "Mains Frequency"
+    #
+    # Mains Frequency entity is intentionally NOT exposed.  The cal v3
+    # schema (`bl0939_freq_const` field, v2→v3 migration, 12-byte
+    # WRITE_BL0939_CAL TLV payload) remains in place — but the
+    # underlying TPS-derived reading on this BL0939 drifts heavily with
+    # die temperature (60.4 Hz cold → 68.5 Hz warm seen on the garage
+    # unit with no cal change).  A single-point cal can't compensate
+    # the whole drift band; the stock V1.0.066 firmware doesn't expose
+    # mains frequency either, which is the giveaway.  Yank it from
+    # HA so users don't see a wrong number; revisit if a multi-point
+    # temperature-compensated cal is ever worth implementing.
     # Card UID as a u32 number — sticky across card-removal so HA
     # automations / templates can compare against tag IDs without
     # racing the lift-off edge. The text-sensor "Last RFID UID" has
@@ -350,6 +359,29 @@ binary_sensor:
             if (now.is_valid()) {
               id(openevcharger_mcu).send_set_time((uint32_t) now.timestamp);
             }
+        # MCU reboot without an FC41D reboot leaves charging_bsensor
+        # latched at its previous value — if it was already on before
+        # the MCU went down, the post-reboot publish doesn't fire its
+        # on_press and the auto-start automation we run for
+        # require_rfid_auth=off never re-issues StartTransaction.req,
+        # which leaves evcc stuck on "Connected. Waiting for
+        # authorization…" indefinitely. Re-evaluate after the MCU's
+        # post-boot state has propagated. Redundant calls are safe:
+        # MicroOcpp::beginTransaction returns false for an already-
+        # active transaction, so we get an extra log line at worst.
+        - delay: 2s
+        - if:
+            condition:
+              and:
+                - switch.is_off: require_rfid_auth_switch
+                - binary_sensor.is_on: charging_bsensor
+            then:
+              - logger.log:
+                  format: "MCU link recovered with charging+auth-off; re-firing OCPP start_transaction"
+                  level: INFO
+              - ocpp.start_transaction:
+                  id: ocpp_cp
+                  id_tag: "auto"
     vehicle_connected:
       id: plugged_bsensor
       name: "Vehicle Connected"
