@@ -147,16 +147,29 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
          * "brightness ∝ active amps / advertised".  When the CT isn't
          * yet calibrated (active_amps_x10 == 0) we ignore the ratio
          * and run the breathe envelope at full amplitude — otherwise
-         * the strip would always be ~dim. */
+         * the strip would always be ~dim.
+         *
+         * Pre-multiplying the linear breathe by ratio_pct *before*
+         * scaled_gamma squashes the input range hard enough that at
+         * low ratios the visible output collapses to ~9 distinct
+         * values across the whole cycle (the same precision-loss
+         * that the scaled_gamma comment at the top of the file warns
+         * about). Compose ratio_pct with brightness_pct into a single
+         * combined pct and pass it through fill_all so gamma sees
+         * the full 125-255 breathe range and the ratio scale happens
+         * after gamma. */
         uint8_t v = breathe(t_ms, 2000u);
+        uint32_t ratio_pct = 100u;
         if (in->advertised_amps > 0u && in->active_amps_x10 > 0u) {
             uint32_t active = (uint32_t)in->active_amps_x10 / 10u;
             if (active > in->advertised_amps) active = in->advertised_amps;
-            uint32_t ratio_pct = (active * 100u) / in->advertised_amps;
+            ratio_pct = (active * 100u) / in->advertised_amps;
             if (ratio_pct < 20u) ratio_pct = 20u;  /* keep visible */
-            v = (uint8_t)(((uint32_t)v * ratio_pct) / 100u);
         }
-        fill_all(0, v, v, in->brightness_pct);
+        uint32_t combined_pct =
+            (ratio_pct * (uint32_t)in->brightness_pct) / 100u;
+        if (combined_pct > 100u) combined_pct = 100u;
+        fill_all(0, v, v, (uint8_t)combined_pct);
         break;
     }
     case EVSE_USER_PAUSED: {
