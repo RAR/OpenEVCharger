@@ -40,7 +40,9 @@ The "NECS-ACW" prefix here is Rippleon's own commercial SKU naming. It is
   cloud architecture — Nexcyber is a stock Tuya device (Tuya cloud
   directly via the WBR2), whereas Rippleon runs a custom OCPP/REST
   backend behind the FC41D. Not interchangeable with Rippleon ROC.
-  Hardware on hand; port not started.
+  Hardware on hand; port not started. Feasibility sketch (≈ 3-4
+  calendar weeks part-time, ~70 % of codebase ports unchanged):
+  [`docs/ports/nexcyber-feasibility.md`](docs/ports/nexcyber-feasibility.md).
 
 If you have an EVSE PCB you'd like to add, open an issue with:
 
