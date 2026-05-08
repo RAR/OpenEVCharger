@@ -234,8 +234,17 @@ sensor:
       name: "Active Power"
     # BL0939 measures line period directly (TPS1 register); no per-
     # chassis scale needed.
-    mains_frequency:
-      name: "Mains Frequency"
+    #
+    # Mains Frequency entity is intentionally NOT exposed.  The cal v3
+    # schema (`bl0939_freq_const` field, v2→v3 migration, 12-byte
+    # WRITE_BL0939_CAL TLV payload) remains in place — but the
+    # underlying TPS-derived reading on this BL0939 drifts heavily with
+    # die temperature (60.4 Hz cold → 68.5 Hz warm seen on the garage
+    # unit with no cal change).  A single-point cal can't compensate
+    # the whole drift band; the stock V1.0.066 firmware doesn't expose
+    # mains frequency either, which is the giveaway.  Yank it from
+    # HA so users don't see a wrong number; revisit if a multi-point
+    # temperature-compensated cal is ever worth implementing.
     # Card UID as a u32 number — sticky across card-removal so HA
     # automations / templates can compare against tag IDs without
     # racing the lift-off edge. The text-sensor "Last RFID UID" has
