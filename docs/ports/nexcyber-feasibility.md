@@ -17,7 +17,7 @@ Port not started. Numbers below are estimates from one engineer's perspective.
 
 | Component | Part | Notes |
 |---|---|---|
-| Main MCU | Nations N32G45x | Cortex-M4F, **STM32F1-style** peripheral layout, 128 KB flash, ≈144 KB SRAM (TBC) |
+| Main MCU | Nations N32G45x | Cortex-M4F, **STM32F1-style** peripheral layout, **128 KB flash, 80 KB SRAM** (verified 2026-05-08 by SWD probe) |
 | Wi-Fi/BLE module | Tuya WBR2 (RTL8720CF / AmebaZ2 internally) | Already supported by ESPHome via LibreTiny |
 | Display | Nextion HMI | Pages: `setting`, `nogun`, `chargeing`, `waittime`; well-known protocol |
 | Metering | BL0939 | Same chip as Rippleon, likely on hardware SPI2 (PB12-15) — *confirm bench tomorrow* |
@@ -124,13 +124,41 @@ remaining 9 will be confirmed by mains-on bench wiggle tomorrow.
 
 ## Prerequisites before starting
 
-1. **OpenEVCharger v1.0.0-roc001 stable for ≥ 2 weeks** in the garage —
-   we want to know v1.x is fault-free before splitting attention.
-2. **Confirm N32G45x SRAM size** by SWD memory test (currently estimated
-   144 KB from heuristic — needs verification before linker script).
-3. **Bench-confirm presence/absence of external SPI NOR** — visual
-   inspection or scope SCK during boot. Affects persistence design choice.
-4. **Tomorrow's mains-on wiggle** to nail the last ~9 pins.
+1. ⏳ **OpenEVCharger v1.0.0-roc001 stable for ≥ 2 weeks** in the garage —
+   shipped 2026-05-07; rfid auto-start fix shipped 2026-05-08; ETA 2026-05-21.
+2. ✅ **N32G45x SRAM size** — **80 KB** confirmed 2026-05-08 by SWD memory
+   probe (0x20000000–0x20013FFF; read passes at +0x13FFC, bus-faults at
+   +0x14000). Maps to Nations N32G457RBL/REL family. Plenty for the port.
+3. ✅ **External SPI NOR — NONE** on the Nexcyber PCB (visual ID
+   2026-05-08). Locks in persistence design (option A below).
+4. ⏳ **Mains-on wiggle to finish pin map** — last ~9 OUT_PP pins
+   (relay drivers / mains-presence photocoupler outputs / status LEDs).
+   Bench-cheap once user has AC mains attached.
+
+## Persistence + OTA design (locked in 2026-05-08)
+
+With no external SPI NOR, the Rippleon W25Q-staged design doesn't
+transfer. v1 strategy:
+
+- **Persistence — Option A (internal-flash ping-pong).** Carve out
+  ~8 KB at the top of internal flash (4 sectors × 2 KB if Nations
+  uses STM32F1's 1-2 KB sector geometry; need to verify with the
+  reference manual). Two ping-pong slots for cal record + boot
+  config; small RFID authlist + event log share remaining space.
+  Loses the 100k-write-cycle endurance the W25Q gave us, but cal
+  records change once per chassis lifetime and event log can be
+  rate-limited.
+- **OTA — single-bank, no self-rollback.** Image budget ≈ 52 KB
+  OpenEVCharger + Nations SPL bloat (estimate 70–90 KB total). Even
+  splitting the 128 KB into dual 64 KB banks is too tight. v1 ships
+  with single-bank OTA: CRC verify pre-flash, write atomic via the
+  MCU's flash-from-RAM apply path (still works), but a power loss
+  mid-write bricks the chip. Recovery is SWD-only. Acceptable for
+  hobbyist v1; revisit in v1.1 if bricks happen in practice.
+
+This means **Phase 4 of the original 5-phase plan (peripheral
+integration) shrinks** — no W25Q driver port needed; just the
+internal-flash persistence module. Estimate **drops by ~1-2 days**.
 
 ## Why it's worth doing
 
