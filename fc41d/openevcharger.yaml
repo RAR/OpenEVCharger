@@ -778,3 +778,12 @@ ocpp:
         auto call = id(advertised_amps_n).make_call();
         call.set_value(a);
         call.perform();
+        // Mirror the limit==0 path's MCU stop with a matching MCU resume.
+        // limit>0 from a CSMS that previously sent limit==0 (e.g. evcc
+        // PV-mode wake-up after solar comes back) needs to take the EVSE
+        // out of USER_PAUSED — updating advertised_amps alone leaves the
+        // MCU paused and the EV won't draw. Call unconditionally; the
+        // MCU's safety_task drops USER_RESUME requests that aren't
+        // already in EVSE_USER_PAUSED, so a re-issue mid-charge is a
+        // logged no-op.
+        id(openevcharger_mcu)->send_request_start_resume();
