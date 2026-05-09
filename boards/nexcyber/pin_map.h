@@ -117,6 +117,24 @@
  * which channel is CP — once Phase 2 has the ADC HAL up, dump the
  * per-channel raw value while idle (CP @ +12V, no plug) and pick the
  * channel reading ~ +12 V scaled to count.
+ *
+ * Additional structure observed 2026-05-09 with mains on (live SWD
+ * snapshot of stock firmware):
+ *   0x20000700-0x20000744: 40-halfword circular buffer for one ADC
+ *                           channel (RMS / waveform analysis ring).
+ *                           Reads near 0x0ff8 (ADC rail) on bench →
+ *                           consistent with the L2-side ZMPT107
+ *                           floating to op-amp rail because L2 is
+ *                           dead on US 120 V single-leg supply.
+ *   0x20000748-0x20000754: 4-channel scan cache, 6 halfwords. Most
+ *                           recent sample per channel.
+ *   0x2000075c            : CP voltage cache, signed int32 mV
+ *                           (was uint16_t in the earlier memory note;
+ *                           SRAM dump shows it's actually 32-bit
+ *                           signed — bench reads -300 mV with no plug,
+ *                           which makes sense as a near-zero CP).
+ *   0x20000760-0x2000076C: other calibrated caches (energy counter
+ *                           candidate at 0x2000076C: 0x12000000).
  */
 #define PIN_ADC_VSENSE_L1_PORT  GPIOB
 #define PIN_ADC_VSENSE_L1_PIN   GPIO_PIN_1      /* ADC12_IN9 default; hypothesis */
@@ -174,6 +192,23 @@
 #define PIN_BUZZER_PORT         GPIOC
 #define PIN_BUZZER_PIN          GPIO_PIN_6
 
+/* PC11 — ALWAYS HIGH at stock-fw idle (only OUT_PP pin that's HIGH;
+ * confirmed 2026-05-09 by SWD ODR snapshot with 120 V mains on,
+ * MCU running stock fw at idle).
+ *
+ * Strongly suggests a chip-enable / power-control signal that stays
+ * asserted any time the MCU is alive — most likely candidates are
+ * the WBR2 Wi-Fi module's CE pin, the Nextion display's PWR_EN, or
+ * the BL0939's POWER_DN release. Pulsing it LOW briefly produced no
+ * externally-visible response, consistent with a chip-enable (the
+ * downstream chip just briefly powers down, no LED to indicate).
+ *
+ * Until the specific consumer is bench-confirmed (scope a known
+ * candidate's CE pin during a PC11 toggle), keep this asserted at
+ * boot in our firmware to mirror stock behavior. */
+#define PIN_PERIPHERAL_EN_PORT  GPIOC
+#define PIN_PERIPHERAL_EN_PIN   GPIO_PIN_11
+
 /* PC2 — alt-function output (AF_PP/50M), but no peripheral base address
  * referenced. Vendor-remapped peripheral or unused AF. TODO firmware
  * dynamic-trace: read AFIO_MAPR at runtime to resolve.
@@ -194,43 +229,66 @@
 #define PIN_PA15_OUT_PIN        GPIO_PIN_15
 
 /* =========================================================================
- *  ULN2003-driven outputs — TODO mains-on wiggle (9 silent pins)
+ *  GFCI CAL (small relay, mains-on confirmed 2026-05-09)
  * =========================================================================
  *
- * These pins are confirmed OUT_PP from the static dump, but stayed
- * silent during the 2026-05-07 bench wiggle because the on-board 12 V
- * rail isn't up without AC mains attached. Each one feeds an input of
- * the ULN2003 Darlington driver array; loads are some mix of:
+ * Bench-confirmed 2026-05-09 with 120 V (single-leg) mains attached:
+ * pulsing PB0 HIGH for 500 ms produced an audible click from the
+ * small relay near the NTC / CP connector — the GFCI self-test
+ * pulse relay, exactly as hypothesized in NOTES.md. ULN2003 input
+ * 0 → relay coil drive.
  *
- *   - 2× main contactor coils (75 A / 1000 VAC, double-pole break)
- *   - 1× small relay (almost certainly the GFCI self-test pulse coil)
- *   - status / panel LEDs
- *
- * Mains-on procedure (deferred): `cd boards/nexcyber/tools && ...`
- * once bench tooling lands. Listen for relay clicks / watch panel LEDs.
- *
- * Group these as PIN_OUTx for now; rename to semantic names
- * (PIN_RELAY_L1, PIN_RELAY_L2, PIN_GFCI_CAL, etc.) once the mains-on
- * wiggle resolves load-to-pin.
+ * Drive strategy (mirrors the rippleon BL0939 CAL pattern, see
+ * src/hal/gfci.c): assert briefly during boot self-test, expect
+ * GFCI sense to trip in response, raise FAULT_GFCI_SELF_TEST if
+ * sense doesn't move. Polarity is assumed active-HIGH (HIGH at
+ * MCU → ULN2003 sinks coil → relay closes); confirm during
+ * Phase 3 integration with a coil-side scope.
  */
-#define PIN_OUT_A0_PORT         GPIOA
-#define PIN_OUT_A0_PIN          GPIO_PIN_0      /* TODO bench-resolve */
-#define PIN_OUT_A1_PORT         GPIOA
-#define PIN_OUT_A1_PIN          GPIO_PIN_1      /* TODO bench-resolve */
-#define PIN_OUT_B0_PORT         GPIOB
-#define PIN_OUT_B0_PIN          GPIO_PIN_0      /* TODO bench-resolve */
-#define PIN_OUT_B7_PORT         GPIOB
-#define PIN_OUT_B7_PIN          GPIO_PIN_7      /* TODO bench-resolve (slow rate, OUT_PP/2M) */
-#define PIN_OUT_B8_PORT         GPIOB
-#define PIN_OUT_B8_PIN          GPIO_PIN_8      /* TODO bench-resolve */
-#define PIN_OUT_B9_PORT         GPIOB
-#define PIN_OUT_B9_PIN          GPIO_PIN_9      /* TODO bench-resolve */
-#define PIN_OUT_C8_PORT         GPIOC
-#define PIN_OUT_C8_PIN          GPIO_PIN_8      /* TODO bench-resolve */
-#define PIN_OUT_C10_PORT        GPIOC
-#define PIN_OUT_C10_PIN         GPIO_PIN_10     /* TODO bench-resolve */
-#define PIN_OUT_C11_PORT        GPIOC
-#define PIN_OUT_C11_PIN         GPIO_PIN_11     /* TODO bench-resolve */
+#define PIN_GFCI_CAL_PORT       GPIOB
+#define PIN_GFCI_CAL_PIN        GPIO_PIN_0      /* HIGH=inject pulse */
+
+/* =========================================================================
+ *  Other OUT_PP pins — bench-silent, semantic role TBD
+ * =========================================================================
+ *
+ * Mains-on wiggle 2026-05-09 (120 V single-leg, 12 V rail confirmed
+ * up by the PB0 click): pulsing each of the eight remaining OUT_PP
+ * pins (PA0, PA1, PA15, PB8, PB9, PC8, PC10, PC11) produced no
+ * externally-visible response.
+ *
+ * That doesn't mean they're unused — most likely candidates:
+ *   - LED indicators not fitted on this bench unit (the gun NTC isn't
+ *     fitted either; this PCB seems to be a stripped bench variant)
+ *   - Chip-enable / control signals into the WBR2, Nextion HMI, or
+ *     BL0939 (no on-board LED feedback when these toggle)
+ *   - Contactor coil drives that require a redundant-drive pattern
+ *     (e.g. "both pin X and pin Y must be HIGH to permit close") —
+ *     stock fw doesn't assert these at idle, so individual pulses
+ *     don't trigger
+ *   - Split-phase L2 contactor — possibly silent on 120 V single-leg
+ *     because L2 is dead and the safety supervisor refuses to close
+ *     (would need 240 V split-phase to test)
+ *
+ * Resolution path: read SRAM ADC cache + run stock fw through a
+ * simulated J1772 state-B/C transition (CC ladder + CP duty) and
+ * snapshot ODR per state — pins that go HIGH during state C are
+ * the contactor drives.
+ */
+#define PIN_OUT_PA0_PORT        GPIOA
+#define PIN_OUT_PA0_PIN         GPIO_PIN_0      /* TBD */
+#define PIN_OUT_PA1_PORT        GPIOA
+#define PIN_OUT_PA1_PIN         GPIO_PIN_1      /* TBD */
+#define PIN_OUT_PA15_PORT       GPIOA
+#define PIN_OUT_PA15_PIN        GPIO_PIN_15     /* TBD (freed JTAG-TDI) */
+#define PIN_OUT_PB8_PORT        GPIOB
+#define PIN_OUT_PB8_PIN         GPIO_PIN_8      /* TBD */
+#define PIN_OUT_PB9_PORT        GPIOB
+#define PIN_OUT_PB9_PIN         GPIO_PIN_9      /* TBD */
+#define PIN_OUT_PC8_PORT        GPIOC
+#define PIN_OUT_PC8_PIN         GPIO_PIN_8      /* TBD */
+#define PIN_OUT_PC10_PORT       GPIOC
+#define PIN_OUT_PC10_PIN        GPIO_PIN_10     /* TBD */
 
 /* =========================================================================
  *  Unused / not in init
