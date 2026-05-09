@@ -1,11 +1,41 @@
 cmake_minimum_required(VERSION 3.20)
 
 # The toolchain file MUST be set on the cmake command line via
-# -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
+# -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake (rippleon, M3)
+# or
+# -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain-cm4f.cmake (nexcyber, M4F)
 project(openevcharger C ASM)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
+endif()
+
+# ---------- Board selection ----------
+#
+# `rippleon` (default) builds for the Rippleon ROC001 / GD32F205VE bench
+# unit. `nexcyber` is the in-progress port to the Tuya-based Nexcyber
+# AC EVSE / Nations N32G45x — see boards/nexcyber/README.md for status
+# and what's needed to make it buildable.
+if(NOT DEFINED OPENEVCHARGER_BOARD)
+    set(OPENEVCHARGER_BOARD "rippleon")
+endif()
+set(OPENEVCHARGER_BOARD "${OPENEVCHARGER_BOARD}" CACHE STRING
+    "Target board: rippleon (GD32F205VE) or nexcyber (N32G45x)")
+set_property(CACHE OPENEVCHARGER_BOARD PROPERTY STRINGS rippleon nexcyber)
+message(STATUS "OpenEVCharger board: ${OPENEVCHARGER_BOARD}")
+
+if(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
+    # Nexcyber port is bring-up-skeleton only — the Nations N32G45x
+    # vendor SDK isn't vendored yet and the HAL hasn't been ported.
+    # See boards/nexcyber/README.md for the porter checklist.
+    message(FATAL_ERROR
+        "OPENEVCHARGER_BOARD=nexcyber is not yet buildable. "
+        "Skeleton only at this point; see boards/nexcyber/README.md "
+        "for what's missing (vendor SDK, HAL port, startup files).")
+elseif(NOT OPENEVCHARGER_BOARD STREQUAL "rippleon")
+    message(FATAL_ERROR
+        "Unknown OPENEVCHARGER_BOARD '${OPENEVCHARGER_BOARD}'. "
+        "Valid values: rippleon, nexcyber.")
 endif()
 
 # ---------- Vendor lib paths ----------
