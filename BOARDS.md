@@ -64,6 +64,7 @@ Hardware differences vs Rippleon — **not interchangeable**:
 
 Port status: hardware on the bench, SWD probe + 128 KB flash dumped
 (2026-05-07), pin map being reverse-engineered against the live unit.
+Bring-up skeleton in [`boards/nexcyber/`](boards/nexcyber/README.md).
 The 7 kW and 9.6 kW US siblings should drop in with zero code changes
 once the 11 kW port lands — same PCBA, same MCU, same Wi-Fi module,
 same DP map; only contactor and advertised-A ceiling differ. They
