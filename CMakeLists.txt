@@ -391,6 +391,11 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         boards/nexcyber/hal/spi2.c
         boards/nexcyber/hal/bl0939.c
         boards/nexcyber/hal/nextion.c
+        boards/nexcyber/hal/relay.c
+        boards/nexcyber/hal/gfci.c
+        # M4 — board-independent core layers pulled in from the
+        # rippleon-side shared sources.
+        src/core/j1772.c
     )
 
     # ---------- Target ----------

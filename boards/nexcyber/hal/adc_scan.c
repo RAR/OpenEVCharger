@@ -214,3 +214,21 @@ void adc2_diag_latest(uint16_t out[ADC2_DIAG_RANKS])
     }
     __enable_irq();
 }
+
+uint16_t adc2_cp_raw(void)
+{
+    return adc2_diag_buf[ADC2_DIAG_SLOT_CP_RAW];
+}
+
+int32_t adc2_cp_mv(void)
+{
+    /* CP_mV ≈ raw * 1000 / 187. raw is 12-bit (max 4095 → 21896 mV
+     * ceiling, well within int32 range). The level-shifter saturates
+     * non-negatively below CP ≈ 0 V, so this never returns a negative
+     * mV value — callers that need to distinguish state E (CP near 0)
+     * from state F (CP -12 V) need an independent sense (e.g. CP
+     * synchronous-sample during PWM low phase, which we don't yet
+     * have). For now, treat raw < ~40 as "below state E threshold". */
+    uint32_t raw = adc2_diag_buf[ADC2_DIAG_SLOT_CP_RAW];
+    return (int32_t)((raw * 1000u) / ADC2_CP_CAL_DIVISOR);
+}

@@ -64,10 +64,23 @@
 
 #define ADC2_DIAG_RANKS   7
 
+/* Bench-confirmed 2026-05-11 5-point cal:
+ *   CP_mV ≈ raw * 1000 / 187
+ * (raw from ADC2 ch13 = PB2; slot 6 in adc2_diag_buf) */
+#define ADC2_DIAG_SLOT_CP_RAW   6
+#define ADC2_CP_CAL_DIVISOR     187     /* raw / 187 = volts */
+
 void adc2_diag_scan(void);   /* fills internal adc2_diag_buf */
 
 /* Snapshot helper for callers that want a stable copy. */
 void adc2_diag_latest(uint16_t out[ADC2_DIAG_RANKS]);
+
+/* Latest CP raw value (PB2 ADC reading) — for direct sampling. */
+uint16_t adc2_cp_raw(void);
+
+/* Calibrated CP voltage in mV (signed). Saturates non-negatively
+ * because the level-shifter floors at CP ≈ 0 V. */
+int32_t adc2_cp_mv(void);
 
 /* Initialise ADC1 + DMA1 channel 1 for circular scan. GPIO pads must
  * already be in analog mode (gpio_init_all()). Safe to call once at
