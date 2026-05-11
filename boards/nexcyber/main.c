@@ -24,6 +24,7 @@
 #include "hal/cp_pwm.h"
 #include "hal/spi2.h"
 #include "hal/bl0939.h"
+#include "hal/nextion.h"
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. Same idiom as src/main.c on
@@ -100,6 +101,15 @@ int main(void)
      * runtime registers to verify the link is alive. */
     spi2_init();
     bl0939_smoke_test();
+
+    /* M3 Nextion HMI link — USART2 / 9600 8N1 / PA2-PA3 / DMA1 ch6 RX.
+     * Bench-blocked: cannot validate without the display attached.
+     * Sends a "page setting" probe so an operator can see if the
+     * display reaches its first screen — confirms TX wire + correct
+     * baud rate. RX is silent unless the user touches the screen. */
+    nextion_init();
+    nextion_send_cmd("page setting");
+    printk("nextion: USART2 up @ 9600, sent 'page setting'\n");
 
     /* 256 words = 1 KB stack — plenty for printk + an itoa scratch. */
     BaseType_t ok = xTaskCreate(heartbeat_task, "heartbeat",
