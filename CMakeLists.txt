@@ -387,6 +387,7 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         boards/nexcyber/hal/uart.c
         boards/nexcyber/hal/gpio.c
         boards/nexcyber/hal/adc_scan.c
+        boards/nexcyber/hal/cp_pwm.c
     )
 
     # ---------- Target ----------

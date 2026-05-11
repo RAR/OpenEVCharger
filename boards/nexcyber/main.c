@@ -21,6 +21,7 @@
 #include "hal/uart.h"
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
+#include "hal/cp_pwm.h"
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. Same idiom as src/main.c on
@@ -84,6 +85,12 @@ int main(void)
      * pads (PA4-PA7, PB0-2, PC0/1/4/5) are already in analog mode. */
     adc_scan_init();
     printk("adc1 scan up (4 ranks: PA6/PC0/PC1/VrefInt)\n");
+
+    /* M3 CP PWM — TIM1_CH1 → PA8, 1 kHz, idle = +12 V advertise.
+     * PA8 pad already in AF_PP per gpio_init_all(). */
+    cp_pwm_init();
+    cp_pwm_set_idle_high();
+    printk("cp pwm up (TIM1_CH1, 1 kHz, idle +12 V)\n");
 
     /* 256 words = 1 KB stack — plenty for printk + an itoa scratch. */
     BaseType_t ok = xTaskCreate(heartbeat_task, "heartbeat",
