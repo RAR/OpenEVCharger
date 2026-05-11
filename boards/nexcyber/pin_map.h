@@ -161,12 +161,18 @@
 #define PIN_BTN_TOUCH2_PORT     GPIOA
 #define PIN_BTN_TOUCH2_PIN      GPIO_PIN_12     /* IN_PU, active-low */
 
-/* PC13 — likely GFCI fault sense (active-low). Idle LOW on the bench
- * (mains off / GFCI module not yet active), expected to go HIGH at
- * idle once mains is up and the GFCI module is in normal-not-tripped
- * state. TODO bench mains-on confirmation. */
-#define PIN_GFCI_SENSE_PORT     GPIOC
-#define PIN_GFCI_SENSE_PIN      GPIO_PIN_13
+/* PC13 — E-stop loop sense (active-low, NC switch). Confirmed
+ * 2026-05-11 via three-snapshot SWD sweep on the bench:
+ *   - Switch closed (normal / not pressed) → PC13 HIGH
+ *   - Switch open (E-stop pressed OR wire pulled) → PC13 LOW
+ * The hard-wired E-stop button on the bench unit sits in series
+ * across this pin; when the user temporarily jumpered the switch
+ * out, PC13 sat HIGH continuously. Original "GFCI fault sense"
+ * hypothesis was wrong — the GFCI fault path appears to be the
+ * separate ADC trace seen as G1 in the telemetry dump (raw ~2195
+ * = mid-rail = healthy at the bench, no dedicated digital sense pin). */
+#define PIN_STOP_SENSE_PORT     GPIOC
+#define PIN_STOP_SENSE_PIN      GPIO_PIN_13
 
 /* PC3 / PC7 / PC9 — three digital inputs from the static dump
  * (PC3 IN_FLOATING, PC7 IN_PD, PC9 IN_PD). Topology suggests two of
@@ -192,22 +198,32 @@
 #define PIN_BUZZER_PORT         GPIOC
 #define PIN_BUZZER_PIN          GPIO_PIN_6
 
-/* PC11 — ALWAYS HIGH at stock-fw idle (only OUT_PP pin that's HIGH;
- * confirmed 2026-05-09 by SWD ODR snapshot with 120 V mains on,
- * MCU running stock fw at idle).
+/* PC11 — safety-loop-driven enable (revised 2026-05-11). Original
+ * 2026-05-09 finding was "always HIGH at idle" — that turned out to
+ * be partial: a 2026-05-11 three-snapshot sweep showed PC11 tracks
+ * the E-stop loop's HARD-WIRED state, not just the latched fault
+ * state machine:
+ *   - STOP switch physically in circuit + closed → PC11 HIGH
+ *   - STOP switch JUMPERED out (clean short bypass) → PC11 LOW
+ *   - Either case keeps `fault_bitmap = 8` latched (the L2-missing
+ *     fault on the bench is decoupled from PC11)
  *
- * Strongly suggests a chip-enable / power-control signal that stays
- * asserted any time the MCU is alive — most likely candidates are
- * the WBR2 Wi-Fi module's CE pin, the Nextion display's PWR_EN, or
- * the BL0939's POWER_DN release. Pulsing it LOW briefly produced no
- * externally-visible response, consistent with a chip-enable (the
- * downstream chip just briefly powers down, no LED to indicate).
+ * So the firmware drives PC11 only when it "sees" the real safety
+ * loop is wired through, not just a logical close. Candidate
+ * downstream roles, in rough likelihood order:
+ *   - GFCI module enable (the chip won't run its detection unless
+ *     the upstream safety loop is hardwired)
+ *   - Gun-lock relay coil (interlock that requires safety-loop OK)
+ *   - 12 V rail to a downstream peripheral that's gated on the loop
  *
- * Until the specific consumer is bench-confirmed (scope a known
- * candidate's CE pin during a PC11 toggle), keep this asserted at
- * boot in our firmware to mirror stock behavior. */
-#define PIN_PERIPHERAL_EN_PORT  GPIOC
-#define PIN_PERIPHERAL_EN_PIN   GPIO_PIN_11
+ * NOT the contactor permit — that's gated on `fault_bitmap == 0`
+ * (or equivalent), and the bench saw PC11 HIGH with bit-3 still set.
+ *
+ * Next-bench step: with the MCU halted, force PC11 LOW (BRR) /
+ * HIGH (BSRR) and watch/listen for a click / LED change / Nextion
+ * UI change to pin down which downstream consumer it is. */
+#define PIN_SAFETY_LOOP_EN_PORT GPIOC
+#define PIN_SAFETY_LOOP_EN_PIN  GPIO_PIN_11
 
 /* PC2 — alt-function output (AF_PP/50M), but no peripheral base address
  * referenced. Vendor-remapped peripheral or unused AF. TODO firmware

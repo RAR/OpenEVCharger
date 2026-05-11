@@ -55,21 +55,21 @@ static void init_outputs_safe_state(void)
      * the F1-style mode change. Mirrors rippleon's src/hal/gpio.c
      * init_outputs_safe_low() pattern.
      *
-     * - PC6 buzzer:   LOW (no tone)
-     * - PB0 GFCI CAL: LOW (no test pulse — relay coil de-energised)
-     * - PC11 peripheral_en: HIGH (mirrors stock idle — confirmed
-     *   2026-05-09 by SWD ODR snapshot at idle with stock firmware
-     *   running). Drives whatever chip-enable line is downstream
-     *   (WBR2 CE, Nextion PWR_EN, or BL0939 POWER_DN release — TBD).
-     *   Driving HIGH at the bench keeps the rest of the system in the
-     *   state stock fw left it. */
-    GPIO_ResetBits(PIN_BUZZER_PORT,    PIN_BUZZER_PIN);
-    GPIO_ResetBits(PIN_GFCI_CAL_PORT,  PIN_GFCI_CAL_PIN);
-    GPIO_SetBits  (PIN_PERIPHERAL_EN_PORT, PIN_PERIPHERAL_EN_PIN);
+     * - PC6 buzzer:        LOW (no tone)
+     * - PB0 GFCI CAL:      LOW (no test pulse — relay coil de-energised)
+     * - PC11 safety-loop-en: LOW at boot. The pin is "safety loop is
+     *   wired through" gating from the stock fw — driving it HIGH
+     *   before we've validated the loop's continuity would assert a
+     *   downstream enable (candidate consumers: GFCI module, gun-lock
+     *   relay, peripheral 12V rail) on potentially-broken hardware.
+     *   Safety task will raise it once safety_state == OK in M5+. */
+    GPIO_ResetBits(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
+    GPIO_ResetBits(PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
+    GPIO_ResetBits(PIN_SAFETY_LOOP_EN_PORT,   PIN_SAFETY_LOOP_EN_PIN);
 
     cfg_pin(PIN_BUZZER_PORT,         PIN_BUZZER_PIN,         GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_GFCI_CAL_PORT,       PIN_GFCI_CAL_PIN,       GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
-    cfg_pin(PIN_PERIPHERAL_EN_PORT,  PIN_PERIPHERAL_EN_PIN,  GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_SAFETY_LOOP_EN_PORT, PIN_SAFETY_LOOP_EN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
 }
 
 static void init_cp_pwm_pad(void)
@@ -87,16 +87,14 @@ static void init_inputs_pullup(void)
      * pulled LOW briefly on a tap. IN_PU keeps a defined level if the
      * touch IC's pull becomes weak.
      *
-     * PC13 GFCI fault sense — stock fw configures IN_PD per the static
-     * decode but the pin reads LOW at idle on the bench (mains off /
-     * GFCI module not powered). External topology drives it; pull
-     * direction here is a hold while the external driver is inactive.
-     * Configure IN_PU for now so it doesn't float — bench will tell
-     * us which direction the real fault assertion goes (active-LOW
-     * vs active-HIGH). */
+     * PC13 STOP loop sense — NC E-stop switch in series, active-LOW.
+     * HIGH = switch closed (button not pressed) = safe to run.
+     * LOW  = switch open (E-stop pressed OR wire pulled) = halt.
+     * IPU so a disconnected wire reads LOW (= halt) rather than
+     * floating into an indeterminate "OK" state — fail-safe direction. */
     cfg_pin(PIN_BTN_TOUCH1_PORT,  PIN_BTN_TOUCH1_PIN,  GPIO_Mode_IPU, GPIO_Speed_50MHz);
     cfg_pin(PIN_BTN_TOUCH2_PORT,  PIN_BTN_TOUCH2_PIN,  GPIO_Mode_IPU, GPIO_Speed_50MHz);
-    cfg_pin(PIN_GFCI_SENSE_PORT,  PIN_GFCI_SENSE_PIN,  GPIO_Mode_IPU, GPIO_Speed_50MHz);
+    cfg_pin(PIN_STOP_SENSE_PORT,  PIN_STOP_SENSE_PIN,  GPIO_Mode_IPU, GPIO_Speed_50MHz);
 }
 
 static void init_inputs_floating(void)
@@ -144,18 +142,18 @@ void gpio_init_all(void)
 void gpio_log_straps(void)
 {
     /* One-line boot snapshot of the digital inputs we can interpret.
-     * Bench scope correlation key: at idle with mains off,
-     *   - btn1/btn2 should be 1 (touch panels untouched, IPU)
-     *   - gfci should read its idle level (unknown polarity until mains-on)
-     *   - mains_a/b/c are bench-blocked status; reading them helps
-     *     spot any cabling change between sessions.
+     * Bench scope correlation key (mains on, no plug, STOP not pressed):
+     *   - btn1/btn2 = 1 (touch panels untouched, IPU)
+     *   - stop = 1 (NC switch closed; LOW = E-stop pressed / loop broken)
+     *   - mains_a/b/c TBD — likely 60 Hz toggle on at least one of them
+     *     when AC is up
      */
-    int btn1 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH1_PORT,    PIN_BTN_TOUCH1_PIN)    ? 1 : 0;
-    int btn2 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH2_PORT,    PIN_BTN_TOUCH2_PIN)    ? 1 : 0;
-    int gfci = GPIO_ReadInputDataBit(PIN_GFCI_SENSE_PORT,    PIN_GFCI_SENSE_PIN)    ? 1 : 0;
+    int btn1 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH1_PORT,     PIN_BTN_TOUCH1_PIN)     ? 1 : 0;
+    int btn2 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH2_PORT,     PIN_BTN_TOUCH2_PIN)     ? 1 : 0;
+    int stop = GPIO_ReadInputDataBit(PIN_STOP_SENSE_PORT,     PIN_STOP_SENSE_PIN)     ? 1 : 0;
     int ma   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_A_PORT, PIN_MAINS_DETECT_A_PIN) ? 1 : 0;
     int mb   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_B_PORT, PIN_MAINS_DETECT_B_PIN) ? 1 : 0;
     int mc   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_C_PORT, PIN_MAINS_DETECT_C_PIN) ? 1 : 0;
-    printk("straps: btn=%d%d gfci=%d mains=%d%d%d\n",
-           btn1, btn2, gfci, ma, mb, mc);
+    printk("straps: btn=%d%d stop=%d mains=%d%d%d\n",
+           btn1, btn2, stop, ma, mb, mc);
 }
