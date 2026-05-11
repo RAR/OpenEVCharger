@@ -174,18 +174,28 @@
 #define PIN_STOP_SENSE_PORT     GPIOC
 #define PIN_STOP_SENSE_PIN      GPIO_PIN_13
 
-/* PC3 / PC7 / PC9 — three digital inputs from the static dump
- * (PC3 IN_FLOATING, PC7 IN_PD, PC9 IN_PD). Topology suggests two of
- * these carry the TLP293-2 photocoupler outputs for L1/L2 mains-
- * presence detection (60 Hz pulse stream when live). The third may
- * be a status / detect line for the GFCI module. TODO bench mains-on:
- * scope each for 60 Hz toggle activity. */
+/* PC3 / PC7 — two digital inputs from the static dump (PC3 IN_FLOATING,
+ * PC7 IN_PD). Topology suggests at least one of these carries a
+ * TLP293-2 photocoupler output for mains-presence detection
+ * (60 Hz pulse stream when live), or a GFCI-module status line.
+ * TODO bench mains-on: scope each for 60 Hz toggle activity. */
 #define PIN_MAINS_DETECT_A_PORT GPIOC
 #define PIN_MAINS_DETECT_A_PIN  GPIO_PIN_3      /* IN_FLOATING — candidate L1 */
 #define PIN_MAINS_DETECT_B_PORT GPIOC
 #define PIN_MAINS_DETECT_B_PIN  GPIO_PIN_7      /* IN_PD — candidate L2 */
-#define PIN_MAINS_DETECT_C_PORT GPIOC
-#define PIN_MAINS_DETECT_C_PIN  GPIO_PIN_9      /* IN_PD — extra digital sense */
+
+/* PC9 — front-panel "tiny button" (IN_PD, active-HIGH). Bench-confirmed
+ * 2026-05-11 via snapshot diff: idle PC9 IDR=0; held-down PC9 IDR=1.
+ * Pull-down internal, button connects to +3.3 V when pressed.
+ * Originally hypothesised as a "mains-detect C" photocoupler — turned
+ * out to be a button instead.
+ *
+ * Likely roles in stock fw: pairing / WiFi-reset / factory reset.
+ * Watch for a related LED flash on a separate pin during press —
+ * snapshot diff caught PA15 IDR briefly HIGH during the same press,
+ * making PA15 a strong candidate for the button's status LED. */
+#define PIN_BUTTON_PORT         GPIOC
+#define PIN_BUTTON_PIN          GPIO_PIN_9
 
 /* =========================================================================
  *  Confirmed digital outputs
@@ -291,12 +301,48 @@
  * snapshot ODR per state — pins that go HIGH during state C are
  * the contactor drives.
  */
-#define PIN_OUT_PA0_PORT        GPIOA
-#define PIN_OUT_PA0_PIN         GPIO_PIN_0      /* TBD */
-#define PIN_OUT_PA1_PORT        GPIOA
-#define PIN_OUT_PA1_PIN         GPIO_PIN_1      /* TBD */
-#define PIN_OUT_PA15_PORT       GPIOA
-#define PIN_OUT_PA15_PIN        GPIO_PIN_15     /* TBD (freed JTAG-TDI) */
+/* PA0 — drives ONE of the two large contactors when pulsed; click-on
+ * then immediate auto-open with PA1 firmware-controlled (bench wiggle
+ * test 2026-05-11 with MCU halted, single PA0 toggle). Working
+ * interpretation: contactor weld-detect / self-test pulse — fires one
+ * coil briefly so the firmware can verify the contactor will close.
+ * Same idiom as rippleon's PB0 GFCI CAL pulse. NOT the steady-state
+ * contactor drive (that's PA1).
+ *
+ * Could alternatively be the AC-coupled-driver "tick" pin if the
+ * design uses a transition-triggered driver for the main contactor.
+ * Fast-wiggle test (10+ Hz on PA0 alone) would discriminate between
+ * the two by observing whether the relay holds during the wiggle. */
+#define PIN_CONTACTOR_TEST_PORT GPIOA
+#define PIN_CONTACTOR_TEST_PIN  GPIO_PIN_0      /* candidate; bench-verified pulses one contactor */
+
+/* PA1 — MASTER CONTACTOR PERMIT for both large relays. Bench-confirmed
+ * 2026-05-11 wiggle: driving PA1 HIGH clicks BOTH large contactors
+ * closed and they stay closed for the duration of the HIGH phase.
+ * Plain DC drive (no PWM heartbeat needed).
+ *
+ * On a 240 V split-phase US EVSE, this typically gates the coil-supply
+ * rail (e.g. 12 V) to both line contactors via a single high-side
+ * switch / opto-isolator → both close together. NOT to be left HIGH
+ * during cold-boot / fault — safety task asserts only when
+ * safety_state == OK in M5+.
+ *
+ * NOTE: PA0 fires one coil independently as a self-test pulse;
+ * the two pins together form a "permit-and-test" pattern. */
+#define PIN_CONTACTOR_MAIN_PORT GPIOA
+#define PIN_CONTACTOR_MAIN_PIN  GPIO_PIN_1
+/* PA15 — bench-observed 2026-05-11: IDR briefly HIGH (ODR=0) during
+ * a PC9 button press, then back to LOW. Most likely the button's
+ * status LED — firmware flashes it on press as user feedback.
+ * Confirmation needed: snapshot WHILE holding the button longer than
+ * the flash duration, OR wiggle PA15 from SWD with the LED visible.
+ *
+ * Note: PA15 is JTAG-TDI in default AFIO_MAPR. Stock fw remaps
+ * SWJ_CFG to "SWD only, JTAG off" (per pin-map analysis), freeing
+ * PA15 as a normal GPIO. We'll need the same remap in M2+ before
+ * driving this pin. */
+#define PIN_BUTTON_LED_PORT     GPIOA
+#define PIN_BUTTON_LED_PIN      GPIO_PIN_15     /* candidate; needs PA15 wiggle to confirm */
 #define PIN_OUT_PB8_PORT        GPIOB
 #define PIN_OUT_PB8_PIN         GPIO_PIN_8      /* TBD */
 #define PIN_OUT_PB9_PORT        GPIOB

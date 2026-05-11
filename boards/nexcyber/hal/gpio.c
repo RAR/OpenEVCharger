@@ -55,21 +55,26 @@ static void init_outputs_safe_state(void)
      * the F1-style mode change. Mirrors rippleon's src/hal/gpio.c
      * init_outputs_safe_low() pattern.
      *
-     * - PC6 buzzer:        LOW (no tone)
-     * - PB0 GFCI CAL:      LOW (no test pulse — relay coil de-energised)
-     * - PC11 safety-loop-en: LOW at boot. The pin is "safety loop is
-     *   wired through" gating from the stock fw — driving it HIGH
-     *   before we've validated the loop's continuity would assert a
-     *   downstream enable (candidate consumers: GFCI module, gun-lock
-     *   relay, peripheral 12V rail) on potentially-broken hardware.
-     *   Safety task will raise it once safety_state == OK in M5+. */
-    GPIO_ResetBits(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
+     * Safety-critical outputs that MUST be LOW at boot:
+     * - PA1 contactor-main:  LOW (both line contactors de-energised)
+     * - PA0 contactor-test:  LOW (no weld-detect pulse firing)
+     * - PB0 GFCI CAL:        LOW (no test pulse — relay coil de-energised)
+     * - PC11 safety-loop-en: LOW (downstream enable un-asserted; raised
+     *                         only when safety_state == OK in M5+)
+     *
+     * Non-safety outputs also defaulted LOW:
+     * - PC6 buzzer:          LOW (no tone) */
+    GPIO_ResetBits(PIN_CONTACTOR_MAIN_PORT,   PIN_CONTACTOR_MAIN_PIN);
+    GPIO_ResetBits(PIN_CONTACTOR_TEST_PORT,   PIN_CONTACTOR_TEST_PIN);
     GPIO_ResetBits(PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
     GPIO_ResetBits(PIN_SAFETY_LOOP_EN_PORT,   PIN_SAFETY_LOOP_EN_PIN);
+    GPIO_ResetBits(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
 
-    cfg_pin(PIN_BUZZER_PORT,         PIN_BUZZER_PIN,         GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_CONTACTOR_MAIN_PORT, PIN_CONTACTOR_MAIN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_CONTACTOR_TEST_PORT, PIN_CONTACTOR_TEST_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_GFCI_CAL_PORT,       PIN_GFCI_CAL_PIN,       GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_SAFETY_LOOP_EN_PORT, PIN_SAFETY_LOOP_EN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_BUZZER_PORT,         PIN_BUZZER_PIN,         GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
 }
 
 static void init_cp_pwm_pad(void)
@@ -107,11 +112,13 @@ static void init_inputs_floating(void)
 
 static void init_inputs_pulldown(void)
 {
-    /* PC7 / PC9 — mains-detect candidates B/C. IN_PD per static decode.
-     * 60 Hz pulse stream expected when mains live. */
+    /* PC7 — mains-detect candidate B. IN_PD per static decode;
+     * 60 Hz pulse stream expected when mains live (bench-blocked).
+     * PC9 (also IN_PD) is the front-panel button — same mode, just
+     * a different downstream role. */
     cfg_pin(PIN_MAINS_DETECT_B_PORT, PIN_MAINS_DETECT_B_PIN,
             GPIO_Mode_IPD, GPIO_Speed_50MHz);
-    cfg_pin(PIN_MAINS_DETECT_C_PORT, PIN_MAINS_DETECT_C_PIN,
+    cfg_pin(PIN_BUTTON_PORT,         PIN_BUTTON_PIN,
             GPIO_Mode_IPD, GPIO_Speed_50MHz);
 }
 
@@ -148,12 +155,12 @@ void gpio_log_straps(void)
      *   - mains_a/b/c TBD — likely 60 Hz toggle on at least one of them
      *     when AC is up
      */
-    int btn1 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH1_PORT,     PIN_BTN_TOUCH1_PIN)     ? 1 : 0;
-    int btn2 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH2_PORT,     PIN_BTN_TOUCH2_PIN)     ? 1 : 0;
+    int tch1 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH1_PORT,     PIN_BTN_TOUCH1_PIN)     ? 1 : 0;
+    int tch2 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH2_PORT,     PIN_BTN_TOUCH2_PIN)     ? 1 : 0;
+    int btn  = GPIO_ReadInputDataBit(PIN_BUTTON_PORT,         PIN_BUTTON_PIN)         ? 1 : 0;
     int stop = GPIO_ReadInputDataBit(PIN_STOP_SENSE_PORT,     PIN_STOP_SENSE_PIN)     ? 1 : 0;
     int ma   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_A_PORT, PIN_MAINS_DETECT_A_PIN) ? 1 : 0;
     int mb   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_B_PORT, PIN_MAINS_DETECT_B_PIN) ? 1 : 0;
-    int mc   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_C_PORT, PIN_MAINS_DETECT_C_PIN) ? 1 : 0;
-    printk("straps: btn=%d%d stop=%d mains=%d%d%d\n",
-           btn1, btn2, stop, ma, mb, mc);
+    printk("straps: touch=%d%d btn=%d stop=%d mains=%d%d\n",
+           tch1, tch2, btn, stop, ma, mb);
 }
