@@ -197,32 +197,37 @@
  *               under load (charging = 0x03FC ~0.82 V). Sample is
  *               instantaneous, not RMS — captures one phase of the
  *               60 Hz cycle.
- *   0x20000756: candidate GFCI sense OR onboard NTC — analog channel
- *               sitting near mid-rail at idle (0x0743 / 0x0745 ~1.50 V
- *               in both GFCI-unplugged AND GFCI-plugged states),
- *               swings DOWN to 0x05CE (~1.20 V) during the charging
- *               attempt that also faulted at the 5-second mark.
- *               Three-snapshot bench session 2026-05-11 late-pm:
- *                 - idle, GFCI unplugged: 0x0743
- *                 - idle, GFCI plugged:   0x0745  (no change)
- *                 - charging attempt:     0x05CE  (-0.30 V deviation)
- *               GFCI plug/unplug producing NO observable change rules
- *               out the simplest "GFCI subsystem present" reading.
- *               Two models stand:
- *                 (a) IS the GFCI sense, but reads same baseline
- *                     plugged-vs-unplugged at the analog layer — only
- *                     real residual current deviates it. The S1 drop
- *                     would then be a true residual-current event,
- *                     causing the 5-second fault on charge attempt.
- *                 (b) Is an onboard NTC or supply-rail-droop sensor
- *                     that responds to contactor closure / load
- *                     thermal transient.
- *               Disambiguation = bench-blocked: inject known residual
- *               current (e.g., 6 mA L→ground) and watch this slot.
- *               GFCI subsystem health appears to communicate to the
+ *   0x20000756: GFCI sense (analog input from the residual-current
+ *               CT integrator). 4-snapshot bench evidence 2026-05-11
+ *               late-pm:
+ *                 idle, GFCI unplugged:   0x0743 (1.50 V)
+ *                 idle, GFCI plugged:     0x0745 (1.50 V) — flat
+ *                 charging, GFCI unplug:  0x05CE (1.20 V) — drift
+ *                 charging, GFCI plugged: 0x06FD (1.43 V) — small
+ *                                                           residual
+ *               Key evidence: during the SAME kind of charging
+ *               attempt, the slot reads 1.43 V with GFCI plugged
+ *               (close to the healthy mid-rail baseline) but drifts
+ *               to 1.20 V with GFCI unplugged (floating CT input
+ *               drifts further). That coupling pattern is the
+ *               signature of a CT-fed integrator: connected CT pulls
+ *               the input to mid-rail at zero residual; disconnected
+ *               CT lets the input drift. The onboard-NTC alternative
+ *               doesn't predict the plugged-vs-unplugged differential
+ *               during the same load condition.
+ *
+ *               (Still not 100 % closed: a single residual-current
+ *               injection test on the bench, e.g. 6 mA L→ground
+ *               while charging, would lock the swing direction and
+ *               sensitivity for sure. Filed as bench-blocked.)
+ *
+ *               Note GFCI subsystem health is communicated to the
  *               MCU primarily via PC11 heartbeat suppression
- *               (see project_nexcyber_gfci_subsystem memory), not via
- *               this ADC channel.
+ *               (independently confirmed 2026-05-11 pm — 5 rapid SWD
+ *               samples of GPIOC ODR with GFCI plugged showed bit-11
+ *               toggling), not via this ADC channel. The MCU watches
+ *               both, but ADC tells it "how much residual current"
+ *               while PC11 tells it "is the subsystem alive".
  *   0x20000758: aux rail / Vref-like (railed in both states)
  *   0x2000075A: I_L2 (current transformer L2) — pairs with 0x754
  *               (same swing pattern, same magnitude).
