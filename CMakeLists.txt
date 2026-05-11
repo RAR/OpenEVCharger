@@ -370,12 +370,13 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         ${FREERTOS_DIR}/portable/MemMang/heap_4.c
     )
 
-    # ---------- Application sources (M0 + M1) ----------
+    # ---------- Application sources (M0 + M1 + M2) ----------
 
     set(APP_SRCS
         boards/nexcyber/main.c
         boards/nexcyber/hal/clock.c
         boards/nexcyber/hal/uart.c
+        boards/nexcyber/hal/gpio.c
     )
 
     # ---------- Target ----------

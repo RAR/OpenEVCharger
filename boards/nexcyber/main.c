@@ -19,6 +19,7 @@
 #include "task.h"
 #include "hal/clock.h"
 #include "hal/uart.h"
+#include "hal/gpio.h"
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. Same idiom as src/main.c on
@@ -58,7 +59,10 @@ int main(void)
     clock_real_120m_init();
     uart_init();
     clock_log_status();
-    printk("openevcharger nexcyber: M1 bring-up (FreeRTOS scheduler)\n");
+    printk("openevcharger nexcyber: M2 bring-up (FreeRTOS + GPIO HAL)\n");
+
+    gpio_init_all();
+    gpio_log_straps();
 
     /* 256 words = 1 KB stack — plenty for printk + an itoa scratch. */
     BaseType_t ok = xTaskCreate(heartbeat_task, "heartbeat",
