@@ -310,7 +310,25 @@
 #define PIN_ADC_VSENSE_L2_PORT  GPIOA
 #define PIN_ADC_VSENSE_L2_PIN   GPIO_PIN_5      /* TBD candidate */
 #define PIN_ADC_CC_PORT         GPIOC
-#define PIN_ADC_CC_PIN          GPIO_PIN_4      /* TBD; PC4 non-monotonic in CP walk */
+#define PIN_ADC_CC_PIN          GPIO_PIN_4      /* WRONG — replaced by GFCI_SENSE below.
+                                                 * Old placeholder retained for
+                                                 * backward-compat only. */
+#define PIN_ADC_GFCI_SENSE_PORT GPIOC
+#define PIN_ADC_GFCI_SENSE_PIN  GPIO_PIN_4      /* ADC2 ch5 — BENCH-CONFIRMED 2026-05-11
+                                                 * via real residual-current injection.
+                                                 * Idle baseline ~2118 raw (mid-rail).
+                                                 * Real GFCI fault: +242 (upward
+                                                 * deflection, CT polarity-sensitive).
+                                                 * CAL pulse: -234 (opposite direction,
+                                                 * because CAL injects opposite-polarity
+                                                 * test current).
+                                                 * Slow RC-decay after fault clears
+                                                 * (a few seconds time constant) —
+                                                 * consistent with CT integrator.
+                                                 * M5 safety task should treat any
+                                                 * |raw - 2100| > N for > debounce as
+                                                 * a GFCI event. Threshold TBD by
+                                                 * sensitivity calibration. */
 #define PIN_ADC_NTC_PORT        GPIOC
 #define PIN_ADC_NTC_PIN         GPIO_PIN_5      /* TBD; PC5 dead-flat on bench */
 #define PIN_ADC_RCC_AB          (RCC_APB2_PERIPH_GPIOB)
