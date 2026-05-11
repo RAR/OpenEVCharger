@@ -56,15 +56,14 @@
 #define PIN_NEXTION_RX_PIN      GPIO_PIN_3
 #define PIN_NEXTION_RCC         RCC_APB2_PERIPH_GPIOA
 
-/* USART3 (PB10 TX / PB11 RX) — TBD.
- * 8 literal-pool refs (heaviest of the three USARTs in the firmware).
- * Strongest hypotheses:
- *   - BL0939 metering chip on the UART variant (4800 8N1, single-wire
- *     TX from the chip with continuous frames). SPI2 below is also
- *     wired up, so this could be a dual-link arrangement.
- *   - Stock-firmware debug log.
- * TODO bench: scope PB11 during stock boot — if continuous 4800 baud
- * stream → BL0939; if bursty / no traffic → debug log.
+/* USART3 (PB10 TX / PB11 RX) — strongest hypothesis: stock-fw DEBUG LOG.
+ * 8 literal-pool refs in the firmware (heaviest of the three USARTs).
+ * BL0939 hypothesis ruled out 2026-05-11: touching the SPI2 MISO line
+ * (PB14) coupled cleanly into the firmware-read MISO traffic, confirming
+ * BL0939 is on SPI2, not on this USART. PB10/PB11 is therefore most
+ * likely the stock-fw debug printk. TODO bench scope to confirm baud
+ * and traffic pattern. Once confirmed, candidate target for relocating
+ * our M2 printk so USART1 can be freed for the WBR2 TLV link.
  */
 #define PIN_USART3_TX_PORT      GPIOB
 #define PIN_USART3_TX_PIN       GPIO_PIN_10
@@ -72,10 +71,14 @@
 #define PIN_USART3_RX_PIN       GPIO_PIN_11
 #define PIN_USART3_RCC          RCC_APB2_PERIPH_GPIOB
 
-/* SPI2 (PB12-15) — fully configured in the stock firmware, very likely
- * the BL0939 metering link (SPI variant, ≤ 900 kHz). NSS is software-
- * driven (PB12 OUT_PP rather than AF). Confirms in Phase 2 by scoping
- * SCK at boot. */
+/* SPI2 (PB12-15) — BL0939 metering link, SPI variant.
+ * Bench-confirmed 2026-05-11: touching the data lines coupled into
+ * PB14 (MISO) IDR snapshots — meaning firmware is actively running an
+ * SPI2 transfer cycle reading data from a slave. BL0939's
+ * UART-variant hypothesis ruled out by the absence of any equivalent
+ * coupling on USART3 (PB11). NSS is software-driven (PB12 OUT_PP
+ * rather than AF). Rippleon's src/hal/bl0939.c + src/hal/spi3.c
+ * (modulo pin remap to SPI2) port over verbatim for M3. */
 #define PIN_BL0939_NSS_PORT     GPIOB
 #define PIN_BL0939_NSS_PIN      GPIO_PIN_12     /* SW chip-select */
 #define PIN_BL0939_SCK_PORT     GPIOB
@@ -208,30 +211,40 @@
 #define PIN_BUZZER_PORT         GPIOC
 #define PIN_BUZZER_PIN          GPIO_PIN_6
 
-/* PC11 — safety-loop-driven enable (revised 2026-05-11). Original
- * 2026-05-09 finding was "always HIGH at idle" — that turned out to
- * be partial: a 2026-05-11 three-snapshot sweep showed PC11 tracks
- * the E-stop loop's HARD-WIRED state, not just the latched fault
- * state machine:
- *   - STOP switch physically in circuit + closed → PC11 HIGH
- *   - STOP switch JUMPERED out (clean short bypass) → PC11 LOW
- *   - Either case keeps `fault_bitmap = 8` latched (the L2-missing
- *     fault on the bench is decoupled from PC11)
+/* PC11 — safety-supervisor HEARTBEAT (revised again 2026-05-11 pm).
+ * Earlier-in-the-session reads showed PC11 in steady HIGH or LOW
+ * states; the working model was "static enable". Later-in-the-session
+ * bench observation confirmed PC11 toggles continuously while the
+ * firmware is happy — those earlier "snapshot 1 vs 2" diffs were
+ * just catching different phases of the heartbeat at our ~1.5 s
+ * sample spacing.
  *
- * So the firmware drives PC11 only when it "sees" the real safety
- * loop is wired through, not just a logical close. Candidate
- * downstream roles, in rough likelihood order:
- *   - GFCI module enable (the chip won't run its detection unless
- *     the upstream safety loop is hardwired)
- *   - Gun-lock relay coil (interlock that requires safety-loop OK)
- *   - 12 V rail to a downstream peripheral that's gated on the loop
+ * Working model: PC11 is a dead-man heartbeat the safety supervisor
+ * pulses while it's happy. An external watchdog timer chip downstream
+ * keeps a peripheral (GFCI module enable, coil-supply rail, or
+ * similar) energised only while it keeps seeing pulses. On an
+ * immediate hardware fault the firmware stops pulsing → external
+ * watchdog times out → peripheral disabled.
  *
- * NOT the contactor permit — that's gated on `fault_bitmap == 0`
- * (or equivalent), and the bench saw PC11 HIGH with bit-3 still set.
+ * Bench evidence for the heartbeat model:
+ *   - STOP wired through + GFCI healthy: PC11 oscillates (snapshots
+ *     catch random phases — sometimes HIGH, sometimes LOW)
+ *   - STOP JUMPERED out (clean short bypass): pulsing stops, PC11
+ *     latches at last state (often LOW)
+ *   - GFCI driven HIGH (faked fault) OR GFCI connector disconnected:
+ *     same — pulsing stops
+ *   - Latched soft fault `fault_bitmap = 8` (L2-missing): heartbeat
+ *     continues. Confirms PC11 is for immediate hardware faults,
+ *     decoupled from latched soft faults
  *
- * Next-bench step: with the MCU halted, force PC11 LOW (BRR) /
- * HIGH (BSRR) and watch/listen for a click / LED change / Nextion
- * UI change to pin down which downstream consumer it is. */
+ * Pulse rate: not yet measured. Rapid SWD-sample test pending. Likely
+ * 50 Hz–1 kHz based on typical external-watchdog-chip timeout windows
+ * (TPL5010-style). Our M2+ firmware needs to MATCH this rate;
+ * driving PC11 statically HIGH is NOT sufficient — the external
+ * watchdog won't accept a DC level.
+ *
+ * Macro name kept PIN_SAFETY_LOOP_EN_* for continuity; "safety
+ * heartbeat" is more precise. */
 #define PIN_SAFETY_LOOP_EN_PORT GPIOC
 #define PIN_SAFETY_LOOP_EN_PIN  GPIO_PIN_11
 

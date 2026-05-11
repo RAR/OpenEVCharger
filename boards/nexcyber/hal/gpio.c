@@ -38,6 +38,21 @@ static void clock_enable_all(void)
                             ENABLE);
 }
 
+static void swj_disable_jtag(void)
+{
+    /* AFIO_MAPR: SWJ_CFG = "JTAG-DP disabled, SW-DP enabled" — frees
+     * PA15 (JTDI), PB3 (JTDO), PB4 (NJTRST) for normal GPIO use while
+     * keeping SWD alive on PA13 (SWDIO) and PA14 (SWCLK). Matches what
+     * stock firmware does — the bench SWD probe confirmed PA15 is a
+     * normal output, not JTDI, on the running stock fw.
+     *
+     * MUST run before any AF init on PA15/PB3/PB4 or those pads will
+     * stay routed to the JTAG TAP. Done in clock_enable_all()'s sibling
+     * since it's a one-shot AFIO setup that conceptually belongs with
+     * the clock/AFIO bring-up, not with each pin's per-call config. */
+    GPIO_ConfigPinRemap(GPIO_RMP_SW_JTAG_SW_ENABLE, ENABLE);
+}
+
 static void cfg_pin(GPIO_Module *port, uint16_t pin,
                     GPIO_ModeType mode, GPIO_SpeedType speed)
 {
@@ -59,22 +74,26 @@ static void init_outputs_safe_state(void)
      * - PA1 contactor-main:  LOW (both line contactors de-energised)
      * - PA0 contactor-test:  LOW (no weld-detect pulse firing)
      * - PB0 GFCI CAL:        LOW (no test pulse — relay coil de-energised)
-     * - PC11 safety-loop-en: LOW (downstream enable un-asserted; raised
-     *                         only when safety_state == OK in M5+)
+     * - PC11 safety-loop-en: LOW (heartbeat not yet pulsing — see pin_map.h)
      *
      * Non-safety outputs also defaulted LOW:
-     * - PC6 buzzer:          LOW (no tone) */
+     * - PC6 buzzer:          LOW (no tone)
+     * - PA15 status-LED:     LOW (panel indicator off; bench-observed
+     *                              briefly HIGH on PC9 press + GFCI fault
+     *                              — likely a multi-purpose status LED) */
     GPIO_ResetBits(PIN_CONTACTOR_MAIN_PORT,   PIN_CONTACTOR_MAIN_PIN);
     GPIO_ResetBits(PIN_CONTACTOR_TEST_PORT,   PIN_CONTACTOR_TEST_PIN);
     GPIO_ResetBits(PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
     GPIO_ResetBits(PIN_SAFETY_LOOP_EN_PORT,   PIN_SAFETY_LOOP_EN_PIN);
     GPIO_ResetBits(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
+    GPIO_ResetBits(PIN_BUTTON_LED_PORT,       PIN_BUTTON_LED_PIN);
 
     cfg_pin(PIN_CONTACTOR_MAIN_PORT, PIN_CONTACTOR_MAIN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_CONTACTOR_TEST_PORT, PIN_CONTACTOR_TEST_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_GFCI_CAL_PORT,       PIN_GFCI_CAL_PIN,       GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_SAFETY_LOOP_EN_PORT, PIN_SAFETY_LOOP_EN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_BUZZER_PORT,         PIN_BUZZER_PIN,         GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_BUTTON_LED_PORT,     PIN_BUTTON_LED_PIN,     GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
 }
 
 static void init_cp_pwm_pad(void)
@@ -138,6 +157,7 @@ static void init_analog_inputs(void)
 void gpio_init_all(void)
 {
     clock_enable_all();
+    swj_disable_jtag();          /* must run before any AF init on PA15/PB3/PB4 */
     init_outputs_safe_state();
     init_cp_pwm_pad();
     init_inputs_pullup();

@@ -343,6 +343,15 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         ${NX_SPL_SRC}/n32g45x_gpio.c
         ${NX_SPL_SRC}/n32g45x_rcc.c
         ${NX_SPL_SRC}/n32g45x_usart.c
+        # Pre-staged for M3 — picked up here so the SPL link surface is
+        # complete before the M3 ADC / CP-PWM / BL0939-SPI drivers
+        # arrive in boards/nexcyber/hal/. They're cold dead-code under
+        # --gc-sections until something references them, so zero
+        # runtime overhead until M3.
+        ${NX_SPL_SRC}/n32g45x_adc.c
+        ${NX_SPL_SRC}/n32g45x_tim.c
+        ${NX_SPL_SRC}/n32g45x_spi.c
+        ${NX_SPL_SRC}/n32g45x_dma.c
     )
 
     # ---------- FreeRTOS (M1) ----------
