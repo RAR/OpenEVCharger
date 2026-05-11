@@ -345,7 +345,32 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         ${NX_SPL_SRC}/n32g45x_usart.c
     )
 
-    # ---------- Application sources (M0) ----------
+    # ---------- FreeRTOS (M1) ----------
+    #
+    # Cortex-M4F port. FPU support is auto-handled inside the port via
+    # `__ARM_FP` which the toolchain (-mfpu=fpv4-sp-d16 -mfloat-abi=hard)
+    # defines — no extra FreeRTOSConfig.h flag needed.
+    #
+    # The shared `src/FreeRTOSConfig.h` is core-independent (configPRIO_BITS=4
+    # matches both GD32F2 M3 and N32G45x M4F NVIC layouts; the SVC/PendSV/
+    # SysTick handler aliasing maps to standard Cortex-M vector names which
+    # both vendor startup files use).
+
+    set(FREERTOS_DIR ${CMAKE_SOURCE_DIR}/third_party/FreeRTOS-Kernel)
+    set(FREERTOS_PORT_DIR ${FREERTOS_DIR}/portable/GCC/ARM_CM4F)
+
+    set(FREERTOS_SRCS
+        ${FREERTOS_DIR}/tasks.c
+        ${FREERTOS_DIR}/queue.c
+        ${FREERTOS_DIR}/list.c
+        ${FREERTOS_DIR}/timers.c
+        ${FREERTOS_DIR}/event_groups.c
+        ${FREERTOS_DIR}/stream_buffer.c
+        ${FREERTOS_PORT_DIR}/port.c
+        ${FREERTOS_DIR}/portable/MemMang/heap_4.c
+    )
+
+    # ---------- Application sources (M0 + M1) ----------
 
     set(APP_SRCS
         boards/nexcyber/main.c
@@ -357,6 +382,7 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
 
     add_executable(${TARGET}
         ${APP_SRCS}
+        ${FREERTOS_SRCS}
         ${NX_STARTUP_SRC}
         ${NX_SYSTEM_SRC}
         ${NX_SPL_SRCS}
@@ -372,6 +398,8 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         ${NX_CORE}
         ${NX_VARIANT}
         ${NX_SPL_INC}
+        ${FREERTOS_DIR}/include
+        ${FREERTOS_PORT_DIR}
     )
 
     target_compile_definitions(${TARGET} PRIVATE
