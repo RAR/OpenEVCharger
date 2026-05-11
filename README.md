@@ -1,40 +1,49 @@
 # OpenEVCharger
 
-Replacement firmware for the **Rippleon ROC001** EV charger (FCC model
-**ROCHL2US**, FCC ID `2BLBS-ROCHL2US`), targeting the GigaDevice
-**GD32F205VG** main MCU paired with a Quectel **FC41D** (BK7231N)
-Wi-Fi/BLE module. Restores the unit to local control — Home Assistant,
-OCPP 1.6-J, evcc — when the vendor cloud is unreliable or unavailable.
+Replacement firmware for vendor-cloud-tethered AC EV chargers (J1772),
+giving them fully local control — Home Assistant via the ESPHome
+native API, OCPP 1.6-J to any Central System (SteVe, evcc, CitrineOS,
+Monta), and no internet or vendor-account dependency.
 
-The hardware comes out of **Beizide / NewEnergyCS** (Chinese
-parent/factory, sites at `beizide.com` + `newenergycs.com`); **Rippleon
-Ltd.** is their US-facing sub-brand and FCC-registered entity. Same
-factory firmware also serves the BeiZide-branded SKUs (both cloud URLs
-are hardcoded in stock V1.0.066).
+The safety-critical work runs on the charger's main MCU as a small
+FreeRTOS-based C core. The Wi-Fi/BLE companion module hosts ESPHome +
+MicroOcpp and talks to the safety MCU over a binary TLV link. Both
+sides ship as a complete replacement for the stock firmware on the
+user's own hardware.
+
+**Supported hardware** lives in [`BOARDS.md`](BOARDS.md). Today:
+
+- ✅ **Rippleon ROC family** (Beizide / NewEnergyCS ODM, GD32F205VG +
+  Quectel FC41D) — production-validated bench + 240 V real-EV charging
+  session 2026-05-07.
+- 🚧 **Nexcyber** (Zopoise `ZBU011K-C00X` PCBA, Nations N32G45x +
+  Tuya WBR2 / RTL8720CF) — port in progress.
+
+The board-specific surface is small: a pin map, a linker script, and a
+vendor-SDK wiring block in CMake. The safety core (J1772 state machine,
+fault detectors, self-test, OCPP / TLV protocol, OTA, RTC bridge,
+persistence) is board-independent.
 
 **Latest release:** [`2026.19.0`](https://github.com/RAR/OpenEVCharger/releases/tag/2026.19.0)
-— first production cut, validated end-to-end against a real 240 V EV
-2026-05-07.
+— first production cut on the Rippleon target.
 
 This is a clean-room rewrite. The J1772 state machine, fault model, and
 self-test sequence are modeled on [OpenEVSE](https://github.com/OpenEVSE/open_evse)
-but no source is copied. The MCU runs a small FreeRTOS-based safety core
-in C; Wi-Fi/BLE/cloud lives on the FC41D, off the safety MCU, talking
-over UART4 with a binary TLV protocol.
+but no source is copied.
 
 ## Why
 
-Rippleon ROC001 ships dependent on a vendor cloud
-(`api.rippleonenergy.com`) whose OCPP backend frequently 504s. Local
-BLE-proximity control via the vendor app still works when the cloud is
-down, but **remote** control, scheduling, and any third-party
-integration (Home Assistant, evcc, an external OCPP CSMS) all route
-through the cloud and break with it. There is no first-party path off
-the cloud. OpenEVCharger replaces both halves of the firmware so the
-unit operates fully locally — Wi-Fi LAN is enough, no cloud
-dependency — and exposes a standards-compliant OCPP 1.6-J Charge Point
-+ ESPHome native API for direct HA / evcc / SteVe / any OCPP CSMS
-integration.
+The supported chargers ship dependent on a vendor cloud for remote
+control, scheduling, and any third-party integration (Home Assistant,
+evcc, an external OCPP CSMS). When the cloud is unreliable — for
+example, Rippleon's `api.rippleonenergy.com` OCPP backend frequently
+504s — everything except local BLE-proximity control via the vendor
+app goes down with it. There is no first-party path off the cloud.
+
+OpenEVCharger replaces both halves of the firmware so the unit
+operates fully locally (Wi-Fi LAN is enough, no cloud dependency) and
+exposes a standards-compliant OCPP 1.6-J Charge Point + ESPHome native
+API for direct HA / evcc / SteVe / any-OCPP-CSMS integration.
 
 ## Features
 
@@ -61,6 +70,10 @@ integration.
 GFCI is the v2026.19.0 PE-related safety net (trips on stray earth current
 regardless of PE-wire continuity).
 
+Status above is current for the Rippleon target. The detectors port
+across boards untouched; threshold tuning is per-chassis (e.g. PE
+continuity raw band, GFCI CAL latency).
+
 ### Metering (BL0939, per-chassis cal)
 
 - **Voltage / current / power / energy** — all bench-validated to <0.1 %
@@ -84,7 +97,7 @@ regardless of PE-wire continuity).
   SmartCharging (`SetChargingProfile` → live amp-limit derate).
 - **evcc** — works with the OCPP charger type. Live amp adjustment
   validated 2026-05-07.
-- **MCU OTA** — FC41D-mediated TLV chunked-upload. HA service
+- **MCU OTA** — companion-module-mediated TLV chunked-upload. HA service
   `openevcharger_fetch_and_push_ota` pulls a .bin from `/config/www/`,
   streams it over TLV to the MCU, which stages to W25Q, CRC-verifies,
   and reboots into the new image. Self-rolls-back on CRC mismatch.
@@ -107,15 +120,17 @@ regardless of PE-wire continuity).
                               │ ESPHome API (Wi-Fi)
                               ▼
    ┌────────────────────────────────────────┐
-   │  FC41D (BK7231N, LibreTiny)            │
-   │   ESPHome 2026.4.4 + esphome-ocpp-server│
+   │  Companion comms module                │
+   │   (FC41D / WBR2 / etc — per board)     │
+   │   ESPHome + esphome-ocpp-server        │
    │   MicroOcpp · OTA proxy · RTC bridge   │
    └─────────────────┬──────────────────────┘
                      │  TLV @ 115200 8N1
-                     │  (UART4)
+                     │  (one UART)
                      ▼
    ┌────────────────────────────────────────┐
-   │  GD32F205VG · FreeRTOS · GPL-3.0       │
+   │  Safety MCU · FreeRTOS · GPL-3.0       │
+   │   (GD32F2 / N32G45 / similar M3/M4F)   │
    │  ┌──────────────┬──────────────┐       │
    │  │ safety_task  │ comms_task   │       │
    │  │ (20 ms tick) │ (TLV I/O)    │       │
@@ -132,15 +147,15 @@ regardless of PE-wire continuity).
 ```
 
 Single writer for all actuation: `safety_task` is the only path that
-drives PE12 (relay coil), CP PWM, and PB12 (force-open latch). All
-other tasks request via inboxes.
+drives the relay coil, CP PWM, and the force-open latch. All other
+tasks request via inboxes.
 
 ## Hardware
 
-| Target | Status | Notes |
-|---|---|---|
-| Rippleon ROC family (FCC `ROCHL2US`) | ✅ Production-validated on ROC001; siblings in scope per Rippleon's own FCC filing | Single-phase 6–48 A, BL0939 metering, FC41D Wi-Fi/BLE, GD32F205VG. US brand: Rippleon (FCC entity Rippleon Ltd.); ODM: Beizide / NewEnergyCS (CN). Per FCC filing the following 73 SKUs are declared electrically identical aside from spec/appearance/color — **ROC001–ROC010 × W/B/G/L** (40 residential SKUs) plus **NECS-ACW-{7, 9.6, 11.5}-1-US-{3010, 3018, 3020, 3027, 3028, 3110–3115}** (33 commercial-tier SKUs). |
-| Other GD32F2-class EVSE | 🔲 needs port | Pin-map + per-chassis cal in `BOARDS.md`. |
+The full support matrix and porting outline live in
+[`BOARDS.md`](BOARDS.md). To bring up a new board you produce three
+artefacts: `src/core/pin_map_<board>.h`, a `linker/*.ld` for the chip
+size, and a vendor-SDK + clock-config block in `CMakeLists.txt`.
 
 The reverse-engineering trail (full SWD dump of stock V1.0.066,
 protocol decode, schematic mapping, OCPP cloud capture) is in
@@ -155,8 +170,12 @@ sudo apt install gcc-arm-none-eabi cmake ninja-build openocd
 # Fetch the GD32F20x vendor library
 # (see third_party/GD32F20x_Firmware_Library/README.md)
 
-# Build the MCU image
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake -G Ninja
+# Build the MCU image (rippleon target; -DOPENEVCHARGER_BOARD=<board>
+# to pick a different one once supported)
+cmake -B build -S . \
+    -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake \
+    -DOPENEVCHARGER_BOARD=rippleon \
+    -G Ninja
 ninja -C build
 
 # Back up stock firmware (REQUIRED before any flash; round-trip-validated)
@@ -166,7 +185,7 @@ ninja -C build
 ./tools/flash.sh
 ```
 
-For the FC41D Wi-Fi side, set `csms_url` and other secrets in
+For the companion-module Wi-Fi side, set `csms_url` and other secrets in
 `fc41d/secrets.yaml` and run:
 
 ```sh
@@ -189,7 +208,7 @@ MCU OTA is HA-mediated (no SWD needed once the firmware is on):
 3. Watch "MCU OTA Progress" sensor 0→100. The MCU reboots into the new
    image (CRC-verified, self-rollback on mismatch).
 
-For the FC41D half: standard ESPHome OTA over Wi-Fi (`esphome upload
+For the Wi-Fi side: standard ESPHome OTA (`esphome upload
 fc41d/openevcharger.yaml --device openevcharger.local`).
 
 ## Documentation
@@ -216,35 +235,50 @@ GPL-3.0-only. See [`LICENSE`](LICENSE).
 ## Acknowledgements
 
 - **OpenEVSE** for the J1772 / state-machine model
-- **Beizide / NewEnergyCS** (Rippleon ODM) for shipping reasonably
-  reverse-engineerable hardware
+- The various ODMs whose hardware turns out to be reasonably
+  reverse-engineerable
 - **evcc**, **MicroOcpp**, **ESPHome**, **LibreTiny** upstream maintainers
 
 ## Disclaimer — independent, unaffiliated project
 
 This is an independent, community-developed project. It is not
 affiliated with, sponsored by, endorsed by, or in any way associated
-with RIPPLEON Energy or any of its subsidiaries. The names "Rippleon"
-and "ROC001" are used solely in a descriptive (nominative) capacity to
-identify the hardware this project interoperates with; all trademarks,
-service marks, and product names remain the property of their
-respective owners.
+with any of the OEMs or US-side brand owners whose hardware it
+interoperates with. Brand and model names are used solely in a
+descriptive (nominative) capacity to identify the hardware this
+project replaces firmware on; all trademarks, service marks, and
+product names remain the property of their respective owners.
 
-No RIPPLEON Energy proprietary firmware, source code, signing keys, or
-other protected material is redistributed by this project.
+No proprietary firmware, source code, signing keys, or other
+protected material from any OEM is redistributed by this project.
 
-**Scope of firmware replacement.** OpenEVCharger replaces *both* halves
-of the stock firmware on the user's own hardware:
+### Per-board nominative-use statement — Rippleon ROC family
 
-- **GD32F205VG main MCU** — bare-metal C + FreeRTOS safety core. A
+The names "Rippleon" and "ROC001" are used solely to identify the
+hardware this project interoperates with. This project is not
+affiliated with, sponsored by, or endorsed by RIPPLEON Energy or any
+of its subsidiaries.
+
+If you are a representative of RIPPLEON Energy and have a concern
+about this repository, please open a GitHub issue and we will engage
+in good faith.
+
+### Scope of firmware replacement
+
+OpenEVCharger replaces *both* halves of the stock firmware on the
+user's own hardware:
+
+- **Safety MCU** (GD32F205VG on Rippleon; Nations N32G45x on the
+  in-progress Nexcyber port) — bare-metal C + FreeRTOS safety core. A
   clean-room rewrite modelled on the OpenEVSE J1772 / fault / self-test
   approach (see [`docs/superpowers/specs/`](docs/superpowers/specs/));
   no upstream OpenEVSE source code is incorporated, and no portion of
-  the stock V1.0.066 vendor firmware is included or derived.
-- **FC41D Wi-Fi/BLE module (BK7231N)** — ESPHome + LibreTiny,
+  any stock vendor firmware is included or derived.
+- **Wi-Fi/BLE companion module** (BK7231N on Rippleon's FC41D;
+  RTL8720CF / AmebaZ2 on Nexcyber's WBR2) — ESPHome + LibreTiny,
   original integration code (`fc41d/openevcharger.yaml` + the local
   `openevcharger_tlv` component) talking to the MCU over a custom TLV
-  protocol on UART4.
+  protocol on a single shared UART.
 
 Both images are original work and ship as a complete, voluntary
 replacement for the stock vendor firmware on each chip. Stock firmware
@@ -253,16 +287,12 @@ flashing, so installation is reversible if a stock SWD dump was taken
 beforehand.
 
 Protocol documentation and reverse-engineering artefacts in this
-repository (`docs/NOTES.md`, UART/Bluetooth captures of the FC41D ↔
-MCU TLV dialect, SWD dump and disassembly notes for stock V1.0.066)
-were developed independently from publicly observable behaviour and
-from analysis of the user's own purchased hardware, for the sole
-purpose of interoperability — a use expressly permitted by 17 U.S.C.
-§ 1201(f) (US) and Article 6 of EU Directive 2009/24/EC.
+repository (UART/Bluetooth captures, SWD dumps, disassembly notes for
+stock vendor images) were developed independently from publicly
+observable behaviour and from analysis of the user's own purchased
+hardware, for the sole purpose of interoperability — a use expressly
+permitted by 17 U.S.C. § 1201(f) (US) and Article 6 of EU Directive
+2009/24/EC.
 
 Installing this firmware will void the manufacturer's warranty and may
 render the device unusable. Use at your own risk.
-
-If you are a representative of RIPPLEON Energy and have a concern
-about this repository, please open a GitHub issue and we will engage
-in good faith.

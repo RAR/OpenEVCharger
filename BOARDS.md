@@ -1,13 +1,14 @@
 # Supported Boards
 
-OpenEVCharger v1 targets STM32F2-compatible Cortex-M3 EVSE controllers. The
-core (FreeRTOS task layout, J1772 state machine, OCPP/TLV protocol, OTA, RTC
-bridge, persistence) is board-independent. The board-specific surface lives
-in:
+OpenEVCharger targets ARM Cortex-M3 / M4F EVSE controller MCUs (GD32F2,
+N32G45, and similar STM32F2-class chips). The core (FreeRTOS task
+layout, J1772 state machine, OCPP/TLV protocol, OTA, RTC bridge,
+persistence) is board-independent. The board-specific surface lives in:
 
-- `src/core/pin_map.h` — GPIO pin → function map.
-- `linker/*.ld` — flash + RAM layout.
-- `CMakeLists.txt` — vendor SPL paths, MCU flags, clock config.
+- `src/core/pin_map_<board>.h` — GPIO pin → function map.
+- `linker/<chip>.ld` — flash + RAM layout.
+- `CMakeLists.txt` — vendor SPL paths, MCU flags, clock config
+  (selected via `-DOPENEVCHARGER_BOARD=<board>`).
 
 Adding a board means producing those three artefacts; everything in `src/`
 above the HAL should compile unchanged.
@@ -31,18 +32,45 @@ individually bench-validated, but should drop in without code changes:
 The "NECS-ACW" prefix here is Rippleon's own commercial SKU naming. It is
 **not** related to the unrelated company **Nexcyber** despite the lookalike.
 
-## Wishlist / open ports
+## In progress
 
-- **Nexcyber AC EVSE.** Completely different company from Rippleon
-  (the lookalike "NECS-ACW" SKU prefix on Rippleon's FCC filing is
-  unrelated coincidence). Different MCU (Nations N32G45x), different
-  Wi-Fi module (Tuya WBR2 / RTL8720CF AmebaZ2), and a different
-  cloud architecture — Nexcyber is a stock Tuya device (Tuya cloud
-  directly via the WBR2), whereas Rippleon runs a custom OCPP/REST
-  backend behind the FC41D. Not interchangeable with Rippleon ROC.
-  Hardware on hand; port not started. Feasibility sketch (≈ 3-4
-  calendar weeks part-time, ~70 % of codebase ports unchanged):
-  [`docs/ports/nexcyber-feasibility.md`](docs/ports/nexcyber-feasibility.md).
+### Nexcyber AC EVSE — Zopoise ZBU011K-C00X PCBA
+
+US-market AC wallbox sold under the "Nexcyber" brand on Amazon. The
+OEM is **Zhuzhou Zopoise Technology** (Hunan, China — `zopoisetech.cn`
+/ `zopoisetech.en.alibaba.com`). The packaged-wallbox SKU is
+`ZB04-U011KBH-F017`; Zopoise also sells the bare PCB assembly to
+integrators as `ZBU011K-C00X`. Same chassis ships in Europe as
+**Blitzwolf** `ZB04-E007/E011/E022 KBC` and as **S-bol** `ZB04-E007K`.
+
+| | Nexcyber (on bench) | siblings (same PCBA family) |
+|---|---|---|
+| Packaged SKU | `ZB04-U011KBH-F017` | — |
+| PCBA SKU | `ZBU011K-C00X` | `ZBU007K-C00X` (32 A) · `ZBU09K6-C00X` (40 A) |
+| Region | US 240 V split-phase | US 240 V split-phase |
+| Max current | 48 A | 32 A / 40 A |
+
+Hardware differences vs Rippleon — **not interchangeable**:
+
+- **MCU:** Nations N32G45x (Cortex-M4F) — not GD32F2 / Cortex-M3.
+- **Wi-Fi module:** Tuya WBR2 (Realtek RTL8720CF / AmebaZ2) — not
+  Quectel FC41D (BK7231N).
+- **Display:** Nextion HMI — not the OEM LED strip.
+- **Cloud architecture:** stock Tuya / Smart Life device (talks
+  `tuyacn.com` / `m2.tuyacn.com:8883` over standard TuyaMCU). No
+  OCPP, no custom REST API. Rippleon runs a custom OCPP/REST backend
+  behind the FC41D; the only thing in common is that both are
+  cloud-tethered.
+
+Port status: hardware on the bench, SWD probe + 128 KB flash dumped
+(2026-05-07), pin map being reverse-engineered against the live unit.
+The 7 kW and 9.6 kW US siblings should drop in with zero code changes
+once the 11 kW port lands — same PCBA, same MCU, same Wi-Fi module,
+same DP map; only contactor and advertised-A ceiling differ. They
+aren't on a bench so they won't have their own `boards/` entries.
+
+Feasibility sketch (≈ 3-4 calendar weeks part-time, ~70 % of codebase
+ports unchanged): [`docs/ports/nexcyber-feasibility.md`](docs/ports/nexcyber-feasibility.md).
 
 If you have an EVSE PCB you'd like to add, open an issue with:
 
