@@ -56,20 +56,55 @@
 #define PIN_NEXTION_RX_PIN      GPIO_PIN_3
 #define PIN_NEXTION_RCC         RCC_APB2_PERIPH_GPIOA
 
-/* USART3 (PB10 TX / PB11 RX) — strongest hypothesis: stock-fw DEBUG LOG.
- * 8 literal-pool refs in the firmware (heaviest of the three USARTs).
- * BL0939 hypothesis ruled out 2026-05-11: touching the SPI2 MISO line
- * (PB14) coupled cleanly into the firmware-read MISO traffic, confirming
- * BL0939 is on SPI2, not on this USART. PB10/PB11 is therefore most
- * likely the stock-fw debug printk. TODO bench scope to confirm baud
- * and traffic pattern. Once confirmed, candidate target for relocating
- * our M2 printk so USART1 can be freed for the WBR2 TLV link.
- */
+/* USART3 (PB10 TX / PB11 RX) — third active serial peer; role TBD.
+ *
+ * DMA-confirmed 2026-05-11 pm: DMA1 channel 3 is actively configured
+ * with CCR=0x30A1 (EN + CIRC + MINC + very-high priority), CNDTR=128,
+ * CPAR=USART3_DR. RX ring lives at 0x200001EC. So this is NOT a
+ * debug-log printk (which would have no reason to use RX-DMA); it's a
+ * bidirectional peer the firmware actively listens to.
+ *
+ * Earlier debug-log hypothesis downgraded — the heavy literal-pool
+ * footprint matches the size of a structured-protocol parser (frame
+ * decode, byte queues), not a printf wrapper.
+ *
+ * Candidate roles (bench-blocked):
+ *   - RFID reader (Wiegand serial or UART-modulated Mifare)
+ *   - Internal BLE module (some Tuya designs have a separate BK3432)
+ *   - LED-strip controller IC (some N32G45x boards drive a separate
+ *     LED controller over UART, leaving the main MCU free of bit-bang)
+ *
+ * BL0939-on-USART3 ruled out: SPI2 (PB12-15) is the metering link,
+ * verified by the 2026-05-11 PB14 touch-coupling test. */
 #define PIN_USART3_TX_PORT      GPIOB
 #define PIN_USART3_TX_PIN       GPIO_PIN_10
 #define PIN_USART3_RX_PORT      GPIOB
 #define PIN_USART3_RX_PIN       GPIO_PIN_11
 #define PIN_USART3_RCC          RCC_APB2_PERIPH_GPIOB
+
+/* UART4 + UART5 — Nations-remapped to 0x40015000 / 0x40015400.
+ * DMA-confirmed 2026-05-11 pm via DMA2 channel dumps:
+ *   - DMA2 ch1: CCR=0x30A1, CNDTR=128 B, CPAR=0x40015004, CMAR=0x2000026C
+ *   - DMA2 ch6: CCR=0x30A1, CNDTR=128 B, CPAR=0x40015404, CMAR=0x200002EC
+ *
+ * IMPORTANT — Nations N32G45x deviates from STM32F1: F1 puts UART4 at
+ * 0x40004C00 and UART5 at 0x40005000 (APB1 chunk), but stock-fw DMA
+ * CPARs point to 0x40015004 and 0x40015404 — implying N32G45x relocates
+ * these UARTs to a custom range. The +0x04 offset suggests USART_DR
+ * sits at base+4 (matches F1 USART_DR layout). DR layout consistent
+ * with the standard 5-USART peripheral set.
+ *
+ * Total active UARTs on this chip: 5 (USART1-3 + UART4-5). All 5 are
+ * configured with circular-RX DMA. Bench-blocked: pinout-to-pad mapping
+ * for UART4/UART5 (they take some PC pins per F1 default AF, but Nations
+ * may have remapped those too).
+ *
+ * Action items for M3+:
+ *   - Add UART4/UART5 peripheral handles to the HAL when needed
+ *   - Reconcile RCC enable bits (Nations APB1ENR or similar) at runtime
+ *   - Identify both peers (RFID? cellular? auxiliary debug?) via UART
+ *     bus snooping during a stock-fw OCPP transaction
+ */
 
 /* SPI2 (PB12-15) — BL0939 metering link, SPI variant.
  * Bench-confirmed 2026-05-11: touching the data lines coupled into
@@ -138,7 +173,20 @@
  *                           which makes sense as a near-zero CP).
  *   0x20000760-0x2000076C: other calibrated caches (energy counter
  *                           candidate at 0x2000076C: 0x12000000).
- */
+ *
+ * 2026-05-11 pm finding — ADC clocks are NOT steady-on. SWD reads of
+ * RCC_APB2ENR while the chip is sleeping show ADC1EN=0, ADC2EN=0,
+ * ADC3EN=0 (RCC_APB2ENR = 0x000679FD), and ADC1 register block at
+ * 0x40012400 reads all-zero in that state. Stock firmware appears to
+ * power-cycle the ADC peripheral around each sample (clock-enable →
+ * SQR setup → SWSTART → DR read → clock-disable) to save standby
+ * current. None of the active DMA channels (DMA1 ch3,5,6 + DMA2
+ * ch1,6) is configured against an ADC peripheral — all 5 channels
+ * feed UART RX rings. So the ADC HAL we ship in M3 will need to
+ * own the clock-enable explicitly per sample (or run continuous-scan
+ * mode with our own RAM target). Don't expect to see live ADC values
+ * via halt-poke on the stock fw — peripheral is gated off most of
+ * the time. */
 #define PIN_ADC_VSENSE_L1_PORT  GPIOB
 #define PIN_ADC_VSENSE_L1_PIN   GPIO_PIN_1      /* ADC12_IN9 default; hypothesis */
 #define PIN_ADC_VSENSE_L2_PORT  GPIOB
@@ -314,36 +362,58 @@
  * snapshot ODR per state — pins that go HIGH during state C are
  * the contactor drives.
  */
-/* PA0 — drives ONE of the two large contactors when pulsed; click-on
- * then immediate auto-open with PA1 firmware-controlled (bench wiggle
- * test 2026-05-11 with MCU halted, single PA0 toggle). Working
- * interpretation: contactor weld-detect / self-test pulse — fires one
- * coil briefly so the firmware can verify the contactor will close.
- * Same idiom as rippleon's PB0 GFCI CAL pulse. NOT the steady-state
- * contactor drive (that's PA1).
+/* PA0 — CONTACTOR HOLD / PERMIT signal (revised 2026-05-11 pm based on
+ * an SWD snapshot taken WHILE the unit was actively trying to charge,
+ * before its 5-second voltage-error timeout fired).
  *
- * Could alternatively be the AC-coupled-driver "tick" pin if the
- * design uses a transition-triggered driver for the main contactor.
- * Fast-wiggle test (10+ Hz on PA0 alone) would discriminate between
- * the two by observing whether the relay holds during the wiggle. */
-#define PIN_CONTACTOR_TEST_PORT GPIOA
-#define PIN_CONTACTOR_TEST_PIN  GPIO_PIN_0      /* candidate; bench-verified pulses one contactor */
+ * Charging-state snapshot showed PA0 ODR=1, PA1 ODR=0 (mains live,
+ * contactors energised, BL0939 SPI active on PB12-15). That inverts
+ * our earlier bench interpretation: PA0 is the steady-state HOLD line,
+ * not a one-shot test pulse. The "click but no latch" we saw on the
+ * bench is consistent with PA0 being ANDed externally with PA1's
+ * post-close state or with the PC11 heartbeat — bench conditions
+ * didn't satisfy the AND, so the pulse decayed.
+ *
+ * Working model now:
+ *   - PA1 = close pulse (one-shot at session start, then RELEASED LOW;
+ *     external SR latch holds the contactors)
+ *   - PA0 = permit (held HIGH for entire charging session; release ->
+ *     external latch reset -> contactors drop)
+ *
+ * That matches a textbook EVSE safety pattern: latch closes on PA1
+ * edge, MCU must continuously assert PA0 to keep the latch armed; any
+ * MCU fault drops PA0 and the contactors open.
+ *
+ * Bench-blocked confirmation steps (next session):
+ *   1. Rapid-SWD sample of PA1 across a plug-in event to catch the
+ *      one-shot close pulse width
+ *   2. Cycle PA0 LOW mid-charge to confirm contactors drop (with
+ *      current limited / no EV attached for safety) */
+#define PIN_CONTACTOR_HOLD_PORT GPIOA
+#define PIN_CONTACTOR_HOLD_PIN  GPIO_PIN_0      /* held HIGH during charge */
+/* Backward-compat alias: earlier code used PIN_CONTACTOR_TEST_*. */
+#define PIN_CONTACTOR_TEST_PORT PIN_CONTACTOR_HOLD_PORT
+#define PIN_CONTACTOR_TEST_PIN  PIN_CONTACTOR_HOLD_PIN
 
-/* PA1 — MASTER CONTACTOR PERMIT for both large relays. Bench-confirmed
- * 2026-05-11 wiggle: driving PA1 HIGH clicks BOTH large contactors
- * closed and they stay closed for the duration of the HIGH phase.
- * Plain DC drive (no PWM heartbeat needed).
+/* PA1 — CONTACTOR CLOSE PULSE (one-shot at session start). Revised
+ * 2026-05-11 pm — see PA0 comment above for full reasoning.
  *
- * On a 240 V split-phase US EVSE, this typically gates the coil-supply
- * rail (e.g. 12 V) to both line contactors via a single high-side
- * switch / opto-isolator → both close together. NOT to be left HIGH
- * during cold-boot / fault — safety task asserts only when
- * safety_state == OK in M5+.
+ * The earlier bench-wiggle that "latched both contactors" was the
+ * external SR latch doing its job, not PA1 itself holding the line.
+ * Once latched, PA1 returns LOW and the contactors stay closed via
+ * the external hold network (gated by PA0 permit).
  *
- * NOTE: PA0 fires one coil independently as a self-test pulse;
- * the two pins together form a "permit-and-test" pattern. */
-#define PIN_CONTACTOR_MAIN_PORT GPIOA
-#define PIN_CONTACTOR_MAIN_PIN  GPIO_PIN_1
+ * M5+ safety task behaviour:
+ *   - Asserts PA1 HIGH briefly (~50-200 ms, TBD) when entering
+ *     evse_state == CHARGING
+ *   - Releases PA1 LOW immediately after the pulse
+ *   - Holds PA0 HIGH for the duration of the charging session
+ *   - Releases PA0 LOW on session end OR any safety fault */
+#define PIN_CONTACTOR_CLOSE_PORT GPIOA
+#define PIN_CONTACTOR_CLOSE_PIN  GPIO_PIN_1
+/* Backward-compat alias: earlier code used PIN_CONTACTOR_MAIN_*. */
+#define PIN_CONTACTOR_MAIN_PORT  PIN_CONTACTOR_CLOSE_PORT
+#define PIN_CONTACTOR_MAIN_PIN   PIN_CONTACTOR_CLOSE_PIN
 /* PA15 — bench-observed 2026-05-11: IDR briefly HIGH (ODR=0) during
  * a PC9 button press, then back to LOW. Most likely the button's
  * status LED — firmware flashes it on press as user feedback.
