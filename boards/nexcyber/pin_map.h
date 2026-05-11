@@ -174,6 +174,54 @@
  *   0x20000760-0x2000076C: other calibrated caches (energy counter
  *                           candidate at 0x2000076C: 0x12000000).
  *
+ * 2026-05-11 late-pm refinement — two-snapshot diff (steady-state +
+ * mid-charge with EV-sim resistors) locks 4 of the 6 scan-cache slots
+ * to specific roles. Cache layout fully decoded:
+ *
+ *   0x20000748: VSENSE_L1 raw (op-amp railed @ 3.30 V on bench — L1
+ *               sensor saturated; not split-phase calibrated)
+ *   0x2000074A: VSENSE_L2 raw (same — L2 leg dead on US 120 V)
+ *   0x2000074C, 0x2000074E: duplicate/aux voltage rails (also railed)
+ *   0x20000750: CP_RAW (level-shifted CP pilot) — confirmed two-point
+ *               swing: idle (no plug, +12 V CP) = 0x09AC (~1.99 V);
+ *               EV-loaded (~+5.4 V CP) = 0x06EC (~1.43 V). Compressed
+ *               read-back range (~0.56 V across 6.2 V CP swing) is the
+ *               same pattern as rippleon's PB0 — empirical 2-point fit
+ *               needed for M3 cp_mv() decode.
+ *   0x20000752: CC raw — flat (0x0773 ~1.54 V) in both snapshots
+ *               because no plug = no proximity loading; cable-side
+ *               resistor varies this in real use (PROX_2200/PROX_882
+ *               etc).
+ *   0x20000754: I_L1 (current transformer L1) — mid-rail when
+ *               contactor open (steady = 0x0879 ~1.75 V); swings DOWN
+ *               under load (charging = 0x03FC ~0.82 V). Sample is
+ *               instantaneous, not RMS — captures one phase of the
+ *               60 Hz cycle.
+ *   0x20000756: GFCI sense — analog channel for the residual-current
+ *               CT, mid-rail when healthy (steady = 0x0743 ~1.50 V),
+ *               swings DOWN to ~1.20 V under load. NOT a digital
+ *               GPIO — matches the prior memory note about GFCI sense
+ *               routing through ADC.
+ *   0x20000758: aux rail / Vref-like (railed in both states)
+ *   0x2000075A: I_L2 (current transformer L2) — pairs with 0x754
+ *               (same swing pattern, same magnitude).
+ *
+ * Calibrated cache (0x2000075C onwards) — bench-confirmed scale:
+ *   0x2000075C: CP_filtered, signed int32 mV. SCALE CONFIRMED via
+ *               bench two-point: idle = +11,667 mV (≈ J1772 state-A
+ *               +12 V), EV-loaded = +5,429 mV (≈ state-C +6 V range).
+ *               PRIMARY CP DATA POINT for state determination — M3
+ *               should read this not the raw at 0x750 when possible.
+ *   0x20000760: small constant 0x118 — unchanged between states
+ *   0x20000764: prior-cycle CP baseline (-300 mV as signed int32),
+ *               same value pin_map cited before. Reference cal.
+ *   0x20000768: small constant 0x52
+ *   0x2000076C: session counter — was 0x12000000 in earlier note,
+ *               read 0x01000000 in this session. Resets/advances per
+ *               session.
+ *   0x20000778: session-active flag — clean edge 0 → 1 between idle
+ *               and charging snapshots. Useful for "EVSE state" logic.
+ *
  * 2026-05-11 pm finding — ADC clocks are NOT steady-on. SWD reads of
  * RCC_APB2ENR while the chip is sleeping show ADC1EN=0, ADC2EN=0,
  * ADC3EN=0 (RCC_APB2ENR = 0x000679FD), and ADC1 register block at
