@@ -316,19 +316,37 @@
 #define PIN_ADC_GFCI_SENSE_PORT GPIOC
 #define PIN_ADC_GFCI_SENSE_PIN  GPIO_PIN_4      /* ADC2 ch5 — BENCH-CONFIRMED 2026-05-11
                                                  * via real residual-current injection.
-                                                 * Idle baseline ~2118 raw (mid-rail).
+                                                 * Idle baseline ~1900 raw (mid-rail).
                                                  * Real GFCI fault: +242 (upward
                                                  * deflection, CT polarity-sensitive).
                                                  * CAL pulse: -234 (opposite direction,
                                                  * because CAL injects opposite-polarity
                                                  * test current).
+                                                 * PE fault (tester force-state-A):
+                                                 * -137 deflection (current paths
+                                                 * shifted but no specific PE event).
                                                  * Slow RC-decay after fault clears
                                                  * (a few seconds time constant) —
                                                  * consistent with CT integrator.
                                                  * M5 safety task should treat any
-                                                 * |raw - 2100| > N for > debounce as
+                                                 * |raw - 1900| > N for > debounce as
                                                  * a GFCI event. Threshold TBD by
                                                  * sensitivity calibration. */
+
+/* PE continuity sense — NOT PRESENT on this PCB.
+ *
+ * Bench-confirmed 2026-05-11 via tester PE-fault injection: there is
+ * no dedicated digital or analog PE sense pin. The tester's "PE
+ * fault" mode reads on this EVSE as "open CP cable" (PB2 jumps to
+ * state-A levels regardless of dial position). The EVSE's PE
+ * detection is therefore INDIRECT — via either:
+ *   - The CP behavior change (state-A reading without an unplug action)
+ *   - Small deflections on the GFCI sense pin (PC4) when current
+ *     paths shift due to PE-line interruption
+ * Matches the stock-fw SRAM cache decode: no PE_SENSE slot exists
+ * in the cache (only CP/CC/I_L1/GFCI/I_L2). M5 safety task on
+ * nexcyber should treat "CP unexpectedly state A while plug was
+ * known-engaged" as a PE-fault candidate. */
 #define PIN_ADC_NTC_PORT        GPIOC
 #define PIN_ADC_NTC_PIN         GPIO_PIN_5      /* TBD; PC5 dead-flat on bench */
 #define PIN_ADC_RCC_AB          (RCC_APB2_PERIPH_GPIOB)
