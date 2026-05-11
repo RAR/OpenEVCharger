@@ -1,7 +1,9 @@
 # OpenEVCharger — Nexcyber board port (in progress)
 
-**Status:** M0 bring-up — clock + log UART + heartbeat printk only.
-Buildable, not yet flashable to a real EVSE (no safety core).
+**Status:** M2 bring-up — clock + log UART + FreeRTOS scheduler +
+heartbeat task + GPIO HAL for every confirmed pin. Buildable, not
+yet flashable to a real EVSE (no safety core, no peripherals beyond
+log UART).
 
 This directory holds the board-specific scaffolding for porting
 OpenEVCharger to the Nexcyber AC EVSE — actually a Zopoise `ZBU011K-C00X`
@@ -15,7 +17,7 @@ For overall feasibility, effort estimate, and architectural decisions
 see [`docs/ports/nexcyber-feasibility.md`](../../docs/ports/nexcyber-feasibility.md)
 in the OpenEVCharger root.
 
-## What's here (M0)
+## What's here (M0 → M2)
 
 | File | Purpose | Status |
 |---|---|---|
@@ -23,7 +25,8 @@ in the OpenEVCharger root.
 | `n32g457.ld` | Linker: 120 KB FLASH + 8 KB PERSIST + 80 KB RAM | Drafted; assumes 2 KB sector geometry (per N32G45x reference manual) — bench-confirm before first flash erase |
 | `hal/clock.c` | Clock bring-up | M0 — trusts SDK SystemInit (HSE_PLL → 144 MHz default); publishes the rate via printk |
 | `hal/uart.c` | USART1 (PA9/PA10) at 115200 8N1 + printk | M0 — bare-metal, no FreeRTOS or timestamp prefix; same `uart_init` / `uart_write` / `printk` surface as rippleon's `src/hal/uart.c` |
-| `main.c` | M0 entry point | Clock + UART up + heartbeat printk loop. No FreeRTOS, no tasks, no peripherals beyond the log UART |
+| `hal/gpio.c` | One-shot config for every confirmed pin in `pin_map.h` | M2 — same `gpio_init_all()` / `gpio_log_straps()` surface as rippleon's `src/hal/gpio.c`. 3 outputs (buzzer / GFCI CAL / peripheral-EN) + 1 AF pad (CP_PWM) + 6 digital inputs + 5 ADC AIN pads. TBD pins (PA0/PA1/PA15/PB8/PB9/PC8/PC10) deliberately left at reset default until bench identifies their loads |
+| `main.c` | M2 entry point | Clock + UART + GPIO HAL up, then `vTaskStartScheduler()` with a single 1 Hz `heartbeat_task` (`vTaskDelay(pdMS_TO_TICKS(1000))`). Smallest proof that the scheduler ticks |
 
 ## Build
 
@@ -35,8 +38,9 @@ cmake --build build_nexcyber
 ```
 
 Output: `build_nexcyber/openevcharger.{elf,bin,hex,map}`. Current
-sizes are tiny — ~2.8 KB FLASH / ~2.6 KB RAM — because the image only
-covers M0. They grow as M1+ HAL files port.
+sizes — ~6.9 KB FLASH / ~19 KB RAM (mostly the 16 KB heap_4
+reservation; actual M2 static usage is ~3.2 KB). They grow as M3+
+HAL files port.
 
 The rippleon target (`OPENEVCHARGER_BOARD=rippleon`, default) is
 unaffected and continues to build with the existing M3 toolchain file.
@@ -65,15 +69,17 @@ unaffected and continues to build with the existing M3 toolchain file.
 
 | Layer | Status |
 |---|---|
-| GPIO HAL | not started |
+| GPIO HAL | ✅ M2 — all 16 confirmed pins; 7 TBD OUT_PP pins left at reset default until bench |
 | UART (log) | ✅ M0 — USART1 on PA9/PA10 |
-| ADC HAL | not started |
-| Timer HAL (CP PWM) | not started |
+| ADC HAL | not started — M3 |
+| Timer HAL (CP PWM) | not started — M3 (PA8 pad already AF_PP) |
 | Clock tree (RCC) | ✅ M0 — SDK default HSE_PLL 144 MHz |
-| FreeRTOS port (`portable/GCC/ARM_CM4F`) | not started — M1 |
+| FreeRTOS port (`portable/GCC/ARM_CM4F`) | ✅ M1 — scheduler bring-up + heartbeat task |
+| Nextion USART2 driver | not started — M3 |
+| BL0939 driver (SPI vs UART) | not started — bench-blocked on variant ID |
 | Persistence ping-pong | not started — redesign for internal-flash (this file's PERSIST region) |
 | OTA staging path | not started — redesign single-bank, CRC-pre-verify, atomic from RAM, no self-rollback |
-| Safety core port | not started — pulls in src/core/, src/persist/, src/tasks/ |
+| Safety core port | not started — pulls in src/core/, src/persist/, src/tasks/. Becomes possible once GPIO + ADC + timer + persist HALs are up |
 | pin_map `PIN_LOG_UART_*` aliases | TBD — currently the HAL uart.c hard-codes USART1; promote to aliased macros once we decide whether to keep that or move log onto a free UART (USART3 PB10/PB11 candidate, depends on what BL0939 turns out to use) |
 
 ## Companion ESPHome side
