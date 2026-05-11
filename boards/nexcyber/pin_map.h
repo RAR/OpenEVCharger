@@ -299,15 +299,36 @@
 #define PIN_STOP_SENSE_PORT     GPIOC
 #define PIN_STOP_SENSE_PIN      GPIO_PIN_13
 
-/* PC3 / PC7 — two digital inputs from the static dump (PC3 IN_FLOATING,
- * PC7 IN_PD). Topology suggests at least one of these carries a
- * TLP293-2 photocoupler output for mains-presence detection
- * (60 Hz pulse stream when live), or a GFCI-module status line.
- * TODO bench mains-on: scope each for 60 Hz toggle activity. */
-#define PIN_MAINS_DETECT_A_PORT GPIOC
-#define PIN_MAINS_DETECT_A_PIN  GPIO_PIN_3      /* IN_FLOATING — candidate L1 */
-#define PIN_MAINS_DETECT_B_PORT GPIOC
-#define PIN_MAINS_DETECT_B_PIN  GPIO_PIN_7      /* IN_PD — candidate L2 */
+/* PC3 = mains-detect L1 (IN_FLOATING, active-HIGH).
+ * PC7 = mains-detect L2 (IN_PD, active-HIGH).
+ *
+ * Bench-confirmed 2026-05-11 late-pm with US 120 V single-leg supply:
+ * PC3 reads HIGH (L1 present), PC7 reads LOW (L2 missing). Matches
+ * exactly the "5-second voltage error" fault behaviour the user
+ * observed when trying to charge — firmware's L2-presence watchdog
+ * trips because the bench supply only carries one leg. Pulls a
+ * latched fault_bitmap = 8 (L2-missing) per the earlier static
+ * decode in NOTES.md.
+ *
+ * Polarity convention: each pin reads HIGH when the corresponding
+ * mains leg's TLP293-2 photocoupler output is asserting "AC
+ * present". The pull mode on each pin reflects the photocoupler's
+ * output stage: PC3 floats (open-collector with pull-up upstream),
+ * PC7 has internal pull-down (active-HIGH push-pull upstream).
+ *
+ * M5+ safety task should treat either pin LOW for > N ticks as
+ * FAULT_MAINS_MISSING_L1 / _L2 (independent fault codes). Failing
+ * to detect either trips the contactor-permit drop.
+ */
+#define PIN_MAINS_DETECT_L1_PORT GPIOC
+#define PIN_MAINS_DETECT_L1_PIN  GPIO_PIN_3      /* IN_FLOATING, active-HIGH */
+#define PIN_MAINS_DETECT_L2_PORT GPIOC
+#define PIN_MAINS_DETECT_L2_PIN  GPIO_PIN_7      /* IN_PD, active-HIGH */
+/* Backward-compat aliases for in-flight references */
+#define PIN_MAINS_DETECT_A_PORT  PIN_MAINS_DETECT_L1_PORT
+#define PIN_MAINS_DETECT_A_PIN   PIN_MAINS_DETECT_L1_PIN
+#define PIN_MAINS_DETECT_B_PORT  PIN_MAINS_DETECT_L2_PORT
+#define PIN_MAINS_DETECT_B_PIN   PIN_MAINS_DETECT_L2_PIN
 
 /* PC9 — front-panel "tiny button" (IN_PD, active-HIGH). Bench-confirmed
  * 2026-05-11 via snapshot diff: idle PC9 IDR=0; held-down PC9 IDR=1.
