@@ -22,6 +22,8 @@
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
 #include "hal/cp_pwm.h"
+#include "hal/spi2.h"
+#include "hal/bl0939.h"
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. Same idiom as src/main.c on
@@ -91,6 +93,13 @@ int main(void)
     cp_pwm_init();
     cp_pwm_set_idle_high();
     printk("cp pwm up (TIM1_CH1, 1 kHz, idle +12 V)\n");
+
+    /* M3 SPI2 + BL0939 — hardware SPI on PB12-15, ~562 kHz. Pads
+     * configured to AF_PP / AF input / OUT_PP by gpio_init_all() in
+     * M2. Run a one-shot smoke test that reads a few defaulted /
+     * runtime registers to verify the link is alive. */
+    spi2_init();
+    bl0939_smoke_test();
 
     /* 256 words = 1 KB stack — plenty for printk + an itoa scratch. */
     BaseType_t ok = xTaskCreate(heartbeat_task, "heartbeat",
