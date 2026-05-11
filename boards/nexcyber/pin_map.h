@@ -261,16 +261,58 @@
  * mode with our own RAM target). Don't expect to see live ADC values
  * via halt-poke on the stock fw — peripheral is gated off most of
  * the time. */
+/* CP_RAW physical pin BENCH-CONFIRMED 2026-05-11 (M3 build with
+ * adc2_diag_scan + J1772 state walk):
+ *   PB2 = ADC2 channel 13 = CP_RAW
+ *
+ * Cal table (5 states, multimeter at CP connector vs ADC raw):
+ *   A  CP=+11.72 V → raw 2172
+ *   B  CP=+8.50  V → raw 1662
+ *   C  CP=+5.71  V → raw 1081
+ *   D  CP=+2.81  V → raw  506
+ *   E  CP=~0   V → raw   96
+ *
+ * Linear fit (best across the 5 points):
+ *   CP_mV ≈ raw * 1000 / 187    (slope ≈ 187 raw/V)
+ * 5-point residual is < 0.5 V across the whole positive range —
+ * good enough for M5 J1772 state thresholds (A/B/C/D bins are >2 V
+ * wide each). Slight knee approaching saturation below CP ≈ +1 V.
+ *
+ * Range note: the level-shifter is one-sided — CP < ~0 V saturates
+ * PB2 at the ADC negative rail (0). State F (CP -12 V) is therefore
+ * indistinguishable from state E or any sub-0 V CP via this channel
+ * alone; relying on PB2 for fault-vs-state-F detection isn't safe.
+ * Stock fw probably differentiates by checking that CP went negative
+ * during a known PWM low phase (synchronous sample).
+ *
+ * Also bench-confirmed 2026-05-11: PA4 (ADC2 ch1) tracks CP with a
+ * SECONDARY slope (~38 raw/V vs PB2's 187). Likely a high-precision
+ * low-current measurement path or a differential pair partner. Use
+ * PB2 as the primary CP read-back; PA4 is a backup / cross-check.
+ *
+ * Other ADC2 candidate pins surveyed in the same state walk:
+ *   PB1, PC5            : dead-flat (not connected to active signals
+ *                          on this PCBA — possibly stuffed only on
+ *                          higher-current variants or board options)
+ *   PC4                 : non-monotonic across states — probably
+ *                          noise / coupling rather than a real signal
+ *   PA5, PA7            : minor drift, no clear correlation with CP
+ *
+ * CC, NTC, GFCI sense, I_L1/I_L2 physical pins are STILL UNRESOLVED
+ * (none moved meaningfully in the CP state walk). Resolving requires
+ * a different stimulus: plug a real EV cable (CC changes), apply
+ * heat to gun connector (NTC), close contactors with mains live
+ * (I_L1/L2 + GFCI). All bench-blocked. */
+#define PIN_ADC_CP_PORT         GPIOB
+#define PIN_ADC_CP_PIN          GPIO_PIN_2      /* ADC2 ch13 — bench-confirmed */
 #define PIN_ADC_VSENSE_L1_PORT  GPIOB
-#define PIN_ADC_VSENSE_L1_PIN   GPIO_PIN_1      /* ADC12_IN9 default; hypothesis */
-#define PIN_ADC_VSENSE_L2_PORT  GPIOB
-#define PIN_ADC_VSENSE_L2_PIN   GPIO_PIN_2      /* Nations-routed ADC channel */
-#define PIN_ADC_CP_PORT         GPIOC
-#define PIN_ADC_CP_PIN          GPIO_PIN_0      /* ADC12_IN10 default */
+#define PIN_ADC_VSENSE_L1_PIN   GPIO_PIN_1      /* TBD (PB1 dead-flat on bench unit) */
+#define PIN_ADC_VSENSE_L2_PORT  GPIOA
+#define PIN_ADC_VSENSE_L2_PIN   GPIO_PIN_5      /* TBD candidate */
 #define PIN_ADC_CC_PORT         GPIOC
-#define PIN_ADC_CC_PIN          GPIO_PIN_4      /* ADC12_IN14 default */
+#define PIN_ADC_CC_PIN          GPIO_PIN_4      /* TBD; PC4 non-monotonic in CP walk */
 #define PIN_ADC_NTC_PORT        GPIOC
-#define PIN_ADC_NTC_PIN         GPIO_PIN_5      /* ADC12_IN15 default */
+#define PIN_ADC_NTC_PIN         GPIO_PIN_5      /* TBD; PC5 dead-flat on bench */
 #define PIN_ADC_RCC_AB          (RCC_APB2_PERIPH_GPIOB)
 #define PIN_ADC_RCC_C           (RCC_APB2_PERIPH_GPIOC)
 

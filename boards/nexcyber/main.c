@@ -68,6 +68,11 @@ static void heartbeat_task(void *arg)
                    (unsigned)adc[ADC_RANK_PC1],
                    (unsigned)adc[ADC_RANK_VREFINT]);
         }
+
+        /* ADC2 diagnostic scan — every beat (1 Hz). Updates the
+         * adc2_diag_buf so an SWD peek during a J1772 state walk
+         * reveals which physical AIN pin carries CP_RAW. */
+        adc2_diag_scan();
         printk("beat %u\n", (unsigned)beat++);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

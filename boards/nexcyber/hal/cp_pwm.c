@@ -25,8 +25,24 @@
 #include "hal/cp_pwm.h"
 #include "n32g45x.h"
 
+/* PWM mode semantic (STM32F1/Nations TIM, upcounting, HIGH polarity):
+ *   PWM1: OCxREF=1 if CNT<CCR, else 0  →  pin HIGH while CNT<CCR
+ *   PWM2: OCxREF=0 if CNT<CCR, else 1  →  pin HIGH while CNT>=CCR (inverted duty)
+ *
+ * Bench observation 2026-05-11: PWM2 mode + CCR=ARR+1 produced CP -12 V
+ * → the Nexcyber CP buffer is NON-INVERTING (pin LOW → CP LOW). In
+ * PWM2 + CCR=ARR+1, CNT is always < CCR, so OCxREF=0 → pin LOW → CP
+ * LOW → -12 V. We want pin HIGH for CP +12 V idle, which means PWM1
+ * mode with CCR=ARR+1 (CNT always < CCR → OCxREF=1 → pin HIGH).
+ *
+ * Defaulting to PWM1 mode now. Build flag NEXCYBER_CP_PWM_INVERTING=1
+ * stays as an escape hatch in case a future PCB revision has an
+ * inverting buffer (set =1 to use PWM2 mode then). Naming kept for
+ * continuity even though "inverting" now means "swap PWM mode" not
+ * "swap buffer polarity". */
+
 #ifndef NEXCYBER_CP_PWM_INVERTING
-#define NEXCYBER_CP_PWM_INVERTING 0   /* 0 = PWM2 (non-inverting), 1 = PWM1 (inverting) */
+#define NEXCYBER_CP_PWM_INVERTING 0
 #endif
 
 /* Pick PSC based on the active sysclk. Default chain is 144 MHz. */
@@ -39,17 +55,17 @@
 #define CP_PWM_TICK_HZ  (NEXCYBER_CP_PWM_TIM1_CLOCK_HZ / (CP_PWM_PSC + 1U))
 
 #if NEXCYBER_CP_PWM_INVERTING
-/* PWM1 mode: pin LOW while CNT < CCR. Buffer inverts → CP HIGH while
- * pin LOW → CCR = "CP-HIGH ticks per period". CCR=ARR+1 → never less,
- * pin always LOW, CP always HIGH = +12 V state-A idle.  */
-#  define CP_PWM_OC_MODE     TIM_OCMODE_PWM1
+/* PWM2 mode for inverting CP buffer (none observed yet — escape hatch).
+ * CCR=ARR+1: CNT always < CCR → OCxREF=0 → pin LOW → CP +12 V (inverter).
+ * CCR=0:     CNT > CCR always → OCxREF=1 → pin HIGH → CP -12 V. */
+#  define CP_PWM_OC_MODE     TIM_OCMODE_PWM2
 #  define CP_PWM_CCR_IDLE_HI (CP_PWM_ARR + 1U)
 #  define CP_PWM_CCR_STATE_F 0U
 #else
-/* PWM2 mode: pin HIGH while CNT < CCR. Buffer non-inverting → CP HIGH
- * while pin HIGH → CCR = "CP-HIGH ticks". CCR=ARR+1 → pin always HIGH
- * → CP +12 V state-A idle. */
-#  define CP_PWM_OC_MODE     TIM_OCMODE_PWM2
+/* PWM1 mode for non-inverting buffer (Nexcyber bench-confirmed 2026-05-11).
+ * CCR=ARR+1: CNT always < CCR → OCxREF=1 → pin HIGH → CP +12 V.
+ * CCR=0:     CNT >= CCR always → OCxREF=0 → pin LOW → CP -12 V. */
+#  define CP_PWM_OC_MODE     TIM_OCMODE_PWM1
 #  define CP_PWM_CCR_IDLE_HI (CP_PWM_ARR + 1U)
 #  define CP_PWM_CCR_STATE_F 0U
 #endif

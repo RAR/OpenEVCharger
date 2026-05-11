@@ -403,13 +403,16 @@ elseif(OPENEVCHARGER_BOARD STREQUAL "nexcyber")
         ${NX_SPL_SRCS}
     )
 
-    # `boards/nexcyber/hal/{clock,uart}.c` includes the shared HAL
-    # headers (`hal/clock.h`, `hal/uart.h`) which live under `src/`.
-    # `boards/nexcyber/pin_map.h` is pulled in directly by board-aware
-    # callers via `boards/nexcyber/` on the include path.
+    # boards/nexcyber MUST come before src on the include path. The
+    # board-specific HAL ports live at boards/nexcyber/hal/*.h and
+    # SHADOW the rippleon ones at src/hal/*.h with the same names
+    # (adc_scan.h, gpio.h, uart.h, clock.h, etc.). With -I src first,
+    # GCC's #include "hal/foo.h" search resolves to the rippleon
+    # version, silently using the wrong constants / function
+    # signatures. Board-specific shadows must win.
     target_include_directories(${TARGET} PRIVATE
-        src
         boards/nexcyber
+        src
         ${NX_CORE}
         ${NX_VARIANT}
         ${NX_SPL_INC}

@@ -42,6 +42,33 @@
 #define ADC_RANK_VREFINT  3   /* ADC1 ch18 — internal; calibration reference */
 #define ADC_RANKS         4
 
+/* ADC2 single-shot diagnostic scan — covers the AIN pads that ADC1
+ * can't reach. Filled by adc2_diag_scan() (called periodically from
+ * the heartbeat task). Channel-to-pin mapping per Nations N32G45x
+ * SPL header (NOT STM32F1-compatible):
+ *
+ *   slot  pin   ADC2 ch   notes
+ *   ────  ────  ───────   ─────────────────────────────────
+ *   0     PA4    1        candidate voltage sense
+ *   1     PA5    2        candidate voltage sense
+ *   2     PB1    3        candidate voltage sense
+ *   3     PA7    4        candidate voltage sense
+ *   4     PC4    5        candidate CC / NTC
+ *   5     PC5   12        candidate NTC / GFCI sense
+ *   6     PB2   13        candidate aux
+ *
+ * The user can peek `adc2_diag_buf` (address surfaced via `nm
+ * openevcharger.elf | grep adc2_diag_buf`) at different J1772 CP
+ * states; the slot whose raw value swings ~0x09AC → 0x06EC across
+ * state A → state C is the CP_RAW pin we've been chasing. */
+
+#define ADC2_DIAG_RANKS   7
+
+void adc2_diag_scan(void);   /* fills internal adc2_diag_buf */
+
+/* Snapshot helper for callers that want a stable copy. */
+void adc2_diag_latest(uint16_t out[ADC2_DIAG_RANKS]);
+
 /* Initialise ADC1 + DMA1 channel 1 for circular scan. GPIO pads must
  * already be in analog mode (gpio_init_all()). Safe to call once at
  * boot before vTaskStartScheduler(). */

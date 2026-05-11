@@ -127,3 +127,90 @@ uint16_t adc_scan_rank(unsigned rank)
     if (rank >= ADC_RANKS) return 0;
     return s_adc_buf[rank];
 }
+
+/* ──────────────────────────────────────────────────────────────────
+ * ADC2 single-shot diagnostic scan
+ * ──────────────────────────────────────────────────────────────────
+ *
+ * Used to identify which physical AIN pad on the Nexcyber PCB carries
+ * CP_RAW, CC, I_L1/L2, GFCI sense, etc. Stock fw's SRAM cache decode
+ * told us the *signal roles* per slot (pin_map.h SRAM cache notes),
+ * but not which *physical pin* feeds each role. ADC1 scan above
+ * (PA6/PC0/PC1) doesn't show any swing on CP changes — so the
+ * relevant pins must live on ADC2/ADC3 only.
+ *
+ * This scanner runs ADC2 on-demand (no DMA) and stores results in
+ * adc2_diag_buf which the bench operator peeks via SWD during a
+ * J1772 state walk to identify CP. */
+
+/* Channel sequence — matches adc_scan.h ADC2_DIAG_RANKS commentary. */
+static const uint8_t s_adc2_diag_channels[ADC2_DIAG_RANKS] = {
+    1,   /* PA4 */
+    2,   /* PA5 */
+    3,   /* PB1 */
+    4,   /* PA7 */
+    5,   /* PC4 */
+    12,  /* PC5 */
+    13,  /* PB2 */
+};
+
+/* Exposed via SWD — `nm openevcharger.elf | grep adc2_diag_buf` for
+ * address. Not declared `static` so the symbol survives in the .map. */
+volatile uint16_t adc2_diag_buf[ADC2_DIAG_RANKS];
+
+static int s_adc2_inited = 0;
+
+static void adc2_init_oneshot(void)
+{
+    /* Same RCC + clock prescaler as ADC1; ADC2 lives in the same
+     * AHB-side cluster. */
+    RCC_EnableAHBPeriphClk(RCC_AHB_PERIPH_ADC2, ENABLE);
+
+    ADC_DeInit(ADC2);
+    ADC_InitType cfg;
+    ADC_InitStruct(&cfg);
+    cfg.WorkMode        = ADC_WORKMODE_INDEPENDENT;
+    cfg.MultiChEn       = DISABLE;            /* single-channel mode */
+    cfg.ContinueConvEn  = DISABLE;            /* one conversion per trigger */
+    cfg.ExtTrigSelect   = ADC_EXT_TRIGCONV_NONE;
+    cfg.DatAlign        = ADC_DAT_ALIGN_R;
+    cfg.ChsNumber       = 1;
+    ADC_Init(ADC2, &cfg);
+
+    ADC_Enable(ADC2, ENABLE);
+    for (volatile int i = 0; i < 1200; ++i) { }
+    ADC_StartCalibration(ADC2);
+    while (ADC_GetCalibrationStatus(ADC2) == SET) { }
+
+    s_adc2_inited = 1;
+}
+
+static uint16_t adc2_read_channel(uint8_t ch)
+{
+    /* Program a single-rank regular sequence for the requested
+     * channel, software-trigger, poll for ENDC, read DAT. */
+    ADC_ConfigRegularChannel(ADC2, ch, 1, ADC_SAMP_TIME_239CYCLES5);
+    ADC_EnableSoftwareStartConv(ADC2, ENABLE);
+    while (ADC_GetFlagStatus(ADC2, ADC_FLAG_ENDC) == RESET) { }
+    ADC_ClearFlag(ADC2, ADC_FLAG_ENDC);
+    return (uint16_t)(ADC_GetDat(ADC2) & 0xFFFF);
+}
+
+void adc2_diag_scan(void)
+{
+    if (!s_adc2_inited) {
+        adc2_init_oneshot();
+    }
+    for (unsigned i = 0; i < ADC2_DIAG_RANKS; ++i) {
+        adc2_diag_buf[i] = adc2_read_channel(s_adc2_diag_channels[i]);
+    }
+}
+
+void adc2_diag_latest(uint16_t out[ADC2_DIAG_RANKS])
+{
+    __disable_irq();
+    for (unsigned i = 0; i < ADC2_DIAG_RANKS; ++i) {
+        out[i] = adc2_diag_buf[i];
+    }
+    __enable_irq();
+}
