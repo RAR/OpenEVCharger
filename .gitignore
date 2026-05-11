@@ -34,3 +34,4 @@ __pycache__/
 fc41d/.esphome/
 fc41d/secrets.yaml
 build_host/
+tools/.ntc_peek_baseline.json

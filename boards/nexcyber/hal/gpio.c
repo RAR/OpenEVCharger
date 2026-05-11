@@ -151,7 +151,9 @@ static void init_analog_inputs(void)
     cfg_pin(PIN_ADC_VSENSE_L2_PORT, PIN_ADC_VSENSE_L2_PIN, GPIO_Mode_AIN, GPIO_Speed_2MHz);
     cfg_pin(PIN_ADC_CP_PORT,        PIN_ADC_CP_PIN,        GPIO_Mode_AIN, GPIO_Speed_2MHz);
     cfg_pin(PIN_ADC_CC_PORT,        PIN_ADC_CC_PIN,        GPIO_Mode_AIN, GPIO_Speed_2MHz);
-    cfg_pin(PIN_ADC_NTC_PORT,       PIN_ADC_NTC_PIN,       GPIO_Mode_AIN, GPIO_Speed_2MHz);
+    cfg_pin(PIN_ADC_NTC_GUN_A_PORT, PIN_ADC_NTC_GUN_A_PIN, GPIO_Mode_AIN, GPIO_Speed_2MHz);
+    cfg_pin(PIN_ADC_NTC_GUN_B_PORT, PIN_ADC_NTC_GUN_B_PIN, GPIO_Mode_AIN, GPIO_Speed_2MHz);
+    cfg_pin(PIN_ADC_NTC_BOARD_PORT, PIN_ADC_NTC_BOARD_PIN, GPIO_Mode_AIN, GPIO_Speed_2MHz);
 }
 
 void gpio_init_all(void)

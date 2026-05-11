@@ -347,8 +347,41 @@
  * in the cache (only CP/CC/I_L1/GFCI/I_L2). M5 safety task on
  * nexcyber should treat "CP unexpectedly state A while plug was
  * known-engaged" as a PE-fault candidate. */
-#define PIN_ADC_NTC_PORT        GPIOC
-#define PIN_ADC_NTC_PIN         GPIO_PIN_5      /* TBD; PC5 dead-flat on bench */
+/* NTC topology (bench-confirmed 2026-05-11 pm via ground-short test):
+ *
+ *   Gun-connector NTC pad → two parallel conditioning paths into
+ *   ADC1 ch6 (PC0) and ADC1 ch7 (PC1). Shorting the gun-NTC pin to
+ *   GND collapses BOTH PC0 and PC1 to 0 raw simultaneously.
+ *     - PC0 (ADC1 ch6): high-impedance read, sits at ~3.33 V (pegged
+ *       to rail) when the NTC connector is open/unpopulated.
+ *     - PC1 (ADC1 ch7): divided read, sits at ~2.20 V (mid-rail) when
+ *       open. The divider compresses the hot-thermistor range.
+ *   Two parallel reads off the same pad is a safety-critical redundant
+ *   sensing pattern — agreement gate detects an open or shorted line.
+ *
+ *   PC5 (ADC2 ch12): on-board PCB NTC, sits at ~1.68 V steady, NOT a
+ *   gun-NTC. Confirmed by zero deflection during the gun-NTC short.
+ *   Likely senses internal enclosure temp (board / contactor area).
+ *
+ * M6 over-temp logic must:
+ *   1. Read PC0 + PC1, require both within sensible bounds.
+ *   2. PC0 pegged at rail AND PC1 at mid-rail simultaneously = gun
+ *      NTC unpopulated/disconnected → distinct fault "NTC_OPEN".
+ *   3. PC0 = 0 AND PC1 = 0 simultaneously = NTC shorted → fault
+ *      "NTC_SHORT".
+ *   4. Disagreement between PC0 and PC1 (e.g., one near rail and the
+ *      other low) = wiring/conditioning fault → fault "NTC_MISMATCH".
+ *   5. PC5 mid-rail (~1.5–1.9 V) = healthy; deviation = onboard
+ *      thermal event.
+ *
+ * Calibration deferred to M6 (need a known-good NTC and a thermal
+ * test rig). For M5 safety, just check open/short fault patterns. */
+#define PIN_ADC_NTC_GUN_A_PORT  GPIOC
+#define PIN_ADC_NTC_GUN_A_PIN   GPIO_PIN_0      /* ADC1 ch6, high-Z read */
+#define PIN_ADC_NTC_GUN_B_PORT  GPIOC
+#define PIN_ADC_NTC_GUN_B_PIN   GPIO_PIN_1      /* ADC1 ch7, divided read */
+#define PIN_ADC_NTC_BOARD_PORT  GPIOC
+#define PIN_ADC_NTC_BOARD_PIN   GPIO_PIN_5      /* ADC2 ch12, onboard PCB */
 #define PIN_ADC_RCC_AB          (RCC_APB2_PERIPH_GPIOB)
 #define PIN_ADC_RCC_C           (RCC_APB2_PERIPH_GPIOC)
 
