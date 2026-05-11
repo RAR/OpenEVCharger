@@ -197,11 +197,32 @@
  *               under load (charging = 0x03FC ~0.82 V). Sample is
  *               instantaneous, not RMS — captures one phase of the
  *               60 Hz cycle.
- *   0x20000756: GFCI sense — analog channel for the residual-current
- *               CT, mid-rail when healthy (steady = 0x0743 ~1.50 V),
- *               swings DOWN to ~1.20 V under load. NOT a digital
- *               GPIO — matches the prior memory note about GFCI sense
- *               routing through ADC.
+ *   0x20000756: candidate GFCI sense OR onboard NTC — analog channel
+ *               sitting near mid-rail at idle (0x0743 / 0x0745 ~1.50 V
+ *               in both GFCI-unplugged AND GFCI-plugged states),
+ *               swings DOWN to 0x05CE (~1.20 V) during the charging
+ *               attempt that also faulted at the 5-second mark.
+ *               Three-snapshot bench session 2026-05-11 late-pm:
+ *                 - idle, GFCI unplugged: 0x0743
+ *                 - idle, GFCI plugged:   0x0745  (no change)
+ *                 - charging attempt:     0x05CE  (-0.30 V deviation)
+ *               GFCI plug/unplug producing NO observable change rules
+ *               out the simplest "GFCI subsystem present" reading.
+ *               Two models stand:
+ *                 (a) IS the GFCI sense, but reads same baseline
+ *                     plugged-vs-unplugged at the analog layer — only
+ *                     real residual current deviates it. The S1 drop
+ *                     would then be a true residual-current event,
+ *                     causing the 5-second fault on charge attempt.
+ *                 (b) Is an onboard NTC or supply-rail-droop sensor
+ *                     that responds to contactor closure / load
+ *                     thermal transient.
+ *               Disambiguation = bench-blocked: inject known residual
+ *               current (e.g., 6 mA L→ground) and watch this slot.
+ *               GFCI subsystem health appears to communicate to the
+ *               MCU primarily via PC11 heartbeat suppression
+ *               (see project_nexcyber_gfci_subsystem memory), not via
+ *               this ADC channel.
  *   0x20000758: aux rail / Vref-like (railed in both states)
  *   0x2000075A: I_L2 (current transformer L2) — pairs with 0x754
  *               (same swing pattern, same magnitude).
