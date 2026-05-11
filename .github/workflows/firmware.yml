@@ -1,0 +1,59 @@
+name: firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rippleon:
+    name: rippleon (GD32F205VE, Cortex-M3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe --tags --always --dirty`
+          # in CMakeLists.txt produces a meaningful OPENEVCHARGER_VERSION
+          # rather than collapsing to the default "0.1.0-dev".
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install host build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - name: Install arm-none-eabi toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '13.2.Rel1'
+
+      - name: Configure (rippleon)
+        run: |
+          cmake -S . -B build/rippleon -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake \
+            -DOPENEVCHARGER_BOARD=rippleon
+
+      - name: Build
+        run: cmake --build build/rippleon
+
+      - name: Report size
+        run: |
+          {
+            echo '## Firmware size — rippleon';
+            echo '```';
+            arm-none-eabi-size build/rippleon/openevcharger.elf;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openevcharger-rippleon
+          path: |
+            build/rippleon/openevcharger.elf
+            build/rippleon/openevcharger.bin
+            build/rippleon/openevcharger.hex
+            build/rippleon/openevcharger.map
+          if-no-files-found: error
+          retention-days: 30

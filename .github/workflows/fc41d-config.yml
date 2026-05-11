@@ -1,0 +1,39 @@
+name: fc41d-config
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'fc41d/**'
+      - '.github/workflows/fc41d-config.yml'
+  pull_request:
+    paths:
+      - 'fc41d/**'
+      - '.github/workflows/fc41d-config.yml'
+  workflow_dispatch:
+
+jobs:
+  esphome-config:
+    name: esphome config (validate YAML)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ESPHome
+        run: pip install esphome
+
+      - name: Provision CI secrets
+        # fc41d/secrets.yaml is gitignored (real install secrets). The
+        # checked-in example covers every !secret key referenced by
+        # openevcharger.yaml — copy it so `esphome config` can resolve
+        # them. Values are placeholders; we don't compile or flash here.
+        run: cp fc41d/secrets.yaml.example fc41d/secrets.yaml
+
+      - name: Validate YAML
+        run: esphome config fc41d/openevcharger.yaml
