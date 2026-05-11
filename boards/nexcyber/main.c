@@ -20,6 +20,7 @@
 #include "hal/clock.h"
 #include "hal/uart.h"
 #include "hal/gpio.h"
+#include "hal/adc_scan.h"
 
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. Same idiom as src/main.c on
@@ -48,7 +49,21 @@ static void heartbeat_task(void *arg)
 {
     (void)arg;
     uint32_t beat = 0;
+    uint16_t adc[ADC_RANKS];
     for (;;) {
+        /* Every 5 beats, dump ADC1 readings alongside the heartbeat.
+         * Format: "adc pa6=%u pc0=%u pc1=%u vref=%u" — raw 12-bit
+         * counts. VrefInt should sit near 1490-1540 (≈1.20 V at 3.3 V
+         * Vref → 12-bit raw). If vref reads outside that band, the
+         * Vref calibration or HXTAL is off. */
+        if ((beat % 5) == 0) {
+            adc_scan_latest(adc);
+            printk("adc pa6=%u pc0=%u pc1=%u vref=%u\n",
+                   (unsigned)adc[ADC_RANK_PA6],
+                   (unsigned)adc[ADC_RANK_PC0],
+                   (unsigned)adc[ADC_RANK_PC1],
+                   (unsigned)adc[ADC_RANK_VREFINT]);
+        }
         printk("beat %u\n", (unsigned)beat++);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -63,6 +78,12 @@ int main(void)
 
     gpio_init_all();
     gpio_log_straps();
+
+    /* M3 ADC HAL — fires DMA1 ch1 streaming ADC1 samples into the
+     * private s_adc_buf. Must run AFTER gpio_init_all() so the AIN
+     * pads (PA4-PA7, PB0-2, PC0/1/4/5) are already in analog mode. */
+    adc_scan_init();
+    printk("adc1 scan up (4 ranks: PA6/PC0/PC1/VrefInt)\n");
 
     /* 256 words = 1 KB stack — plenty for printk + an itoa scratch. */
     BaseType_t ok = xTaskCreate(heartbeat_task, "heartbeat",

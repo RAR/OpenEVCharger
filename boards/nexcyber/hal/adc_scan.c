@@ -1,0 +1,129 @@
+/* boards/nexcyber/hal/adc_scan.c — M3 ADC HAL first cut for the N32G45x.
+ *
+ * ADC1 + DMA1 ch1 in scan + continuous mode. 4 ranks: PA6 (ch3),
+ * PC0 (ch6), PC1 (ch7), VrefInt (ch18). See adc_scan.h for the
+ * rationale and the bench-blocked work to extend to ADC2/ADC3.
+ *
+ * Surface mirrors src/hal/adc_scan.c on the rippleon target — same
+ * function names, same atomic snapshot pattern, just GD32 → Nations
+ * SPL spelling differences and ADC channel count (4 vs 11).
+ *
+ * No FreeRTOS dependency. The DMA hardware streams samples into
+ * s_adc_buf without CPU involvement after init; FreeRTOS task code
+ * just reads the buffer when it needs a value.
+ */
+
+#include "hal/adc_scan.h"
+#include "n32g45x.h"
+
+/* DMA destination buffer. The map-file address is what matters for
+ * the halt-and-peek validation step on the bench (open the .map,
+ * grep s_adc_buf, halt the MCU via openocd, peek the address,
+ * confirm 4 halfwords being updated). */
+static volatile uint16_t s_adc_buf[ADC_RANKS];
+
+void adc_scan_init(void)
+{
+    /* Nations N32G45x deviation from STM32F1: the ADC1-4 peripherals
+     * live on the AHB bus (RCC_AHB_PERIPH_ADCx), not on APB2 as the
+     * F1-compatible peripheral map would suggest. DMA1 is also on AHB
+     * (same as F1). GPIOs + AFIO stay on APB2.
+     *
+     * RCC_EnableAxxPeriphClk is bit-OR so re-enabling already-on
+     * peripherals is a no-op — GPIOA/C were already turned on by
+     * uart_init() / gpio_init_all(); enabling here keeps the function
+     * idempotent. */
+    RCC_EnableAHBPeriphClk(RCC_AHB_PERIPH_ADC1
+                           | RCC_AHB_PERIPH_DMA1,
+                           ENABLE);
+
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOA
+                            | RCC_APB2_PERIPH_GPIOC,
+                            ENABLE);
+
+    /* ADC clock prescaler. With AHB at ~120 MHz (post clock_real_120m_init),
+     * /6 = 20 MHz — above the 14 MHz F1 max but the N32G45x part
+     * supports higher ADC clocks (RM lists 28 MHz typical max). Pick
+     * /8 = 15 MHz for safety margin. Sample time 239.5 cycles → total
+     * conversion ≈ 17 µs per channel; 4 channels ≈ 68 µs per full scan
+     * → ~14.7 kHz scan rate, more than fast enough for J1772 / safety. */
+    RCC_ConfigAdcHclk(RCC_ADCHCLK_DIV8);
+
+    /* ADC1 in scan + continuous mode, regular sequence length = 4. */
+    ADC_DeInit(ADC1);
+
+    ADC_InitType cfg;
+    ADC_InitStruct(&cfg);
+    cfg.WorkMode        = ADC_WORKMODE_INDEPENDENT;
+    cfg.MultiChEn       = ENABLE;            /* scan mode (multi-channel) */
+    cfg.ContinueConvEn  = ENABLE;            /* self-loops after first trigger */
+    cfg.ExtTrigSelect   = ADC_EXT_TRIGCONV_NONE;
+    cfg.DatAlign        = ADC_DAT_ALIGN_R;
+    cfg.ChsNumber       = ADC_RANKS;
+    ADC_Init(ADC1, &cfg);
+
+    /* Channel assignments. Rank values are 1-based in the SPL despite
+     * the underlying RSQR fields being 0-indexed — see n32g45x_adc.c
+     * ADC_ConfigRegularChannel for the off-by-one fix. */
+    ADC_ConfigRegularChannel(ADC1, ADC_CH_3,  1, ADC_SAMP_TIME_239CYCLES5); /* PA6 */
+    ADC_ConfigRegularChannel(ADC1, ADC_CH_6,  2, ADC_SAMP_TIME_239CYCLES5); /* PC0 */
+    ADC_ConfigRegularChannel(ADC1, ADC_CH_7,  3, ADC_SAMP_TIME_239CYCLES5); /* PC1 */
+    ADC_ConfigRegularChannel(ADC1, ADC_CH_18, 4, ADC_SAMP_TIME_239CYCLES5); /* VREFINT */
+
+    /* Enable temp-sensor + VrefInt internal channel power. Mirrors
+     * adc_tempsensor_vrefint_enable() on the GD32. */
+    ADC_EnableTempSensorVrefint(ENABLE);
+
+    /* DMA1 channel 1 → s_adc_buf, circular, 16-bit transfers. */
+    DMA_DeInit(DMA1_CH1);
+
+    DMA_InitType d;
+    DMA_StructInit(&d);
+    d.PeriphAddr     = (uint32_t)&ADC1->DAT;
+    d.MemAddr        = (uint32_t)s_adc_buf;
+    d.Direction      = DMA_DIR_PERIPH_SRC;
+    d.BufSize        = ADC_RANKS;
+    d.PeriphInc      = DMA_PERIPH_INC_DISABLE;
+    d.DMA_MemoryInc  = DMA_MEM_INC_ENABLE;
+    d.PeriphDataSize = DMA_PERIPH_DATA_SIZE_HALFWORD;
+    d.MemDataSize    = DMA_MemoryDataSize_HalfWord;
+    d.CircularMode   = DMA_MODE_CIRCULAR;
+    d.Priority       = DMA_PRIORITY_HIGH;
+    d.Mem2Mem        = DMA_M2M_DISABLE;
+    DMA_Init(DMA1_CH1, &d);
+
+    DMA_EnableChannel(DMA1_CH1, ENABLE);
+
+    /* Hand ADC1 to DMA + power it up. */
+    ADC_EnableDMA(ADC1, ENABLE);
+    ADC_Enable(ADC1, ENABLE);
+
+    /* Brief settle window (~10 µs at 120 MHz) before launching the
+     * calibration cycle. The compiler can't optimise this loop out
+     * because of the volatile counter. */
+    for (volatile int i = 0; i < 1200; ++i) { }
+
+    /* Calibrate. Mandatory on F1-style ADCs after power-up to subtract
+     * the offset error from the converter. */
+    ADC_StartCalibration(ADC1);
+    while (ADC_GetCalibrationStatus(ADC1) == SET) { }
+
+    /* In continuous mode the software trigger fires the first
+     * conversion; the ADC self-clocks afterwards. */
+    ADC_EnableSoftwareStartConv(ADC1, ENABLE);
+}
+
+void adc_scan_latest(uint16_t out[ADC_RANKS])
+{
+    __disable_irq();
+    for (unsigned i = 0; i < ADC_RANKS; ++i) {
+        out[i] = s_adc_buf[i];
+    }
+    __enable_irq();
+}
+
+uint16_t adc_scan_rank(unsigned rank)
+{
+    if (rank >= ADC_RANKS) return 0;
+    return s_adc_buf[rank];
+}
