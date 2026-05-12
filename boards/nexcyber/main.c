@@ -422,15 +422,86 @@ static void bench_run_cmd(uint32_t cmd)
         while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
         break;
     }
-    case 19: {
-        /* Full DGUS init sequence extracted from stock-mcu V1.0.066 by
-         * SWD dump analysis 2026-05-12. Stock fw writes to VP=0x0000
-         * (DGUS system register) before any backlight/page commands —
-         * that's the LCD handshake our prior BRR sweeps skipped.
+    case 20: {
+        /* Built from DWIN T5L_DGUSII Application Development Guide v2.9:
+         *   - System_Reset at VP=0x0004: write magic 55AA 5AA5 → LCD CPU
+         *     hard reset (works regardless of LCD CFG's CRC setting,
+         *     since CRC-mode LCDs see the trailing CRC as extra data
+         *     beyond the first 4 reset bytes — first 4 still trigger).
+         *   - Backlight OFF/ON at VP=0x0082 → visible LCD-alive proof.
+         *   - Page 0 at VP=0x0084 → display content change.
          *
-         * Sequence: VP=0 init x2, backlight off, backlight on, page 0.
-         * BRR defaults to 0x138 (115200 @ PCLK1=36 MHz); override via
-         * g_bench_arg if a different BRR is desired. */
+         * CRC mode of the LCD is set by SD-card CFG byte 0x05 bit 7;
+         * we can't know it from outside. Tests both modes:
+         *   1) System_Reset (CRC variant — universal)
+         *   2) Backlight blink (no-CRC, for stock-mode LCDs)
+         *   3) Backlight blink (CRC, for CRC-mode LCDs)
+         *   4) Page 0 (no-CRC, then CRC)
+         *
+         * If LCD backlight flickers AT ALL during this sequence, the
+         * LCD is alive — the step that produced it reveals the mode.
+         * CRC = MODBUS-16 (poly 0xA001, init 0xFFFF) over CMD+VP+DATA,
+         * trailer LSB-first. Verified against doc examples 2026-05-12. */
+        uint32_t brr = g_bench_arg ? g_bench_arg : 0x138;
+        printk("bench: DGUS universal test (docs-driven), BRR=%#x\n", (unsigned)brr);
+        USART_Enable(USART2, DISABLE);
+        USART2->CTRL1 = 0;
+        USART2->BRCF = brr & 0xFFFF;
+        USART2->CTRL2 = 0;
+        USART2->CTRL3 = 0;
+        USART2->CTRL1 = (1u << 13) | (1u << 3);  /* UE | TE */
+
+        /* Pre-computed frames (CRC trailers verified against doc) */
+        static const uint8_t fr_reset_crc[]   = {0x5A,0xA5,0x09,0x82,0x00,0x04,
+                                                  0x55,0xAA,0x5A,0xA5,0x83,0xFF};
+        static const uint8_t fr_bl_off[]      = {0x5A,0xA5,0x04,0x82,0x00,0x82,0x00};
+        static const uint8_t fr_bl_on[]       = {0x5A,0xA5,0x04,0x82,0x00,0x82,0x64};
+        static const uint8_t fr_bl_off_crc[]  = {0x5A,0xA5,0x06,0x82,0x00,0x82,
+                                                  0x00,0x48,0xFC};
+        static const uint8_t fr_bl_on_crc[]   = {0x5A,0xA5,0x06,0x82,0x00,0x82,
+                                                  0x64,0x49,0x17};
+        static const uint8_t fr_page0[]       = {0x5A,0xA5,0x07,0x82,0x00,0x84,
+                                                  0x5A,0x01,0x00,0x00};
+        static const uint8_t fr_page0_crc[]   = {0x5A,0xA5,0x09,0x82,0x00,0x84,
+                                                  0x5A,0x01,0x00,0x00,0x0A,0x0E};
+
+        #define SEND_FRAME(buf) do { \
+            for (unsigned _i = 0; _i < sizeof(buf); ++_i) { \
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) {} \
+                USART_SendData(USART2, (buf)[_i]); \
+            } \
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) {} \
+        } while (0)
+
+        printk("  step 1: System_Reset (CRC-variant — universal)\n");
+        SEND_FRAME(fr_reset_crc);
+        task_delay_ms(3000);    /* LCD CPU reboot window */
+
+        printk("  step 2: Backlight blink (no-CRC mode)\n");
+        SEND_FRAME(fr_bl_off);
+        task_delay_ms(600);
+        SEND_FRAME(fr_bl_on);
+        task_delay_ms(800);
+
+        printk("  step 3: Backlight blink (CRC mode)\n");
+        SEND_FRAME(fr_bl_off_crc);
+        task_delay_ms(600);
+        SEND_FRAME(fr_bl_on_crc);
+        task_delay_ms(800);
+
+        printk("  step 4: Page 0 (no-CRC then CRC)\n");
+        SEND_FRAME(fr_page0);
+        task_delay_ms(500);
+        SEND_FRAME(fr_page0_crc);
+
+        printk("bench: DGUS universal test done\n");
+        #undef SEND_FRAME
+        break;
+    }
+    case 19: {
+        /* Earlier attempt — VP=0x0000 zero-writes per stock-fw analysis.
+         * Superseded by cmd 20 (docs-driven, universal CRC handling).
+         * Kept for reference. */
         uint32_t brr = g_bench_arg ? g_bench_arg : 0x138;
         printk("bench: DGUS full init sequence, BRR=%#x\n", (unsigned)brr);
         USART_Enable(USART2, DISABLE);
