@@ -93,11 +93,186 @@ static void task_delay_ms(uint32_t ms)
  *   2 = relay_open
  *   3 = gfci_cal_pulse (500 ms)
  *   4 = bl0939_smoke_test (one-shot register dump via printk)
+ *   5 = nextion dim=10 (dim backlight — unambiguous USART2 link test)
+ *   6 = nextion dim=100 (restore backlight)
+ *   7 = nextion `page 0`
+ *   8 = nextion `page 1`
+ *   9 = nextion `page 2`
+ *   10 = nextion `page 3`
+ *   11 = probe USART3/9600 on PB10 — send "dim=10" then "dim=100"
+ *   12 = probe UART4/9600 on PC10 — send "dim=10" then "dim=100"
+ *        (PC10 doubles as blue LED; this temporarily steals the pad
+ *         then restores it as OUT_PP so blue LED works again)
+ *   13 = probe USART2/115200 on PA2 — re-init at 115200 + dim test
  * Monitor task polls this every 100 ms and ACKs by zeroing it.
  *
  * `volatile` + the global symbol survives in the .map so the address
  * is easy to find with `nm openevcharger.elf | grep g_bench_cmd`. */
 volatile uint32_t g_bench_cmd = 0;
+/* Side-channel argument for bench cmds that need a parameter.
+ * Currently used by cmd 18 (DGUS test with arbitrary BRR). */
+volatile uint32_t g_bench_arg = 0;
+
+/* Tear down USART2 + DMA1_CH6 so re-probing a different UART won't
+ * clash with the nextion HAL we already brought up at boot. We don't
+ * fully de-init — just drop ENABLE bits so the peripherals go quiet. */
+static void nextion_park_usart2(void)
+{
+    USART_EnableDMA(USART2, USART_DMAREQ_RX, DISABLE);
+    USART_Enable(USART2, DISABLE);
+    DMA_EnableChannel(DMA1_CH6, DISABLE);
+}
+
+/* Send "dim=10\xFF\xFF\xFF", delay, then "dim=100\xFF\xFF\xFF" out a
+ * caller-configured UART. Generic enough that the per-cmd helpers
+ * below just wire up clocks + GPIO AF and call this. */
+static void uart_send_blocking(USART_Module *uart, const char *s)
+{
+    while (*s) {
+        while (USART_GetFlagStatus(uart, USART_FLAG_TXDE) == RESET) { }
+        USART_SendData(uart, (uint16_t)(uint8_t)*s++);
+    }
+    for (int i = 0; i < 3; ++i) {
+        while (USART_GetFlagStatus(uart, USART_FLAG_TXDE) == RESET) { }
+        USART_SendData(uart, 0xFF);
+    }
+    /* Wait for the final byte to drain off the wire before returning,
+     * so a subsequent peripheral reconfiguration doesn't truncate it. */
+    while (USART_GetFlagStatus(uart, USART_FLAG_TXC) == RESET) { }
+}
+
+static void probe_send_dim_cycle(USART_Module *uart,
+                                 void (*delay_ms)(uint32_t))
+{
+    uart_send_blocking(uart, "dim=10");
+    if (delay_ms) delay_ms(1500);
+    uart_send_blocking(uart, "dim=100");
+}
+
+static void probe_usart3_pb10_9600(void)
+{
+    nextion_park_usart2();
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_USART3, ENABLE);
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOB | RCC_APB2_PERIPH_AFIO, ENABLE);
+    GPIO_InitType io = {0};
+    io.Pin = GPIO_PIN_10;
+    io.GPIO_Mode = GPIO_Mode_AF_PP;
+    io.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitPeripheral(GPIOB, &io);
+    USART_InitType u = {0};
+    u.BaudRate = 9600;
+    u.WordLength = USART_WL_8B;
+    u.StopBits = USART_STPB_1;
+    u.Parity = USART_PE_NO;
+    u.Mode = USART_MODE_TX;
+    u.HardwareFlowControl = USART_HFCTRL_NONE;
+    USART_Init(USART3, &u);
+    USART_Enable(USART3, ENABLE);
+    probe_send_dim_cycle(USART3, task_delay_ms);
+    USART_Enable(USART3, DISABLE);
+}
+
+static void probe_uart4_pc10_9600(void)
+{
+    nextion_park_usart2();
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_UART4, ENABLE);
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOC | RCC_APB2_PERIPH_AFIO, ENABLE);
+    /* PC10 is currently OUT_PP for blue LED. Re-cfg as AF_PP so UART4
+     * controls it. Saves prior LED state so we can restore after. */
+    bool prev_blue = (GPIO_ReadOutputDataBit(PIN_LED_BLUE_PORT,
+                                             PIN_LED_BLUE_PIN) != 0);
+    GPIO_InitType io = {0};
+    io.Pin = GPIO_PIN_10;
+    io.GPIO_Mode = GPIO_Mode_AF_PP;
+    io.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitPeripheral(GPIOC, &io);
+    USART_InitType u = {0};
+    u.BaudRate = 9600;
+    u.WordLength = USART_WL_8B;
+    u.StopBits = USART_STPB_1;
+    u.Parity = USART_PE_NO;
+    u.Mode = USART_MODE_TX;
+    u.HardwareFlowControl = USART_HFCTRL_NONE;
+    USART_Init(UART4, &u);
+    USART_Enable(UART4, ENABLE);
+    probe_send_dim_cycle(UART4, task_delay_ms);
+    USART_Enable(UART4, DISABLE);
+    /* Restore PC10 as OUT_PP for blue LED. */
+    io.Pin = GPIO_PIN_10;
+    io.GPIO_Mode = GPIO_Mode_Out_PP;
+    io.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_InitPeripheral(GPIOC, &io);
+    if (prev_blue) {
+        GPIO_SetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+    } else {
+        GPIO_ResetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+    }
+}
+
+/* USART3 with partial remap to PC10/PC11 — stock-fw most-referenced
+ * UART (8 base-addr hits) and PC10 doubles as our blue LED pad. If the
+ * LCD lives here, this probe should dim its backlight. */
+static void probe_usart3_pc10_remap_9600(void)
+{
+    nextion_park_usart2();
+    /* Save blue LED ODR so we can restore. */
+    bool prev_blue = (GPIO_ReadOutputDataBit(PIN_LED_BLUE_PORT,
+                                             PIN_LED_BLUE_PIN) != 0);
+
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_USART3, ENABLE);
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOC | RCC_APB2_PERIPH_AFIO, ENABLE);
+
+    /* AFIO_MAPR: set USART3_REMAP = 01 (partial remap → PC10/PC11). */
+    GPIO_ConfigPinRemap(GPIO_PART_RMP_USART3, ENABLE);
+
+    GPIO_InitType io = {0};
+    io.Pin = GPIO_PIN_10;
+    io.GPIO_Mode = GPIO_Mode_AF_PP;
+    io.GPIO_Speed = GPIO_Speed_50MHz;
+    GPIO_InitPeripheral(GPIOC, &io);
+
+    USART_InitType u = {0};
+    u.BaudRate = 9600;
+    u.WordLength = USART_WL_8B;
+    u.StopBits = USART_STPB_1;
+    u.Parity = USART_PE_NO;
+    u.Mode = USART_MODE_TX;
+    u.HardwareFlowControl = USART_HFCTRL_NONE;
+    USART_Init(USART3, &u);
+    USART_Enable(USART3, ENABLE);
+    probe_send_dim_cycle(USART3, task_delay_ms);
+    USART_Enable(USART3, DISABLE);
+
+    /* Clear the remap so PC10 is plain GPIO again. */
+    GPIO_ConfigPinRemap(GPIO_PART_RMP_USART3, DISABLE);
+
+    /* Restore PC10 as OUT_PP for blue LED. */
+    io.Pin = GPIO_PIN_10;
+    io.GPIO_Mode = GPIO_Mode_Out_PP;
+    io.GPIO_Speed = GPIO_Speed_2MHz;
+    GPIO_InitPeripheral(GPIOC, &io);
+    if (prev_blue) {
+        GPIO_SetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+    } else {
+        GPIO_ResetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+    }
+}
+
+static void probe_usart2_115200(void)
+{
+    nextion_park_usart2();
+    USART_InitType u = {0};
+    u.BaudRate = 115200;
+    u.WordLength = USART_WL_8B;
+    u.StopBits = USART_STPB_1;
+    u.Parity = USART_PE_NO;
+    u.Mode = USART_MODE_TX;
+    u.HardwareFlowControl = USART_HFCTRL_NONE;
+    USART_Init(USART2, &u);
+    USART_Enable(USART2, ENABLE);
+    probe_send_dim_cycle(USART2, task_delay_ms);
+    USART_Enable(USART2, DISABLE);
+}
 
 static void bench_run_cmd(uint32_t cmd)
 {
@@ -118,6 +293,151 @@ static void bench_run_cmd(uint32_t cmd)
         printk("bench: bl0939_smoke_test\n");
         bl0939_smoke_test();
         break;
+    case 5:
+        printk("bench: nextion dims=10 (backlight dim — Tuya variant)\n");
+        nextion_send_cmd("dims=10");
+        break;
+    case 6:
+        printk("bench: nextion dims=100 (backlight restore)\n");
+        nextion_send_cmd("dims=100");
+        break;
+    case 7:
+        printk("bench: nextion page 0\n");
+        nextion_send_cmd("page 0");
+        break;
+    case 8:
+        printk("bench: nextion page 1\n");
+        nextion_send_cmd("page 1");
+        break;
+    case 9:
+        printk("bench: nextion page 2\n");
+        nextion_send_cmd("page 2");
+        break;
+    case 10:
+        printk("bench: nextion page 3\n");
+        nextion_send_cmd("page 3");
+        break;
+    case 11:
+        printk("bench: probe USART3/9600 on PB10 (dim=10 / dim=100)\n");
+        probe_usart3_pb10_9600();
+        break;
+    case 12:
+        printk("bench: probe UART4/9600 on PC10 (dim=10 / dim=100)\n");
+        probe_uart4_pc10_9600();
+        break;
+    case 13:
+        printk("bench: probe USART2/115200 (dim=10 / dim=100)\n");
+        probe_usart2_115200();
+        break;
+    case 14:
+        printk("bench: probe USART3 partial-remap (PC10)/9600 (dims=10/100)\n");
+        probe_usart3_pc10_remap_9600();
+        break;
+    case 16: {
+        /* Send DGUS backlight=0 frame via USART2 at 115200 baud,
+         * bytes back-to-back. Stock fw uses USART2 = 115200 = LCD. */
+        printk("bench: DGUS dim=0 frame on USART2 @ 115200 (BRR=0x0138)\n");
+        /* Re-init USART2 at 115200 baud (BRR for 36 MHz PCLK1). */
+        USART_Enable(USART2, DISABLE);
+        USART_InitType u = {0};
+        u.BaudRate = 115200;
+        u.WordLength = USART_WL_8B;
+        u.StopBits = USART_STPB_1;
+        u.Parity = USART_PE_NO;
+        u.Mode = USART_MODE_TX;
+        u.HardwareFlowControl = USART_HFCTRL_NONE;
+        USART_Init(USART2, &u);
+        USART_Enable(USART2, ENABLE);
+        static const uint8_t frame_off[] = {0x5A, 0xA5, 0x04, 0x82, 0x00, 0x82, 0x00};
+        uart_send_blocking(USART2, "");  /* prime TXDE */
+        for (unsigned i = 0; i < sizeof(frame_off); ++i) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, frame_off[i]);
+        }
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
+        task_delay_ms(1500);
+        static const uint8_t frame_on[] = {0x5A, 0xA5, 0x04, 0x82, 0x00, 0x82, 0x64};
+        for (unsigned i = 0; i < sizeof(frame_on); ++i) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, frame_on[i]);
+        }
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
+        printk("bench: DGUS frames sent\n");
+        break;
+    }
+    case 17: {
+        /* Same DGUS dim cycle but at PAGE CHANGE — more visible. */
+        printk("bench: DGUS page 0 → page 1 on USART2 @ 115200\n");
+        USART_Enable(USART2, DISABLE);
+        USART_InitType u = {0};
+        u.BaudRate = 115200;
+        u.WordLength = USART_WL_8B;
+        u.StopBits = USART_STPB_1;
+        u.Parity = USART_PE_NO;
+        u.Mode = USART_MODE_TX;
+        u.HardwareFlowControl = USART_HFCTRL_NONE;
+        USART_Init(USART2, &u);
+        USART_Enable(USART2, ENABLE);
+        static const uint8_t page0[] = {0x5A,0xA5,0x07,0x82,0x00,0x84,0x5A,0x01,0x00,0x00};
+        static const uint8_t page1[] = {0x5A,0xA5,0x07,0x82,0x00,0x84,0x5A,0x01,0x00,0x01};
+        for (unsigned i = 0; i < sizeof(page0); ++i) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, page0[i]);
+        }
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
+        task_delay_ms(2000);
+        for (unsigned i = 0; i < sizeof(page1); ++i) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, page1[i]);
+        }
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
+        printk("bench: DGUS page frames sent\n");
+        break;
+    }
+    case 18: {
+        /* Re-init USART2 with arbitrary BRR from g_bench_arg, then send
+         * DGUS backlight=0 + 1.5s + backlight=100. Use this to sweep BRR
+         * values fast via SWD pokes. */
+        uint32_t brr = g_bench_arg;
+        printk("bench: DGUS test with BRR=%#x\n", (unsigned)brr);
+        USART_Enable(USART2, DISABLE);
+        /* Manual register pokes — bypass USART_Init's BRR computation. */
+        USART2->CTRL1 = 0;                  /* clear, then reconfigure */
+        USART2->BRCF = brr & 0xFFFF;
+        USART2->CTRL2 = 0;                  /* 1 stop bit */
+        USART2->CTRL3 = 0;
+        USART2->CTRL1 = (1u << 13) | (1u << 3);  /* UE | TE */
+        static const uint8_t fr_off[] = {0x5A, 0xA5, 0x04, 0x82, 0x00, 0x82, 0x00};
+        static const uint8_t fr_on [] = {0x5A, 0xA5, 0x04, 0x82, 0x00, 0x82, 0x64};
+        for (unsigned i = 0; i < sizeof(fr_off); ++i) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, fr_off[i]);
+        }
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
+        task_delay_ms(1500);
+        for (unsigned i = 0; i < sizeof(fr_on); ++i) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, fr_on[i]);
+        }
+        while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
+        break;
+    }
+    case 15: {
+        /* Continuous spam 0x55 to USART2 for ~10 seconds. Measures
+         * with a multimeter: PA2 should average ~1.65 V (50% duty).
+         * If LCD-RX pad also averages ~1.65 V, the trace is good.
+         * If LCD-RX stays at 3.3 V or 0 V, the wiggle test pointed
+         * at the wrong pad. */
+        printk("bench: spam 0x55 on USART2 for 10s @ current BRR\n");
+        uint32_t start = xTaskGetTickCount();
+        uint32_t hz = configTICK_RATE_HZ;
+        while ((xTaskGetTickCount() - start) < (10u * hz)) {
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) { }
+            USART_SendData(USART2, 0x55);
+        }
+        printk("bench: spam done\n");
+        break;
+    }
     default:
         printk("bench: unknown cmd %u\n", (unsigned)cmd);
         break;
