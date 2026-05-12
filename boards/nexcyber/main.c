@@ -422,6 +422,53 @@ static void bench_run_cmd(uint32_t cmd)
         while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) { }
         break;
     }
+    case 19: {
+        /* Full DGUS init sequence extracted from stock-mcu V1.0.066 by
+         * SWD dump analysis 2026-05-12. Stock fw writes to VP=0x0000
+         * (DGUS system register) before any backlight/page commands —
+         * that's the LCD handshake our prior BRR sweeps skipped.
+         *
+         * Sequence: VP=0 init x2, backlight off, backlight on, page 0.
+         * BRR defaults to 0x138 (115200 @ PCLK1=36 MHz); override via
+         * g_bench_arg if a different BRR is desired. */
+        uint32_t brr = g_bench_arg ? g_bench_arg : 0x138;
+        printk("bench: DGUS full init sequence, BRR=%#x\n", (unsigned)brr);
+        USART_Enable(USART2, DISABLE);
+        USART2->CTRL1 = 0;
+        USART2->BRCF = brr & 0xFFFF;
+        USART2->CTRL2 = 0;
+        USART2->CTRL3 = 0;
+        USART2->CTRL1 = (1u << 13) | (1u << 3);  /* UE | TE */
+        static const uint8_t fr_init2[]  = {0x5A,0xA5,0x05,0x82,0x00,0x00,0x00,0x00};
+        static const uint8_t fr_init12[] = {0x5A,0xA5,0x0F,0x82,
+                                            0x00,0x00,0x00,0x00,0x00,0x00,
+                                            0x00,0x00,0x00,0x00,0x00,0x00,
+                                            0x00,0x00};
+        static const uint8_t fr_bl_off[] = {0x5A,0xA5,0x04,0x82,0x00,0x82,0x00};
+        static const uint8_t fr_bl_on[]  = {0x5A,0xA5,0x04,0x82,0x00,0x82,0x64};
+        static const uint8_t fr_page0[]  = {0x5A,0xA5,0x07,0x82,0x00,0x84,
+                                            0x5A,0x01,0x00,0x00};
+        #define SEND_FRAME(buf) do { \
+            for (unsigned _i = 0; _i < sizeof(buf); ++_i) { \
+                while (USART_GetFlagStatus(USART2, USART_FLAG_TXDE) == RESET) {} \
+                USART_SendData(USART2, (buf)[_i]); \
+            } \
+            while (USART_GetFlagStatus(USART2, USART_FLAG_TXC) == RESET) {} \
+        } while (0)
+
+        SEND_FRAME(fr_init2);
+        task_delay_ms(100);
+        SEND_FRAME(fr_init12);
+        task_delay_ms(200);
+        SEND_FRAME(fr_bl_off);
+        task_delay_ms(500);
+        SEND_FRAME(fr_bl_on);
+        task_delay_ms(100);
+        SEND_FRAME(fr_page0);
+        printk("bench: DGUS init sequence done\n");
+        #undef SEND_FRAME
+        break;
+    }
     case 15: {
         /* Continuous spam 0x55 to USART2 for ~10 seconds. Measures
          * with a multimeter: PA2 should average ~1.65 V (50% duty).

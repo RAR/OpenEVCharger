@@ -89,10 +89,14 @@ proc nx_erase_page {page_addr} {
     puts [format "flash: erased page 0x%08x  (SR=0x%02x)" $page_addr $sr]
 }
 
-proc nx_flash {bin_path} {
+proc nx_flash {bin_path {target_offset 0} {do_init 1} {do_reset_run 1}} {
     global NX_FLASH_CR NX_FLASH_CR_PG NX_FLASH_ORIGIN NX_PAGE_SIZE
     global NX_FLASH_CR_LOCK NX_FLASH_SR NX_FLASH_SR_PGERR NX_FLASH_SR_WRPRTERR
     global NX_RAM_STAGING
+
+    set target_base [expr {$NX_FLASH_ORIGIN + $target_offset}]
+    puts [format "flash: target base = 0x%08x  (offset 0x%x from origin)" \
+                 $target_base $target_offset]
 
     set sz [file size $bin_path]
     if {$sz == 0} {
@@ -108,8 +112,10 @@ proc nx_flash {bin_path} {
     puts [format "flash: %d bytes (%d halfwords), %d pages of %d B" \
                  $sz $num_halfwords $pages_needed $NX_PAGE_SIZE]
 
-    init
-    reset halt
+    if {$do_init} {
+        init
+        reset halt
+    }
 
     # Bulk-load the binary into RAM via openocd's load_image (uses SWD
     # block writes, ~10× faster than per-word mww). Address 0x20002000
@@ -121,7 +127,7 @@ proc nx_flash {bin_path} {
 
     # Erase target pages.
     for {set p 0} {$p < $pages_needed} {incr p} {
-        set page_addr [expr {$NX_FLASH_ORIGIN + $p * $NX_PAGE_SIZE}]
+        set page_addr [expr {$target_base + $p * $NX_PAGE_SIZE}]
         nx_erase_page $page_addr
     }
 
@@ -140,7 +146,7 @@ proc nx_flash {bin_path} {
     for {set w 0} {$w < $num_words} {incr w} {
         set ram_addr [expr {$NX_RAM_STAGING + $w * 4}]
         set word [nx_read32 $ram_addr]
-        set flash_addr [expr {$NX_FLASH_ORIGIN + $w * 4}]
+        set flash_addr [expr {$target_base + $w * 4}]
 
         mww $flash_addr $word
 
@@ -167,18 +173,30 @@ proc nx_flash {bin_path} {
     puts "flash: verify..."
     foreach offset [list 0 [expr {$sz / 2}] [expr {$sz - 4}]] {
         if {$offset < 0} { set offset 0 }
-        set f [nx_read32 [expr {$NX_FLASH_ORIGIN + $offset}]]
+        set f [nx_read32 [expr {$target_base + $offset}]]
         set r [nx_read32 [expr {$NX_RAM_STAGING + $offset}]]
         set ok [expr {$f == $r ? "OK" : "MISMATCH"}]
         puts [format "  +0x%04x  flash=0x%08x  ram=0x%08x  %s" $offset $f $r $ok]
     }
 
-    reset run
-    puts "flash: reset run — new firmware should be executing"
+    if {$do_reset_run} {
+        reset run
+        puts "flash: reset run — new firmware should be executing"
+    }
 }
 
 # Auto-invoke if NX_FLASH_BIN env var is set.
+# NX_FLASH_TARGET_OFFSET (optional, hex/dec) shifts the target base from
+# 0x08000000 — used by restore_stock_nexcyber.sh for chunked 128 KB flashes.
 if {[info exists ::env(NX_FLASH_BIN)]} {
-    nx_flash $::env(NX_FLASH_BIN)
+    set _ofs 0
+    if {[info exists ::env(NX_FLASH_TARGET_OFFSET)]} {
+        set _ofs [expr $::env(NX_FLASH_TARGET_OFFSET)]
+    }
+    set _no_reset 0
+    if {[info exists ::env(NX_FLASH_NO_RESET_RUN)]} {
+        set _no_reset 1
+    }
+    nx_flash $::env(NX_FLASH_BIN) $_ofs 1 [expr {!$_no_reset}]
     shutdown
 }
