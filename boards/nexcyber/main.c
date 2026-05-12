@@ -27,6 +27,7 @@
 #include "hal/nextion.h"
 #include "hal/relay.h"
 #include "hal/gfci.h"
+#include "hal/led_ring.h"
 #include "pin_map.h"
 #include "core/j1772.h"
 #include "n32g45x.h"
@@ -197,7 +198,10 @@ static void monitor_task(void *arg)
             prev_l2   = (uint32_t)l2;
         }
 
-        /* On committed J1772 state transition, log + flip Nextion page. */
+        /* On committed J1772 state transition, log + flip Nextion page +
+         * update the LED ring (blue = standby/waiting, green = charging,
+         * both off in fault states E/F since red is hardware-damaged on
+         * this bench unit so we can't communicate fault visually). */
         if (committed != prev_committed && committed != J1772_STATE_INVALID) {
             printk("J1772: state %s -> %s (cp=%d mV)\n",
                    j1772_state_name(prev_committed),
@@ -206,6 +210,24 @@ static void monitor_task(void *arg)
             const char *page = page_for_state(committed);
             if (page) {
                 nextion_send_cmd(page);
+            }
+            switch (committed) {
+            case J1772_STATE_A:   /* no gun */
+            case J1772_STATE_B:   /* plugged, not charging */
+                led_blue_set(true);
+                led_green_set(false);
+                break;
+            case J1772_STATE_C:   /* charging */
+            case J1772_STATE_D:   /* charging, vent required */
+                led_blue_set(false);
+                led_green_set(true);
+                break;
+            case J1772_STATE_E:   /* CP shorted */
+            case J1772_STATE_F:   /* CP -12V (fault) */
+            default:
+                led_blue_set(false);
+                led_green_set(false);
+                break;
             }
             prev_committed = committed;
         }
@@ -276,6 +298,7 @@ int main(void)
      * Just zeroes the ODR bits and sets internal state. */
     relay_init();
     gfci_init();
+    led_ring_init();
     printk("relay/gfci drivers initialised (contactors open)\n");
 
     /* 256 words = 1 KB stack — plenty for printk + an itoa scratch. */

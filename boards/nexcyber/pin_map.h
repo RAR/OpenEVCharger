@@ -509,17 +509,50 @@
 #define PIN_PC2_AF_PORT         GPIOC
 #define PIN_PC2_AF_PIN          GPIO_PIN_2
 
-/* PC12 — initially configured OUT_PP, then re-init'd to AF at runtime.
- * STM32F1 default AF on PC12 is UART5_TX, but UART5 base never appears
- * in the literal pool, so this is a remap target. TODO trace AFIO_MAPR. */
-#define PIN_PC12_AF_PORT        GPIOC
-#define PIN_PC12_AF_PIN         GPIO_PIN_12
-
 /* PA15 — freed by AFIO SWJ_CFG=010 (SWD only, JTAG off). Likely a status
  * LED or a relay-drive into the ULN2003. Wiggle game silent on 5 V rail
- * (no load activates without 12 V mains). */
+ * (no load activates without 12 V mains). LED walk 2026-05-11 pm with
+ * MCU pin HIGH (NPN/MOSFET buffer topology) showed no LED response. */
 #define PIN_PA15_OUT_PORT       GPIOA
 #define PIN_PA15_OUT_PIN        GPIO_PIN_15
+
+/* =========================================================================
+ *  LED ring drive (active-HIGH via NPN/MOSFET buffer to 12V LED rail)
+ * =========================================================================
+ *
+ * Bench-confirmed 2026-05-11 pm. The LED ring sits on its own daughter
+ * board with three discrete LEDs (red / green / blue) and current-limit
+ * resistors — no driver IC, no addressable protocol. The ring is fed
+ * from a 12 V rail with each LED cathode running back to the main
+ * PCB through a buffer transistor (NPN base or N-MOSFET gate).
+ * MCU pin HIGH → buffer ON → LED cathode pulled to GND → LED on.
+ *
+ * MCU → buffer → LED mapping (bench-walked via tools/led_walk.py):
+ *   PC10  → BLUE
+ *   PC12  → GREEN
+ *   ???   → RED (driver hardware-damaged on this bench unit; stock
+ *           firmware pulsed red with a PWM breathing pattern, so the
+ *           original drive is from a TIM channel we haven't located.
+ *           After early-bench-session probing red sits stuck ON
+ *           regardless of MCU state; 2026-05-11 voltmeter check
+ *           showed 8 V across the red LED string at rest (12 V rail,
+ *           LED Vf stack ≈ 4 V), with no response to forced PC11 or
+ *           PC14 HIGH/LOW — consistent with a buffer FET in linear
+ *           region (partial gate-leak failure mode, not clean short).
+ *           Both candidate-driver tests inconclusive.
+ *           Park red as TBD for this unit; retry identification on a
+ *           fresh unit.)
+ *
+ * Earlier comments at PIN_PC10_AF and PIN_PC12_AF described these
+ * pins as "alt-function output" based on stock-fw GPIO init analysis;
+ * that was misleading. The init sets them OUT_PP (general-purpose
+ * push-pull); the "AF" suffix in the macro name was speculative and
+ * is corrected here. */
+#define PIN_LED_BLUE_PORT       GPIOC
+#define PIN_LED_BLUE_PIN        GPIO_PIN_10     /* OUT_PP, active-HIGH */
+#define PIN_LED_GREEN_PORT      GPIOC
+#define PIN_LED_GREEN_PIN       GPIO_PIN_12     /* OUT_PP, active-HIGH */
+/* PIN_LED_RED — TBD (hardware-damaged on this bench unit) */
 
 /* =========================================================================
  *  GFCI CAL (small relay, mains-on confirmed 2026-05-09)

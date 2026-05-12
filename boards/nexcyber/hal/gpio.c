@@ -87,6 +87,8 @@ static void init_outputs_safe_state(void)
     GPIO_ResetBits(PIN_SAFETY_LOOP_EN_PORT,   PIN_SAFETY_LOOP_EN_PIN);
     GPIO_ResetBits(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
     GPIO_ResetBits(PIN_BUTTON_LED_PORT,       PIN_BUTTON_LED_PIN);
+    GPIO_ResetBits(PIN_LED_BLUE_PORT,         PIN_LED_BLUE_PIN);
+    GPIO_ResetBits(PIN_LED_GREEN_PORT,        PIN_LED_GREEN_PIN);
 
     cfg_pin(PIN_CONTACTOR_MAIN_PORT, PIN_CONTACTOR_MAIN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_CONTACTOR_TEST_PORT, PIN_CONTACTOR_TEST_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
@@ -94,6 +96,8 @@ static void init_outputs_safe_state(void)
     cfg_pin(PIN_SAFETY_LOOP_EN_PORT, PIN_SAFETY_LOOP_EN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_BUZZER_PORT,         PIN_BUZZER_PIN,         GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_BUTTON_LED_PORT,     PIN_BUTTON_LED_PIN,     GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_LED_BLUE_PORT,       PIN_LED_BLUE_PIN,       GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
+    cfg_pin(PIN_LED_GREEN_PORT,      PIN_LED_GREEN_PIN,      GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
 }
 
 static void init_cp_pwm_pad(void)
