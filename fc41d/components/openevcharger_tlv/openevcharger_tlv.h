@@ -513,7 +513,12 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   uint32_t ota_total_bytes_{0};
   uint32_t ota_next_offset_{0};
   uint32_t ota_last_io_ms_{0};
-  uint32_t ota_op_timeout_ms_{2000};   // per-ack deadline
+  /* MCU's OTA BEGIN handler runs a synchronous W25Q sector erase before
+   * publishing BEGIN_ACK. Worst case = ceil(image_size/4 KB) sectors ×
+   * datasheet MAX 400 ms ≈ 5.6 s for a ~55 KB image. 8 s covers that
+   * plus margin; chunk-ack work is <10 ms so the same budget is fine
+   * for the AWAIT_CHUNK_ACK path. */
+  uint32_t ota_op_timeout_ms_{8000};   // per-ack deadline
   OtaState ota_state_{OtaState::IDLE};
   uint8_t  ota_last_status_{0xFF};
   uint8_t  ota_seq_begin_{0};

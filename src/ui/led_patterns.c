@@ -31,6 +31,20 @@ void led_override_get(uint8_t *mode, uint8_t rgb_out[3])
  * stepping threshold for steady-state human vision. */
 #define BREATHE_MIN  125u
 
+/* Comet-chase parameters for EVSE_CHARGING.
+ *
+ * Encodes draw rate as angular velocity of a comet around the ring
+ * rather than overall brightness. Speed has ~5% perceptual resolution
+ * end-to-end; 8-bit PWM brightness at low pct has ~10–20% quantization
+ * plateaus that read as flicker. Speed-encoding sidesteps the plateau.
+ *
+ * pixels_per_sec = COMET_MIN_PPS + ratio_pct·(MAX-MIN)/100
+ * At LEDS=134, MIN=30 → 4.5 s/rev; MAX=200 → 0.67 s/rev (1.5 Hz). */
+#define COMET_TAIL_LEN  18u
+#define COMET_MIN_PPS   30u
+#define COMET_MAX_PPS   200u
+#define COMET_BG_PCT    6u   /* dim background, pre-brightness_pct */
+
 static uint8_t breathe(uint32_t t_ms, uint32_t period_ms)
 {
     if (period_ms == 0) return 255;
@@ -69,6 +83,51 @@ static void fill_all(uint8_t r, uint8_t g, uint8_t b, uint8_t pct)
     uint8_t bg = scaled_gamma(b, pct);
     for (unsigned i = 0; i < OPENEVCHARGER_WS2812_LEDS; ++i) {
         ws2812_set_pixel(i, rg, gg, bg);
+    }
+}
+
+/* Render a comet of the given RGB sliding around the ring at a speed
+ * proportional to ratio_pct (0..100). Tail is linear fade from peak to
+ * COMET_BG_PCT over COMET_TAIL_LEN pixels; rest of ring sits at
+ * COMET_BG_PCT. brightness_pct multiplies the whole frame after gamma. */
+static void render_comet(uint32_t t_ms, uint8_t ratio_pct,
+                         uint8_t r, uint8_t g, uint8_t b,
+                         uint8_t brightness_pct)
+{
+    uint32_t pps = (uint32_t)COMET_MIN_PPS +
+                   ((uint32_t)(COMET_MAX_PPS - COMET_MIN_PPS) *
+                    (uint32_t)ratio_pct) / 100u;
+
+    /* Wrap t_ms into a single revolution before scaling to avoid 32-bit
+     * overflow on long uptimes. period_ms ≤ 1000·LEDS/MIN_PPS ≈ 4467 ms
+     * at LEDS=134, so phase_ms · LEDS fits easily in uint32. */
+    uint32_t period_ms = (1000u * OPENEVCHARGER_WS2812_LEDS) / pps;
+    if (period_ms == 0u) period_ms = 1u;
+    uint32_t phase_ms = t_ms % period_ms;
+    uint32_t head_int = (phase_ms * OPENEVCHARGER_WS2812_LEDS) / period_ms;
+
+    /* Pre-compute gamma 2.0 once per frame — the per-pixel work then
+     * collapses to (gx · pct) / 100 instead of three multiplies. */
+    uint32_t gr = ((uint32_t)r * r) / 255u;
+    uint32_t gg = ((uint32_t)g * g) / 255u;
+    uint32_t gb = ((uint32_t)b * b) / 255u;
+
+    for (unsigned i = 0; i < OPENEVCHARGER_WS2812_LEDS; ++i) {
+        uint32_t d = (OPENEVCHARGER_WS2812_LEDS + head_int - i) %
+                     OPENEVCHARGER_WS2812_LEDS;
+        uint32_t pct;
+        if (d < COMET_TAIL_LEN) {
+            pct = COMET_BG_PCT +
+                  ((100u - COMET_BG_PCT) *
+                   (COMET_TAIL_LEN - d)) / COMET_TAIL_LEN;
+        } else {
+            pct = COMET_BG_PCT;
+        }
+        uint32_t combined = (pct * (uint32_t)brightness_pct) / 100u;
+        ws2812_set_pixel(i,
+                         (uint8_t)((gr * combined) / 100u),
+                         (uint8_t)((gg * combined) / 100u),
+                         (uint8_t)((gb * combined) / 100u));
     }
 }
 
@@ -143,33 +202,26 @@ void led_render(const struct led_inputs *in, uint32_t t_ms)
         }
         break;
     case EVSE_CHARGING: {
-        /* Cyan, breathing at 0.5 Hz (period 2 s).  Per spec § 7:
-         * "brightness ∝ active amps / advertised".  When the CT isn't
-         * yet calibrated (active_amps_x10 == 0) we ignore the ratio
-         * and run the breathe envelope at full amplitude — otherwise
-         * the strip would always be ~dim.
+        /* Cyan comet, angular velocity ∝ active_amps / advertised.
          *
-         * Pre-multiplying the linear breathe by ratio_pct *before*
-         * scaled_gamma squashes the input range hard enough that at
-         * low ratios the visible output collapses to ~9 distinct
-         * values across the whole cycle (the same precision-loss
-         * that the scaled_gamma comment at the top of the file warns
-         * about). Compose ratio_pct with brightness_pct into a single
-         * combined pct and pass it through fill_all so gamma sees
-         * the full 125-255 breathe range and the ratio scale happens
-         * after gamma. */
-        uint8_t v = breathe(t_ms, 2000u);
-        uint32_t ratio_pct = 100u;
+         * Prior encoding was breathe-amplitude ∝ ratio: at low ratios
+         * the combined ratio·brightness scale collapsed the gamma'd
+         * output into ~20 distinct levels, producing visible plateau
+         * flicker (especially as BL0939 thermal drift shifted the
+         * plateau alignment across the breathe waveform). Speed is
+         * perceptually high-resolution and bypasses 8-bit brightness
+         * quantization entirely.
+         *
+         * Falls back to 100% (full speed) when the CT isn't yet
+         * calibrated — same "show that we ARE charging hard"
+         * default as the previous full-amplitude breathe fallback. */
+        uint8_t ratio_pct = 100u;
         if (in->advertised_amps > 0u && in->active_amps_x10 > 0u) {
             uint32_t active = (uint32_t)in->active_amps_x10 / 10u;
             if (active > in->advertised_amps) active = in->advertised_amps;
-            ratio_pct = (active * 100u) / in->advertised_amps;
-            if (ratio_pct < 20u) ratio_pct = 20u;  /* keep visible */
+            ratio_pct = (uint8_t)((active * 100u) / in->advertised_amps);
         }
-        uint32_t combined_pct =
-            (ratio_pct * (uint32_t)in->brightness_pct) / 100u;
-        if (combined_pct > 100u) combined_pct = 100u;
-        fill_all(0, v, v, (uint8_t)combined_pct);
+        render_comet(t_ms, ratio_pct, 0, 255, 255, in->brightness_pct);
         break;
     }
     case EVSE_USER_PAUSED: {
