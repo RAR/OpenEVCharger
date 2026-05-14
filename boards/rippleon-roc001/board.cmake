@@ -67,7 +67,7 @@
         src/hal/gd32f205/uart5.c
         src/hal/gd32f205/rfid.c
         src/hal/gd32f205/ws2812.c
-        src/hal/gd32f205/w25q.c
+        src/drivers/w25q.c
         src/persist/crc.c
         src/persist/boot_count.c
         src/persist/pingpong.c

@@ -1,4 +1,4 @@
-#include "hal/w25q.h"
+#include "drivers/w25q.h"
 #include "hal/spi3.h"
 
 #define W25Q_CMD_READ_JEDEC      0x9F

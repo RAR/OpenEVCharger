@@ -1,6 +1,6 @@
 #include "pingpong.h"
 #include "crc.h"
-#include "../hal/w25q.h"
+#include "../drivers/w25q.h"
 #include <string.h>
 
 #define COUNTER_OFF   4U

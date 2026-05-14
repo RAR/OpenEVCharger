@@ -16,7 +16,7 @@
 #include "hal/cp_pwm.h"
 #include "hal/adc_inject.h"
 #include "hal/spi3.h"
-#include "hal/w25q.h"
+#include "drivers/w25q.h"
 #include "hal/flash.h"
 #include "hal/rtc.h"
 #include "core/system_time.h"

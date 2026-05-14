@@ -1,5 +1,5 @@
 #include "w25q_mock.h"
-#include "../../src/hal/w25q.h"
+#include "../../src/drivers/w25q.h"
 
 #include <string.h>
 

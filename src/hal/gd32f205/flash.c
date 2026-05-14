@@ -3,7 +3,7 @@
 #include "persist/ota_stage.h"
 #include "persist/crc.h"
 #include "hal/uart.h"
-#include "hal/w25q.h"
+#include "drivers/w25q.h"
 #include "gd32f20x.h"
 
 #include <string.h>
