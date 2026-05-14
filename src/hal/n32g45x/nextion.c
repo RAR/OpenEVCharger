@@ -11,7 +11,7 @@
  * arrive asynchronously, hence the always-listening RX path.
  */
 
-#include "hal/nextion.h"
+#include "nextion.h"
 #include "hal/uart.h"
 #include "n32g45x.h"
 #include <string.h>

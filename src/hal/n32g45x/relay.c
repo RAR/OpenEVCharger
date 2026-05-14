@@ -5,7 +5,7 @@
  * (PA0 ODR=1, PA1 ODR=0 while contactors closed and current flowing).
  */
 
-#include "hal/relay.h"
+#include "relay_nx.h"
 #include "pin_map.h"
 #include "n32g45x.h"
 

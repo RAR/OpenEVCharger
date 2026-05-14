@@ -14,7 +14,7 @@
  * drives the BL0939 transactions. No locking inside this file.
  */
 
-#include "hal/spi2.h"
+#include "spi2.h"
 #include "pin_map.h"
 #include "n32g45x.h"
 

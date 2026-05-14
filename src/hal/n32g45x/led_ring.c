@@ -4,7 +4,7 @@
  * commentary for the topology + bench identification trail.
  */
 
-#include "hal/led_ring.h"
+#include "led_ring.h"
 #include "pin_map.h"
 #include "n32g45x.h"
 

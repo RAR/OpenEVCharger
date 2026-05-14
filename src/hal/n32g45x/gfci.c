@@ -3,7 +3,7 @@
  * See gfci.h for the polarity / pulse-width rationale. Pad already
  * configured OUT_PP in M2 gpio_init_all. This file just toggles ODR. */
 
-#include "hal/gfci.h"
+#include "gfci_nx.h"
 #include "pin_map.h"
 #include "n32g45x.h"
 

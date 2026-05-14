@@ -9,7 +9,7 @@
  */
 
 #include "hal/bl0939.h"
-#include "hal/spi2.h"
+#include "spi2.h"
 #include "hal/uart.h"
 #include "n32g45x.h"
 

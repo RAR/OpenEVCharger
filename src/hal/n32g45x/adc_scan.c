@@ -13,7 +13,7 @@
  * just reads the buffer when it needs a value.
  */
 
-#include "hal/adc_scan.h"
+#include "adc_scan_nx.h"
 #include "n32g45x.h"
 
 /* DMA destination buffer. The map-file address is what matters for
