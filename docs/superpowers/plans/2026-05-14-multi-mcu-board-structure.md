@@ -21,9 +21,23 @@ These are referenced by name throughout. Board slugs are `rippleon`/`nexcyber` *
 - **BUILD-RIPPLEON:** `cmake -S . -B build/rippleon-roc001 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake -DOPENEVCHARGER_BOARD=<rippleon-slug> && cmake --build build/rippleon-roc001`
 - **BUILD-NEXCYBER:** `cmake -S . -B build/nexcyber-zbu011k -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain-cm4f.cmake -DOPENEVCHARGER_BOARD=<nexcyber-slug> && cmake --build build/nexcyber-zbu011k`
 - **HOST-TESTS:** `cmake -S tests -B build/host && cmake --build build/host && ctest --test-dir build/host --output-on-failure`
-- **DISASM:** `arm-none-eabi-objdump -d <build-dir>/openevcharger.elf | sed '/OPENEVCHARGER_VERSION\|OPENEVCHARGER_GIT_SHA/d' > <name>.asm`
+- **DISASM:** `arm-none-eabi-objdump -d <build-dir>/openevcharger.elf | tail -n +3 > <name>.asm`
+  (`tail -n +3` drops objdump's 2-line header — the filename line varies with how objdump was invoked and is not codegen.)
+- **GATE:** the regression check. `diff <(tail -n +3 <baseline>.asm) <name>.asm`
+  (the Task 1 baselines were captured without the `tail`, so strip their header at
+  compare time). The build embeds the
+  git version + short SHA, which changes every commit and leaks into the disassembly
+  as a few ASCII-immediate loads (e.g. `movs rN, #102` = `'f'`) and `.word` data near
+  the `build_info` symbol. So the diff is **never empty** — that is expected.
+  The GATE **PASSES** iff *every* differing line is attributable to the git
+  version/SHA: an ASCII-range immediate (`movs`/`mov`/`cmp` with `#32`–`#126`) or a
+  `.word`/`.byte` data line, all clustered around `build_info`. The GATE **FAILS** if
+  there is any other instruction change — different opcodes, register allocation,
+  branch targets, or new/removed code. On FAIL: stop, report the diff, do not commit.
+  (Earlier plan revisions tried `sed`-filtering the macro names — that does not work,
+  `objdump -d` output contains the disassembled SHA *bytes*, not the macro names.)
 
-A fresh `cmake -S . -B …` is required after any task that moves files or edits `CMakeLists.txt`/`board.cmake` (delete the build dir first).
+A fresh `cmake -S . -B …` is required after any task that moves files or edits `CMakeLists.txt`/`board.cmake` (delete the build dir first). Per-task steps below say "Expected: `IDENTICAL`" — read that as "passes the GATE criterion above": no instruction changes beyond git build-info noise.
 
 ---
 
