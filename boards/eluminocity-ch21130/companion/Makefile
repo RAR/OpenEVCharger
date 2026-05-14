@@ -8,7 +8,10 @@
 
 CROSS  ?= armv5l-linux-musleabi-
 CC     ?= cc
-CFLAGS ?= -Wall -Wextra -std=c11 -O2 -Isrc
+CFLAGS_WARN := -Wall -Wextra
+CFLAGS_STD  := -std=c11
+CFLAGS_OPT  ?= -O2
+CFLAGS       = $(CFLAGS_WARN) $(CFLAGS_STD) $(CFLAGS_OPT) -Isrc
 
 SRC := src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
        src/mqtt_adapter.c src/config.c src/main.c

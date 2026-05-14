@@ -4,6 +4,7 @@
 #ifndef TEST_HARNESS_H
 #define TEST_HARNESS_H
 #include <stdio.h>
+#include <string.h>
 
 static int tests_run = 0;
 static int tests_failed = 0;
@@ -28,10 +29,11 @@ static int tests_failed = 0;
 
 #define CHECK_STR(a, b) do {                                               \
     tests_run++;                                                           \
-    if (strcmp((a), (b)) != 0) {                                           \
+    const char *_a = (a), *_b = (b);                                       \
+    if (strcmp(_a, _b) != 0) {                                             \
         tests_failed++;                                                    \
         fprintf(stderr, "FAIL %s:%d: \"%s\" == \"%s\"\n",                  \
-                __FILE__, __LINE__, (a), (b));                             \
+                __FILE__, __LINE__, _a, _b);                               \
     }                                                                      \
 } while (0)
 
