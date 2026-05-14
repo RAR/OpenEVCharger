@@ -23,19 +23,24 @@ These are referenced by name throughout. Board slugs are `rippleon`/`nexcyber` *
 - **HOST-TESTS:** `cmake -S tests -B build/host && cmake --build build/host && ctest --test-dir build/host --output-on-failure`
 - **DISASM:** `arm-none-eabi-objdump -d <build-dir>/openevcharger.elf | tail -n +3 > <name>.asm`
   (`tail -n +3` drops objdump's 2-line header — the filename line varies with how objdump was invoked and is not codegen.)
-- **GATE:** the regression check. `diff <(tail -n +3 <baseline>.asm) <name>.asm`
-  (the Task 1 baselines were captured without the `tail`, so strip their header at
-  compare time). The build embeds the
-  git version + short SHA, which changes every commit and leaks into the disassembly
-  as a few ASCII-immediate loads (e.g. `movs rN, #102` = `'f'`) and `.word` data near
-  the `build_info` symbol. So the diff is **never empty** — that is expected.
-  The GATE **PASSES** iff *every* differing line is attributable to the git
-  version/SHA: an ASCII-range immediate (`movs`/`mov`/`cmp` with `#32`–`#126`) or a
-  `.word`/`.byte` data line, all clustered around `build_info`. The GATE **FAILS** if
-  there is any other instruction change — different opcodes, register allocation,
-  branch targets, or new/removed code. On FAIL: stop, report the diff, do not commit.
-  (Earlier plan revisions tried `sed`-filtering the macro names — that does not work,
-  `objdump -d` output contains the disassembled SHA *bytes*, not the macro names.)
+- **GATE:** the regression check — does the task change compiled code? The build embeds
+  the git version/SHA, which varies every commit (and gains a `-dirty` suffix when built
+  on an uncommitted tree), changing the embedded string's length. That shifts every
+  `.rodata` address, so a raw `objdump` diff shows a storm of `.word`/`.byte` data-line
+  changes that are pure relocation noise, plus a few ASCII-immediate `movs` loads of the
+  SHA characters. None of that is a regression. Check **instructions only**:
+  ```
+  diff <(tail -n +3 <baseline>.asm | grep -vE '\t\.(word|byte|short)\b') \
+       <(grep -vE '\t\.(word|byte|short)\b' <name>.asm)
+  ```
+  The GATE **PASSES** iff that instruction-only diff is empty OR every differing line is
+  an ASCII-range immediate load (`movs`/`mov`/`cmp` with `#32`–`#126`) — a git-SHA
+  character. As a cross-check, confirm the excluded `.word` changes are uniform address
+  shifts (paired `<`/`>` values differ by a small constant), not scattered value changes.
+  The GATE **FAILS** on any other instruction change — different opcodes, registers,
+  branch targets, or added/removed code. On FAIL: stop, report the diff, do not commit.
+  (Do NOT shim `git` or overwrite the Task 1 baselines to force a clean diff — the
+  instruction-only filter is the principled comparison.)
 
 A fresh `cmake -S . -B …` is required after any task that moves files or edits `CMakeLists.txt`/`board.cmake` (delete the build dir first). Per-task steps below say "Expected: `IDENTICAL`" — read that as "passes the GATE criterion above": no instruction changes beyond git build-info noise.
 
