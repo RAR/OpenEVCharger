@@ -52,6 +52,7 @@
         src/core/system_state.c
         src/core/system_time.c
         src/hal/gd32f205/clock.c
+        src/hal/gd32f205/board_init.c
         src/hal/gd32f205/wdg.c
         src/hal/gd32f205/uart.c
         src/hal/gd32f205/gpio.c
