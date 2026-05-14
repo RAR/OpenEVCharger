@@ -56,3 +56,38 @@ const char *evse_state_str(enum evse_state s)
     default:                   return "unknown";
     }
 }
+
+unsigned int charger_state_diff(const struct charger_state *prev,
+                                const struct charger_state *cur)
+{
+    unsigned int d = 0;
+    if (prev->voltage_v  != cur->voltage_v)  d |= CS_DIRTY_VOLTAGE;
+    if (prev->current_a  != cur->current_a)  d |= CS_DIRTY_CURRENT;
+    if (prev->stm32_link != cur->stm32_link) d |= CS_DIRTY_LINK;
+    if (prev->heartbeat  != cur->heartbeat)  d |= CS_DIRTY_HEARTBEAT;
+    if (prev->evse_state != cur->evse_state) d |= CS_DIRTY_EVSE_STATE;
+    if (prev->fault_bits != cur->fault_bits) d |= CS_DIRTY_FAULTS;
+    return d;
+}
+
+/* Alarm-slot names. RE-derived from docs/01 / docs/02 ("31-alarm fault catalog
+ * confirmed from Pri_Comm .data"). Slots whose name is not yet confirmed ship
+ * as "RESERVED_nn" — a real, shippable value, refined as bench work confirms.
+ * BENCH-VERIFY-PENDING: also confirm byte-vs-bit semantics of the bitmap (M0). */
+static const char *const FAULT_NAMES[CHARGER_MAX_FAULTS] = {
+    "RCD",          "RCDTRIP",      "GMI",          "OVP",
+    "UVP",          "OCP",          "WELDING",      "PILOTERROR",
+    "AMBIENT_OTP",  "RA_WATCHDOG",  "RA_CPU",       "RA_RAM",
+    "RESERVED_12",  "RESERVED_13",  "RESERVED_14",  "RESERVED_15",
+    "RESERVED_16",  "RESERVED_17",  "RESERVED_18",  "RESERVED_19",
+    "RESERVED_20",  "RESERVED_21",  "RESERVED_22",  "RESERVED_23",
+    "RESERVED_24",  "RESERVED_25",  "RESERVED_26",  "RESERVED_27",
+    "RESERVED_28",  "RESERVED_29",  "RESERVED_30",  "RESERVED_31",
+};
+
+const char *charger_fault_name(int i)
+{
+    if (i < 0 || i >= CHARGER_MAX_FAULTS)
+        return "UNKNOWN";
+    return FAULT_NAMES[i];
+}

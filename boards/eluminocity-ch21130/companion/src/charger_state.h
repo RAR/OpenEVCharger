@@ -33,4 +33,21 @@ void charger_state_read(struct charger_state *cs, const struct shmem *sm);
 /* Human-readable EVSE-state string for publishing. */
 const char *evse_state_str(enum evse_state s);
 
+/* Dirty-flag bits returned by charger_state_diff(). */
+#define CS_DIRTY_VOLTAGE    (1u << 0)
+#define CS_DIRTY_CURRENT    (1u << 1)
+#define CS_DIRTY_LINK       (1u << 2)
+#define CS_DIRTY_HEARTBEAT  (1u << 3)
+#define CS_DIRTY_EVSE_STATE (1u << 4)
+#define CS_DIRTY_FAULTS     (1u << 5)
+
+/* Returns the OR of CS_DIRTY_* bits for every field that differs between
+ * `prev` and `cur`. 0 means identical. */
+unsigned int charger_state_diff(const struct charger_state *prev,
+                                const struct charger_state *cur);
+
+/* Name of alarm slot `i` (0..CHARGER_MAX_FAULTS-1). Out-of-range returns
+ * "UNKNOWN". Names are RE-derived; refine from docs/01 as bench work confirms. */
+const char *charger_fault_name(int i);
+
 #endif /* CHARGER_STATE_H */

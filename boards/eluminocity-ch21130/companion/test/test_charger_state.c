@@ -36,6 +36,21 @@ int main(void)
     CHECK_STR(evse_state_str(EVSE_STATE_CHARGING), "charging");
     CHECK_STR(evse_state_str(EVSE_STATE_UNKNOWN), "unknown");
 
+    /* --- change detection --- */
+    struct charger_state a, b;
+    charger_state_init(&a);
+    charger_state_init(&b);
+    a.voltage_v = 120; a.current_a = 16;
+    b.voltage_v = 120; b.current_a = 16;
+    CHECK_EQ(charger_state_diff(&a, &b), 0);          /* identical -> no dirty bits */
+    b.current_a = 17;
+    CHECK_EQ(charger_state_diff(&a, &b) & CS_DIRTY_CURRENT, CS_DIRTY_CURRENT);
+    CHECK_EQ(charger_state_diff(&a, &b) & CS_DIRTY_VOLTAGE, 0);
+
+    /* --- fault names --- */
+    CHECK_STR(charger_fault_name(0), "RCD");
+    CHECK(charger_fault_name(99) != NULL);            /* out-of-range is safe */
+
     shmem_release(&sm);
     TEST_MAIN_END();
 }
