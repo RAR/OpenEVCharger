@@ -1,9 +1,11 @@
 # OpenEVCharger — Nexcyber board port (in progress)
 
-**Status:** M2 bring-up — clock + log UART + FreeRTOS scheduler +
-heartbeat task + GPIO HAL for every confirmed pin. Buildable, not
-yet flashable to a real EVSE (no safety core, no peripherals beyond
-log UART).
+**Status:** N32G45x HAL ported and building. Two targets available
+(see Build below). The bench-harness target (`openevcharger-nexcyber-bringup`)
+is the image actually flashed during bring-up. The production target
+(`openevcharger`) compiles and links against `src/main.c` but is a
+compile/link gate — the N32 HAL uses `OEVC_HAL_STUB()` for several
+peripherals and is not yet functional on hardware.
 
 This directory holds the board-specific scaffolding for porting
 OpenEVCharger to the Nexcyber AC EVSE — actually a Zopoise `ZBU011K-C00X`
@@ -17,33 +19,38 @@ For overall feasibility, effort estimate, and architectural decisions
 see [`docs/ports/nexcyber-feasibility.md`](../../docs/ports/nexcyber-feasibility.md)
 in the OpenEVCharger root.
 
-## What's here (M0 → M2)
+## What's here
 
-| File | Purpose | Status |
-|---|---|---|
-| `pin_map.h` | All confirmed pins from the 2026-05-07 SWD firmware dump + 2026-05-09 mains-on wiggle | 27 of ~36 pins confirmed; 7 ULN2003 outputs + 3 candidate digital inputs still need bench resolution (EV-simulator pass through state-B/C) |
-| `n32g457.ld` | Linker: 120 KB FLASH + 8 KB PERSIST + 80 KB RAM | Drafted; assumes 2 KB sector geometry (per N32G45x reference manual) — bench-confirm before first flash erase |
-| `hal/clock.c` | Clock bring-up | M0 — trusts SDK SystemInit (HSE_PLL → 144 MHz default); publishes the rate via printk |
-| `hal/uart.c` | USART1 (PA9/PA10) at 115200 8N1 + printk | M0 — bare-metal, no FreeRTOS or timestamp prefix; same `uart_init` / `uart_write` / `printk` surface as rippleon's `src/hal/uart.c` |
-| `hal/gpio.c` | One-shot config for every confirmed pin in `pin_map.h` | M2 — same `gpio_init_all()` / `gpio_log_straps()` surface as rippleon's `src/hal/gpio.c`. 3 outputs (buzzer / GFCI CAL / peripheral-EN) + 1 AF pad (CP_PWM) + 6 digital inputs + 5 ADC AIN pads. TBD pins (PA0/PA1/PA15/PB8/PB9/PC8/PC10) deliberately left at reset default until bench identifies their loads |
-| `main.c` | M2 entry point | Clock + UART + GPIO HAL up, then `vTaskStartScheduler()` with a single 1 Hz `heartbeat_task` (`vTaskDelay(pdMS_TO_TICKS(1000))`). Smallest proof that the scheduler ticks |
+| File | Purpose |
+|---|---|
+| `board.cmake` | CMake board definition: N32G45x SDK paths, Cortex-M4F flags, N32 HAL source lists, linker script wiring, and both target definitions (`openevcharger` + `openevcharger-nexcyber-bringup`) |
+| `pin_map.h` | All confirmed pins from the 2026-05-07 SWD firmware dump + bench wiggle sessions. 27 of ~36 pins confirmed; 7 ULN2003 outputs + 3 candidate digital inputs still need bench resolution (EV-simulator pass through state-B/C) |
+| `n32g45x.ld` | Linker: 120 KB FLASH + 8 KB PERSIST + 80 KB RAM. Assumes 2 KB sector geometry (per N32G45x reference manual) — bench-confirm before first flash erase |
+| `bench/bringup_main.c` | Entry point for the M0-M4 bench-harness target. Clock + UART + GPIO HAL up, then `vTaskStartScheduler()` with a 1 Hz heartbeat task. The image actually flashed to the bench unit |
+
+The N32G45x HAL implementations live in `src/hal/n32g45x/` (shared
+across both targets). Board-unique peripherals (Nextion display, LED
+ring, SPI2) have their own headers there (`nextion.h`, `led_ring.h`,
+`spi2.h`). Peripherals whose API diverges between boards carry
+board-specific `*_nx.h` headers (`adc_scan_nx.h`, `gfci_nx.h`,
+`relay_nx.h`).
 
 ## Build
 
 ```bash
-cmake -S . -B build_nexcyber -G Ninja \
+# Bench-harness target (the image flashed during bring-up):
+cmake -S . -B build/nexcyber-zbu011k -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain-cm4f.cmake \
-    -DOPENEVCHARGER_BOARD=nexcyber
-cmake --build build_nexcyber
+    -DOPENEVCHARGER_BOARD=nexcyber-zbu011k
+cmake --build build/nexcyber-zbu011k --target openevcharger-nexcyber-bringup
+
+# Production target (compile-gate only — not yet functional on hardware):
+cmake --build build/nexcyber-zbu011k --target openevcharger
 ```
 
-Output: `build_nexcyber/openevcharger.{elf,bin,hex,map}`. Current
-sizes — ~6.9 KB FLASH / ~19 KB RAM (mostly the 16 KB heap_4
-reservation; actual M2 static usage is ~3.2 KB). They grow as M3+
-HAL files port.
-
-The rippleon target (`OPENEVCHARGER_BOARD=rippleon`, default) is
-unaffected and continues to build with the existing M3 toolchain file.
+Output in `build/nexcyber-zbu011k/`. The Rippleon target
+(`OPENEVCHARGER_BOARD=rippleon-roc001`, default) is unaffected and
+continues to build with the Cortex-M3 toolchain file.
 
 ## Roadmap — what's still TODO
 
