@@ -1,5 +1,5 @@
-#include "rtc.h"
-#include "uart.h"
+#include "hal/rtc.h"
+#include "hal/uart.h"
 #include "gd32f20x.h"
 #include "gd32f20x_rtc.h"
 #include "gd32f20x_bkp.h"

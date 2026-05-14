@@ -1,5 +1,5 @@
-#include "w25q.h"
-#include "spi3.h"
+#include "hal/w25q.h"
+#include "hal/spi3.h"
 
 #define W25Q_CMD_READ_JEDEC      0x9F
 #define W25Q_CMD_READ_STATUS_1   0x05

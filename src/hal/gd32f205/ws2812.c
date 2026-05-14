@@ -1,4 +1,4 @@
-#include "ws2812.h"
+#include "hal/ws2812.h"
 #include "pin_map.h"
 #include "gd32f20x.h"
 

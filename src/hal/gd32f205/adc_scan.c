@@ -1,4 +1,4 @@
-#include "adc_scan.h"
+#include "hal/adc_scan.h"
 #include "gd32f20x.h"
 
 /* DMA destination buffer. The map-file address is what matters for the

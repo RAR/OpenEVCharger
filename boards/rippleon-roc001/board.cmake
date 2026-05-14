@@ -51,23 +51,23 @@
         src/core/rfid.c
         src/core/system_state.c
         src/core/system_time.c
-        src/hal/clock.c
-        src/hal/wdg.c
-        src/hal/uart.c
-        src/hal/gpio.c
-        src/hal/adc_scan.c
-        src/hal/adc_inject.c
-        src/hal/cp_pwm.c
-        src/hal/relay.c
-        src/hal/gfci.c
-        src/hal/rtc.c
-        src/hal/bl0939.c
-        src/hal/spi3.c
-        src/hal/flash.c
-        src/hal/uart5.c
-        src/hal/rfid.c
-        src/hal/ws2812.c
-        src/hal/w25q.c
+        src/hal/gd32f205/clock.c
+        src/hal/gd32f205/wdg.c
+        src/hal/gd32f205/uart.c
+        src/hal/gd32f205/gpio.c
+        src/hal/gd32f205/adc_scan.c
+        src/hal/gd32f205/adc_inject.c
+        src/hal/gd32f205/cp_pwm.c
+        src/hal/gd32f205/relay.c
+        src/hal/gd32f205/gfci.c
+        src/hal/gd32f205/rtc.c
+        src/hal/gd32f205/bl0939.c
+        src/hal/gd32f205/spi3.c
+        src/hal/gd32f205/flash.c
+        src/hal/gd32f205/uart5.c
+        src/hal/gd32f205/rfid.c
+        src/hal/gd32f205/ws2812.c
+        src/hal/gd32f205/w25q.c
         src/persist/crc.c
         src/persist/boot_count.c
         src/persist/pingpong.c

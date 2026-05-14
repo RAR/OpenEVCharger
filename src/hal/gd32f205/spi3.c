@@ -1,4 +1,4 @@
-#include "spi3.h"
+#include "hal/spi3.h"
 #include "pin_map.h"
 #include "gd32f20x.h"
 

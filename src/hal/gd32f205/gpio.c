@@ -1,5 +1,5 @@
-#include "gpio.h"
-#include "uart.h"
+#include "hal/gpio.h"
+#include "hal/uart.h"
 #include "pin_map.h"
 #include "gd32f20x.h"
 

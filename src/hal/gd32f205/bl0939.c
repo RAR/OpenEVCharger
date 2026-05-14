@@ -1,6 +1,6 @@
-#include "bl0939.h"
+#include "hal/bl0939.h"
 #include "pin_map.h"
-#include "../hal/uart.h"
+#include "hal/uart.h"
 #include "../persist/calibration.h"
 #include "gd32f20x.h"
 

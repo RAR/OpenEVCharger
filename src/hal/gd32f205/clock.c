@@ -1,5 +1,5 @@
-#include "clock.h"
-#include "uart.h"
+#include "hal/clock.h"
+#include "hal/uart.h"
 #include "gd32f20x.h"
 
 #ifndef OPENEVCHARGER_REAL_120M_PLL

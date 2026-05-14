@@ -1,4 +1,4 @@
-#include "adc_inject.h"
+#include "hal/adc_inject.h"
 #include "gd32f20x.h"
 #include "../persist/calibration.h"
 

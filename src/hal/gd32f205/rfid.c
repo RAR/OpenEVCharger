@@ -1,4 +1,4 @@
-#include "rfid.h"
+#include "hal/rfid.h"
 #include "pin_map.h"
 #include "gd32f20x.h"
 

@@ -1,9 +1,9 @@
-#include "flash.h"
-#include "../persist/boot_config.h"
-#include "../persist/ota_stage.h"
-#include "../persist/crc.h"
-#include "../hal/uart.h"
-#include "../hal/w25q.h"
+#include "hal/flash.h"
+#include "persist/boot_config.h"
+#include "persist/ota_stage.h"
+#include "persist/crc.h"
+#include "hal/uart.h"
+#include "hal/w25q.h"
 #include "gd32f20x.h"
 
 #include <string.h>

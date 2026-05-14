@@ -1,4 +1,4 @@
-#include "uart.h"
+#include "hal/uart.h"
 #include "pin_map.h"
 #include "core/system_time.h"
 #include "gd32f20x.h"

@@ -1,4 +1,4 @@
-#include "wdg.h"
+#include "hal/wdg.h"
 #include "gd32f20x.h"
 
 /* LSI nominal = 40 kHz. With prescaler /32 and reload counter = 1250:

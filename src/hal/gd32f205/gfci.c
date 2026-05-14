@@ -1,7 +1,7 @@
-#include "gfci.h"
+#include "hal/gfci.h"
 #include "pin_map.h"
-#include "../hal/uart.h"
-#include "../hal/wdg.h"
+#include "hal/uart.h"
+#include "hal/wdg.h"
 #include "gd32f20x.h"
 
 /* PE2 is configured as input pull-up by gpio_init_all() (it appeared

@@ -1,4 +1,4 @@
-#include "cp_pwm.h"
+#include "hal/cp_pwm.h"
 #include "gd32f20x.h"
 
 /* TIMER0 clock = 120 MHz (APB2 = 60 MHz × 2 because APB2 prescaler != 1

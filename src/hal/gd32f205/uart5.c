@@ -1,4 +1,4 @@
-#include "uart5.h"
+#include "hal/uart5.h"
 #include "pin_map.h"
 #include "gd32f20x.h"
 

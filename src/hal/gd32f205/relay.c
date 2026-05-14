@@ -1,6 +1,6 @@
-#include "relay.h"
+#include "hal/relay.h"
 #include "pin_map.h"
-#include "../hal/adc_scan.h"
+#include "hal/adc_scan.h"
 #include "gd32f20x.h"
 
 /* PE12 polarity (re-confirmed 2026-05-03 afternoon): HIGH = closed,
