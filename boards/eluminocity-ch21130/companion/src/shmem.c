@@ -50,7 +50,7 @@ int shmem_load_file(struct shmem *sm, const char *path)
 
 void shmem_release(struct shmem *sm)
 {
-    if (sm->shmid >= 0 && sm->base)
+    if (sm->base && sm->shmid >= 0)
         shmdt(sm->base);
     if (sm->owned)
         free(sm->owned);
@@ -68,6 +68,10 @@ unsigned char shmem_u8(const struct shmem *sm, size_t off)
 void shmem_copy(const struct shmem *sm, size_t off, void *dst, size_t len)
 {
     unsigned char *d = dst;
+    if (!sm->base || off >= sm->size) {
+        memset(dst, 0, len);
+        return;
+    }
     for (size_t i = 0; i < len; i++)
         d[i] = shmem_u8(sm, off + i);
 }

@@ -1,4 +1,3 @@
-#include <string.h>
 #include "test_harness.h"
 #include "shmem.h"
 #include "shmem_offsets.h"
@@ -13,6 +12,8 @@ int main(void)
     CHECK_EQ(shmem_u8(&sm, OFF_STM32_LINK),      0x01);
     CHECK_EQ(shmem_u8(&sm, OFF_VRMS),            0x78);
     CHECK_EQ(shmem_u8(&sm, OFF_IRMS),            0x10);
+    CHECK_EQ(shmem_u8(&sm, OFF_FAULT_FLAGS),     0x42);
+    CHECK_EQ(shmem_u8(&sm, OFF_FW_UPGRADE_GATE), 0x09);
 
     /* out-of-range offset returns 0 defensively, never crashes */
     CHECK_EQ(shmem_u8(&sm, SHMEM_SIZE + 100), 0);
