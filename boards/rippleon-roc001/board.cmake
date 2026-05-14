@@ -56,6 +56,7 @@
         src/hal/gd32f205/wdg.c
         src/hal/gd32f205/uart.c
         src/hal/gd32f205/gpio.c
+        src/hal/gd32f205/reset_cause.c
         src/hal/gd32f205/adc_scan.c
         src/hal/gd32f205/adc_inject.c
         src/hal/gd32f205/cp_pwm.c

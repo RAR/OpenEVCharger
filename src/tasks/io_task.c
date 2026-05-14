@@ -10,10 +10,10 @@
 #include "hal/adc_scan.h"
 #include "hal/adc_inject.h"
 #include "hal/ws2812.h"
+#include "hal/gpio.h"
 #include "tasks/persist_task.h"
 #include "tasks/safety_task.h"
 #include "diag/stack_watch.h"
-#include "gd32f20x.h"
 
 /* 20 ms = 50 fps LED render cadence. All other periodic work in this
  * task (heartbeat 500 ms, ADC dump 5 s, alive marker 60 s, stack dump
@@ -73,8 +73,7 @@ static void io_task_run(void *arg)
     for (;;) {
         if ((ms % HB_TOGGLE_MS) == 0) {
             hb_level ^= 1;
-            if (hb_level) gpio_bit_set(PIN_HEARTBEAT_PORT, PIN_HEARTBEAT_PIN);
-            else          gpio_bit_reset(PIN_HEARTBEAT_PORT, PIN_HEARTBEAT_PIN);
+            gpio_pin_write(PIN_HEARTBEAT_PORT, PIN_HEARTBEAT_PIN, hb_level);
         }
 
         buttons_poll();

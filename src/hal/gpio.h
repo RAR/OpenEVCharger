@@ -20,4 +20,10 @@ void gpio_log_straps(void);
  * Returns 1 if held (active-low), 0 if released. */
 int  gpio_dip4_held(void);
 
+/* Write/read a single GPIO pin by (port, pin) handle. The port/pin values
+ * come from the board's pin_map.h PIN_*_PORT / PIN_*_PIN macros — opaque
+ * here, interpreted by the per-chip implementation. level: non-zero = high. */
+void gpio_pin_write(uint32_t port, uint16_t pin, int level);
+int  gpio_pin_read(uint32_t port, uint16_t pin);
+
 #endif

@@ -190,3 +190,20 @@ void gpio_log_straps(void)
     printk("straps: touch=%d%d btn=%d stop=%d mains=%d%d\n",
            tch1, tch2, btn, stop, ma, mb);
 }
+
+/* Chip-neutral single-pin write/read. The shared core passes the
+ * board's PIN_*_PORT macro through as a uint32_t handle; on the N32G45x
+ * those macros expand to `(GPIO_Module *)GPIOx_BASE`, so we round-trip
+ * the handle back to a GPIO_Module pointer here. */
+void gpio_pin_write(uint32_t port, uint16_t pin, int level)
+{
+    GPIO_Module *gpio = (GPIO_Module *)port;
+    if (level) GPIO_SetBits(gpio, pin);
+    else       GPIO_ResetBits(gpio, pin);
+}
+
+int gpio_pin_read(uint32_t port, uint16_t pin)
+{
+    GPIO_Module *gpio = (GPIO_Module *)port;
+    return GPIO_ReadInputDataBit(gpio, pin) ? 1 : 0;
+}

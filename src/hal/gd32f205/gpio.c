@@ -139,3 +139,14 @@ int gpio_dip4_held(void)
     /* Active-low: 0 = held to GND (slid to "ON"), 1 = open (pull-up). */
     return (gpio_input_bit_get(PIN_DIP4_PORT, PIN_DIP4_PIN) == SET) ? 0 : 1;
 }
+
+void gpio_pin_write(uint32_t port, uint16_t pin, int level)
+{
+    if (level) gpio_bit_set(port, pin);
+    else       gpio_bit_reset(port, pin);
+}
+
+int gpio_pin_read(uint32_t port, uint16_t pin)
+{
+    return (gpio_input_bit_get(port, pin) == SET) ? 1 : 0;
+}
