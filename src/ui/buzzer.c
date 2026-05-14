@@ -1,6 +1,6 @@
 #include "buzzer.h"
-#include "../core/pin_map.h"
-#include "gd32f20x.h"
+#include "hal/gpio.h"
+#include "pin_map.h"
 
 static buzzer_pattern_t s_pattern = BUZ_OFF;
 static uint32_t         s_pattern_start_ms = 0;
@@ -8,8 +8,7 @@ static uint16_t         s_oneshot_ms = 0;
 
 static void buzz_set(int on)
 {
-    if (on) gpio_bit_set(PIN_BUZZER_PORT, PIN_BUZZER_PIN);
-    else    gpio_bit_reset(PIN_BUZZER_PORT, PIN_BUZZER_PIN);
+    gpio_pin_write(PIN_BUZZER_PORT, PIN_BUZZER_PIN, on ? 1 : 0);
 }
 
 void buzzer_init(void)

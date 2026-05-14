@@ -1,6 +1,6 @@
 #include "boot_count.h"
 #include "crc.h"
-#include "../hal/w25q.h"
+#include "../drivers/w25q.h"
 #include <string.h>
 
 #define BOOT_COUNT_SECTOR  0x04C000U

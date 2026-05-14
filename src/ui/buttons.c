@@ -1,8 +1,8 @@
 #include "buttons.h"
 #include "hal/uart.h"
 #include "hal/adc_scan.h"
-#include "core/pin_map.h"
-#include "gd32f20x.h"
+#include "hal/gpio.h"
+#include "pin_map.h"
 
 /* Threshold bands for the PC3 resistor ladder. Bench-tunable in the
  * M2.6 validation step once raw values are observed. */
@@ -77,7 +77,7 @@ void buttons_poll(void)
     }
 
     /* PC9 GPIO */
-    int pressed = (gpio_input_bit_get(PIN_BTN_PC9_PORT, PIN_BTN_PC9_PIN) == RESET) ? 1 : 0;
+    int pressed = (gpio_pin_read(PIN_BTN_PC9_PORT, PIN_BTN_PC9_PIN) == 0) ? 1 : 0;
     if (pressed == s_pc9_candidate) {
         if (s_pc9_count < DEBOUNCE_N) ++s_pc9_count;
     } else {

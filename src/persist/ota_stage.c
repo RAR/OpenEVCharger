@@ -1,6 +1,6 @@
 #include "ota_stage.h"
 #include "boot_config.h"
-#include "../hal/w25q.h"
+#include "../drivers/w25q.h"
 
 #include <string.h>
 

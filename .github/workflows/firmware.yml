@@ -7,10 +7,28 @@ on:
   workflow_dispatch:
 
 jobs:
-  rippleon:
-    name: rippleon (GD32F205VE, Cortex-M3)
+  build:
+    name: ${{ matrix.board }} (${{ matrix.mcu }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: rippleon-roc001
+            mcu: GD32F205VG, Cortex-M3
+            toolchain: cmake/arm-none-eabi-toolchain.cmake
+            continue-on-error: false
+          - board: nexcyber-zbu011k
+            mcu: N32G45x, Cortex-M4F
+            toolchain: cmake/arm-none-eabi-toolchain-cm4f.cmake
+            # Production target is a compile/link gate until the board
+            # ports through clock + UART + GPIO + persistence (M0–M3) on
+            # the bench. Until bench-validated the nexcyber build is
+            # informational, not a PR gate — per the repo's convention for
+            # new-board CI rows.
+            continue-on-error: true
+    continue-on-error: ${{ matrix.continue-on-error }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,32 +46,37 @@ jobs:
         with:
           release: '13.2.Rel1'
 
-      - name: Configure (rippleon)
+      - name: Configure + build ${{ matrix.board }}
+        continue-on-error: ${{ matrix.continue-on-error }}
         run: |
-          cmake -S . -B build/rippleon -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake \
-            -DOPENEVCHARGER_BOARD=rippleon
-
-      - name: Build
-        run: cmake --build build/rippleon
+          cmake -S . -B build/${{ matrix.board }} -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=${{ matrix.toolchain }} \
+            -DOPENEVCHARGER_BOARD=${{ matrix.board }}
+          cmake --build build/${{ matrix.board }}
 
       - name: Report size
+        continue-on-error: ${{ matrix.continue-on-error }}
         run: |
           {
-            echo '## Firmware size — rippleon';
+            echo '## Firmware size — ${{ matrix.board }}';
             echo '```';
-            arm-none-eabi-size build/rippleon/openevcharger.elf;
+            arm-none-eabi-size build/${{ matrix.board }}/openevcharger.elf;
+            for f in build/${{ matrix.board }}/openevcharger-*-bringup.elf; do
+              [ -f "$f" ] && arm-none-eabi-size "$f";
+            done
             echo '```';
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openevcharger-rippleon
+          name: openevcharger-${{ matrix.board }}
           path: |
-            build/rippleon/openevcharger.elf
-            build/rippleon/openevcharger.bin
-            build/rippleon/openevcharger.hex
-            build/rippleon/openevcharger.map
-          if-no-files-found: error
+            build/${{ matrix.board }}/openevcharger.elf
+            build/${{ matrix.board }}/openevcharger.bin
+            build/${{ matrix.board }}/openevcharger.hex
+            build/${{ matrix.board }}/openevcharger.map
+            build/${{ matrix.board }}/openevcharger-nexcyber-bringup.elf
+            build/${{ matrix.board }}/openevcharger-nexcyber-bringup.bin
+          if-no-files-found: warn
           retention-days: 30

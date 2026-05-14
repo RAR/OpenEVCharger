@@ -8,12 +8,13 @@
 #include "../hal/gfci.h"
 #include "../hal/bl0939.h"
 #include "../hal/rfid.h"
+#include "../hal/gpio.h"
 #include "../core/j1772.h"
 #include "../core/fault.h"
 #include "../core/evse_state.h"
 #include "../core/over_temp.h"
 #include "../core/rfid.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "../persist/crash_state.h"
 #include "../persist/event_log.h"
 #include "../persist/session_log.h"
@@ -26,7 +27,6 @@
 #include "comms_task.h"
 #include "../diag/stack_watch.h"
 #include "queue.h"
-#include "gd32f20x.h"
 
 /* Cross-task control inbox (TLV CLEAR_FAULT / pause / resume). */
 typedef enum {
@@ -456,7 +456,7 @@ static void session_end(session_end_reason_t reason)
  * reads LOW). Spec § 3 + § 4 #11. */
 static uint8_t effective_advertised_amps(void)
 {
-    int dip1_closed = (gpio_input_bit_get(PIN_DIP1_PORT, PIN_DIP1_PIN) == RESET) ? 1 : 0;
+    int dip1_closed = (gpio_pin_read(PIN_DIP1_PORT, PIN_DIP1_PIN) == 0) ? 1 : 0;
     uint8_t hw_cap   = HW_AMPS_MAX;
     uint8_t dip1_cap = dip1_closed ? DIP1_AMPS_CLOSED : DIP1_AMPS_OPEN;
     uint8_t cap = (dip1_cap < hw_cap) ? dip1_cap : hw_cap;

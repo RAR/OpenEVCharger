@@ -1,7 +1,7 @@
 #include "calibration.h"
 #include "pingpong.h"
 #include "../hal/uart.h"
-#include "gd32f20x.h"
+#include "cmsis_gcc.h"   /* __disable_irq / __enable_irq — CMSIS-core, chip-neutral */
 #include <string.h>
 
 static struct calibration s_cal;

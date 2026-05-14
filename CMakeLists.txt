@@ -1,107 +1,32 @@
 cmake_minimum_required(VERSION 3.20)
 
-# The toolchain file MUST be set on the cmake command line via
-# -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake
+# The toolchain file MUST be set on the cmake command line:
+#   -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake       (rippleon-roc001, Cortex-M3)
+#   -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain-cm4f.cmake  (nexcyber-zbu011k, Cortex-M4F)
 project(openevcharger C ASM)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
 
-# ---------- Vendor lib paths ----------
+# ---------- Board selection ----------
+if(NOT DEFINED OPENEVCHARGER_BOARD)
+    set(OPENEVCHARGER_BOARD "rippleon-roc001")
+endif()
+set(OPENEVCHARGER_BOARD "${OPENEVCHARGER_BOARD}" CACHE STRING
+    "Target board (a dir under boards/)")
+set_property(CACHE OPENEVCHARGER_BOARD PROPERTY STRINGS
+    rippleon-roc001 nexcyber-zbu011k)
+message(STATUS "OpenEVCharger board: ${OPENEVCHARGER_BOARD}")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/boards/${OPENEVCHARGER_BOARD}/board.cmake")
+    message(FATAL_ERROR
+        "Unknown OPENEVCHARGER_BOARD '${OPENEVCHARGER_BOARD}' — no "
+        "boards/${OPENEVCHARGER_BOARD}/board.cmake")
+endif()
 
-set(VENDOR_LIB ${CMAKE_SOURCE_DIR}/third_party/GD32F20x_Firmware_Library)
-set(CMSIS_CORE ${VENDOR_LIB}/cmsis/cores/gd32)
-set(GD_HEADERS ${VENDOR_LIB}/cmsis/variants/gd32f20x)
-set(GD_STARTUP ${VENDOR_LIB}/cmsis/startup_files)
-set(STDP_INC   ${VENDOR_LIB}/spl/inc)
-set(STDP_SRC   ${VENDOR_LIB}/spl/src)
+set(TARGET ${PROJECT_NAME})
 
-set(GD_STARTUP_SRC ${GD_STARTUP}/startup_gd32f20x_cl.S)
-set(GD_SYSTEM_SRC  ${GD_HEADERS}/system_gd32f20x.c)
-
-set(STDP_SRCS
-    ${STDP_SRC}/gd32f20x_gpio.c
-    ${STDP_SRC}/gd32f20x_rcu.c
-    ${STDP_SRC}/gd32f20x_misc.c
-    ${STDP_SRC}/gd32f20x_fwdgt.c
-    ${STDP_SRC}/gd32f20x_usart.c
-    ${STDP_SRC}/gd32f20x_adc.c
-    ${STDP_SRC}/gd32f20x_dma.c
-    ${STDP_SRC}/gd32f20x_timer.c
-    ${STDP_SRC}/gd32f20x_spi.c
-    ${STDP_SRC}/gd32f20x_rtc.c
-    ${STDP_SRC}/gd32f20x_bkp.c
-    ${STDP_SRC}/gd32f20x_pmu.c
-)
-
-# ---------- FreeRTOS ----------
-
-set(FREERTOS_DIR ${CMAKE_SOURCE_DIR}/third_party/FreeRTOS-Kernel)
-set(FREERTOS_PORT_DIR ${FREERTOS_DIR}/portable/GCC/ARM_CM3)
-
-set(FREERTOS_SRCS
-    ${FREERTOS_DIR}/tasks.c
-    ${FREERTOS_DIR}/queue.c
-    ${FREERTOS_DIR}/list.c
-    ${FREERTOS_DIR}/timers.c
-    ${FREERTOS_DIR}/event_groups.c
-    ${FREERTOS_DIR}/stream_buffer.c
-    ${FREERTOS_PORT_DIR}/port.c
-    ${FREERTOS_DIR}/portable/MemMang/heap_4.c
-)
-
-# ---------- Application sources ----------
-
-set(APP_SRCS
-    src/main.c
-    src/core/fault.c
-    src/core/j1772.c
-    src/core/over_temp.c
-    src/core/rfid.c
-    src/core/system_state.c
-    src/core/system_time.c
-    src/hal/clock.c
-    src/hal/wdg.c
-    src/hal/uart.c
-    src/hal/gpio.c
-    src/hal/adc_scan.c
-    src/hal/adc_inject.c
-    src/hal/cp_pwm.c
-    src/hal/relay.c
-    src/hal/gfci.c
-    src/hal/rtc.c
-    src/hal/bl0939.c
-    src/hal/spi3.c
-    src/hal/flash.c
-    src/hal/uart5.c
-    src/hal/rfid.c
-    src/hal/ws2812.c
-    src/hal/w25q.c
-    src/persist/crc.c
-    src/persist/boot_count.c
-    src/persist/pingpong.c
-    src/persist/boot_config.c
-    src/persist/calibration.c
-    src/persist/crc16.c
-    src/persist/event_log.c
-    src/persist/session_log.c
-    src/persist/crash_state.c
-    src/persist/rfid_authlist.c
-    src/persist/ota_stage.c
-    src/proto/tlv.c
-    src/ui/buttons.c
-    src/ui/buzzer.c
-    src/ui/led_patterns.c
-    src/tasks/safety_task.c
-    src/tasks/io_task.c
-    src/tasks/comms_task.c
-    src/tasks/fc41d_flash_helper.c
-    src/tasks/persist_task.c
-    src/diag/stack_watch.c
-)
-
-# ---------- Build info ----------
+# ---------- Build info (board-independent) ----------
 #
 # Derive OPENEVCHARGER_VERSION + OPENEVCHARGER_GIT_SHA from git so the
 # MCU's build_info string ("version|sha", reported via CMD_GET_BUILD_INFO
@@ -143,47 +68,13 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/.git/HEAD")
     endif()
 endif()
 
-# ---------- Target ----------
+# ---------- Board target ----------
+# board.cmake creates ${TARGET} (the production firmware) and sets
+# LINKER_SCRIPT. The nexcyber board.cmake additionally defines the
+# bench-harness target.
+include(${CMAKE_SOURCE_DIR}/boards/${OPENEVCHARGER_BOARD}/board.cmake)
 
-set(TARGET ${PROJECT_NAME})
-
-add_executable(${TARGET}
-    ${APP_SRCS}
-    ${FREERTOS_SRCS}
-    ${GD_STARTUP_SRC}
-    ${GD_SYSTEM_SRC}
-    ${STDP_SRCS}
-)
-
-target_include_directories(${TARGET} PRIVATE
-    src
-    src/core
-    ${CMSIS_CORE}
-    ${GD_HEADERS}
-    ${STDP_INC}
-    ${FREERTOS_DIR}/include
-    ${FREERTOS_PORT_DIR}
-)
-
-target_compile_definitions(${TARGET} PRIVATE
-    GD32F20X_CL=1
-    HXTAL_VALUE=8000000
-    # F3 bench-validated 2026-05-06 (iter 3, 500 ms pulse + 1000 ms
-    # recover). Bench unit chip is slow (~370 ms latch latency post
-    # CAL release, ~270 ms hold, clean self-release). On-boot self-
-    # test now runs the polarity-agnostic CAL pulse via gfci_self_test
-    # and routes a failure to FAULT_GFCI_SELF_TEST. See src/hal/gfci.c
-    # for timing rationale.
-    OPENEVCHARGER_GFCI_CAL_SELF_TEST=1
-    # F10: PE continuity sense topology characterisation pending real
-    # install data. Bench saw PC5 raw≤1 with no live mains regardless of
-    # PE state. F5 (2026-05-07 garage) found raw>400 with mains live and
-    # EV plugged — detector tripped FAULT_PE_CONTINUITY before the EV
-    # started drawing. Set to 0 below for the F5 session; safety_task.c
-    # still prints PE raw every 5 s so the install-side baseline is
-    # captured. Flip to 1 once the right threshold + polarity are pinned.
-    OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0
-)
+# ---------- Shared: build-info defines, options, link, post-build ----------
 
 # Wire the git-derived version + SHA into the C define namespace from
 # src/proto/build_info.h. Skipped (defaults retained) if either git
@@ -197,101 +88,8 @@ if(_OEVC_GIT_SHA)
         OPENEVCHARGER_GIT_SHA="${_OEVC_GIT_SHA}")
 endif()
 
-# Bench-time options. Default OFF unless explicitly passed via cmake.
-if(OPENEVCHARGER_SEMIHOSTING)
-    target_compile_definitions(${TARGET} PRIVATE OPENEVCHARGER_SEMIHOSTING=1)
-endif()
-if(DEFINED OPENEVCHARGER_WS2812_LEDS)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_WS2812_LEDS=${OPENEVCHARGER_WS2812_LEDS})
-endif()
-if(DEFINED OPENEVCHARGER_WS2812_INVERT)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_WS2812_INVERT=${OPENEVCHARGER_WS2812_INVERT})
-endif()
-if(DEFINED OPENEVCHARGER_LED_PROTOCOL_UCS1903)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_LED_PROTOCOL_UCS1903=${OPENEVCHARGER_LED_PROTOCOL_UCS1903})
-endif()
-if(DEFINED OPENEVCHARGER_LED_PROTOCOL_APA106)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_LED_PROTOCOL_APA106=${OPENEVCHARGER_LED_PROTOCOL_APA106})
-endif()
-if(DEFINED OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW=${OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW})
-endif()
-if(DEFINED OPENEVCHARGER_LED_FORCE_GREEN)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_LED_FORCE_GREEN=${OPENEVCHARGER_LED_FORCE_GREEN})
-endif()
-# One-shot: erase crash_state ping-pong sectors at boot to clear a
-# latched FAST_RESTART / CRASH_LOOP_SAFE_FAIL on the bench. Set =1 for
-# a single flash cycle, then unset and re-flash.
-if(DEFINED OPENEVCHARGER_BENCH_CRASH_RESET)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_BENCH_CRASH_RESET=${OPENEVCHARGER_BENCH_CRASH_RESET})
-endif()
-# Replace the SDK's broken 120m_hxtal PLL chain with a clean direct
-# config (HXTAL/2 * 30 = 120 MHz). Default OFF for rollback safety;
-# enable with -DOPENEVCHARGER_REAL_120M_PLL=1.
-if(DEFINED OPENEVCHARGER_REAL_120M_PLL)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_REAL_120M_PLL=${OPENEVCHARGER_REAL_120M_PLL})
-endif()
-# One-shot bench probe: at boot, bit-bang the BL0939 SPI link and
-# log raw responses. Use to confirm SCLK/SDI/SDO wiring + that the
-# chip is alive before adding register-level protocol code.
-if(DEFINED OPENEVCHARGER_BL0939_SMOKE)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_BL0939_SMOKE=${OPENEVCHARGER_BL0939_SMOKE})
-endif()
-# CC ladder detector (FAULT_CC_OUT_OF_RANGE). Default OFF until a
-# bench characterisation pass nails down the OEM CC divider topology.
-# Decoder still runs unconditionally so cc_max_amps publishes for
-# diagnostic logging.
-if(DEFINED OPENEVCHARGER_CC_DETECTOR)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_CC_DETECTOR=${OPENEVCHARGER_CC_DETECTOR})
-endif()
-# Boot CAL-pulse-and-EXTI self-test for the GFCI module
-# (FAULT_GFCI_SELF_TEST). Default OFF — the PE3 polarity is
-# contradicted in pin_map.h and the CAL-→-sense path hasn't been
-# bench-validated on this PCB. Set =1 once a bench run with PE3 +
-# PE2 scope confirms the path.
-if(DEFINED OPENEVCHARGER_GFCI_CAL_SELF_TEST)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_GFCI_CAL_SELF_TEST=${OPENEVCHARGER_GFCI_CAL_SELF_TEST})
-endif()
-# E9: pre-scheduler stage→flash OTA apply path. Default ON as of
-# 2026-05-05 — bench-validated end-to-end: layout-divergent payload
-# round-tripped (commit 5b97f93), RAM-side reset confirmed, FAIL
-# banner verified. Pass -DOPENEVCHARGER_OTA_APPLY_ENABLED=0 to suppress
-# the apply (e.g. for a recovery image that shouldn't auto-overwrite
-# itself) — boot_config.pending_ota_flag is then logged and cleared
-# without touching internal flash.
-if(NOT DEFINED OPENEVCHARGER_OTA_APPLY_ENABLED)
-    set(OPENEVCHARGER_OTA_APPLY_ENABLED 1)
-endif()
-target_compile_definitions(${TARGET} PRIVATE
-    OPENEVCHARGER_OTA_APPLY_ENABLED=${OPENEVCHARGER_OTA_APPLY_ENABLED})
-# Phase-B bench marker: when set, main() prints a distinct banner at
-# boot. Use it to tell pre- and post-OTA images apart on the bench
-# console with an otherwise-identical source tree.
-if(DEFINED OPENEVCHARGER_OTA_TEST_MARKER)
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_OTA_TEST_MARKER=${OPENEVCHARGER_OTA_TEST_MARKER})
-endif()
-# Bench survey of FreeRTOS task stack high-water marks. Prints a single
-# `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
-# Default ON for bench builds; pass -DOPENEVCHARGER_STACK_WATCH=0 for production.
-if(NOT DEFINED OPENEVCHARGER_STACK_WATCH)
-    set(OPENEVCHARGER_STACK_WATCH 1)
-endif()
-target_compile_definitions(${TARGET} PRIVATE
-    OPENEVCHARGER_STACK_WATCH=${OPENEVCHARGER_STACK_WATCH})
+include(${CMAKE_SOURCE_DIR}/cmake/options.cmake)
 
-set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/gd32f205vc.ld)
 target_link_options(${TARGET} PRIVATE
     -T${LINKER_SCRIPT}
     -Wl,-Map=${TARGET}.map,--cref
@@ -300,7 +98,6 @@ set_target_properties(${TARGET} PROPERTIES
     SUFFIX ".elf"
     LINK_DEPENDS ${LINKER_SCRIPT}
 )
-
 add_custom_command(TARGET ${TARGET} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${TARGET}> ${TARGET}.bin
     COMMAND ${CMAKE_OBJCOPY} -O ihex   $<TARGET_FILE:${TARGET}> ${TARGET}.hex

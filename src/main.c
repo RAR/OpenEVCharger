@@ -7,16 +7,16 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "gd32f20x.h"
+#include "hal/board_init.h"
 #include "hal/clock.h"
 #include "hal/uart.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
 #include "hal/cp_pwm.h"
 #include "hal/adc_inject.h"
 #include "hal/spi3.h"
-#include "hal/w25q.h"
+#include "drivers/w25q.h"
 #include "hal/flash.h"
 #include "hal/rtc.h"
 #include "core/system_time.h"
@@ -61,12 +61,13 @@ void vApplicationMallocFailedHook(void)
 
 int main(void)
 {
-    /* Vendor SystemInit() has already run from startup_gd32f20x_cl.S
-     * (clock tree at 120 MHz). */
+    /* Vendor SystemInit() has already run from the chip startup file
+     * (clock tree at its reset/SDK default). */
 
-    /* If built with OPENEVCHARGER_REAL_120M_PLL=1, swap the SDK's broken
-     * 120m_hxtal config for a clean direct chain. No-op otherwise. */
-    clock_real_120m_init();
+    /* Board/chip-specific clock fix-up. Raw vendor-SPL until Task 10;
+     * now behind a per-chip hook (src/hal/<chip>/board_init.c) so
+     * main() is portable. */
+    board_early_init();
 
     uart_init();
     printk("\n--- OpenEVCharger M2 boot, SystemCoreClock=%u Hz ---\n",
@@ -93,12 +94,10 @@ int main(void)
         }
     }
 
-    /* Release JTAG pins (PA15, PB3, PB4) so SPI3 (PB3/PB4/PB5) and
-     * TIMER1_CH0 (PA15) can use them. SWDPENABLE keeps SWD alive
-     * (PA13/PA14) for the OpenOCD probe. Must run before any AF init
-     * touches those pins — including spi3_init() / w25q_init(). */
-    rcu_periph_clock_enable(RCU_AF);
-    gpio_pin_remap_config(GPIO_SWJ_SWDPENABLE_REMAP, ENABLE);
+    /* Board/chip-specific debug-pin / AF-clock remap. Raw vendor-SPL
+     * until Task 10; now behind a per-chip hook so main() is portable.
+     * Must run before any AF init touches the remapped pins. */
+    board_debug_pins_init();
 
     gpio_init_all();
     gpio_log_straps();
@@ -196,12 +195,10 @@ int main(void)
         fc41d_flash_helper_create();
     } else {
         /* Normal mode: power up the FC41D and release reset so its
-         * firmware runs and starts answering us on UART4. Stock
-         * firmware's Thd_Wifi did the same VEN-then-CEN release with
-         * a delay between. Without this the module sits dead. */
-        gpio_bit_set(PIN_FC41D_VEN_PORT, PIN_FC41D_VEN_PIN);
-        for (volatile int i = 0; i < 600000; ++i) { __asm__ volatile (""); }
-        gpio_bit_set(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN);
+         * firmware runs and starts answering us on UART4. The raw
+         * VEN-then-CEN-with-delay sequence is chip-specific and lives
+         * behind a per-chip hook (src/hal/<chip>/board_init.c). */
+        board_fc41d_release();
         printk("fc41d: VEN=1 CEN=1 — module released\n");
         comms_task_create();
     }

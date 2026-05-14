@@ -3,7 +3,7 @@
 #include "ota_stage.h"
 #include "boot_config.h"
 #include "crc.h"
-#include "../src/hal/w25q.h"
+#include "../src/drivers/w25q.h"
 
 #include <string.h>
 

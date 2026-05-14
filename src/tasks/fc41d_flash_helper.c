@@ -1,12 +1,11 @@
 #include "fc41d_flash_helper.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "../hal/uart.h"
+#include "../hal/gpio.h"
 #include "../diag/stack_watch.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
-
-#include "gd32f20x.h"
 
 #define FC41D_FLASH_TASK_STACK_WORDS  192U
 #define FC41D_FLASH_TASK_PRIORITY     1U   /* lowest above idle */
@@ -18,9 +17,9 @@
 
 static void cen_pulse_low(void)
 {
-    gpio_bit_reset(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN);
+    gpio_pin_write(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN, 0);
     vTaskDelay(pdMS_TO_TICKS(CEN_PULSE_MS));
-    gpio_bit_set(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN);
+    gpio_pin_write(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN, 1);
 }
 
 static void fc41d_flash_helper_run(void *arg)
@@ -30,9 +29,9 @@ static void fc41d_flash_helper_run(void *arg)
     /* Bring the module up: supply on, then release reset. The 50 ms
      * gap matches what the stock firmware's Thd_Wifi did between
      * VEN-high and CEN-high. */
-    gpio_bit_set(PIN_FC41D_VEN_PORT, PIN_FC41D_VEN_PIN);
+    gpio_pin_write(PIN_FC41D_VEN_PORT, PIN_FC41D_VEN_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    gpio_bit_set(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN);
+    gpio_pin_write(PIN_FC41D_CEN_PORT, PIN_FC41D_CEN_PIN, 1);
     printk("fc41d-flash: VEN=1 CEN=1 — module released; press PC9 to "
            "pulse CEN for ltchiptool handshake\n");
 
@@ -45,8 +44,8 @@ static void fc41d_flash_helper_run(void *arg)
     unsigned high_streak = 0;
 
     for (;;) {
-        int low = (gpio_input_bit_get(PIN_BTN_PC9_PORT, PIN_BTN_PC9_PIN)
-                   == RESET) ? 1 : 0;
+        int low = (gpio_pin_read(PIN_BTN_PC9_PORT, PIN_BTN_PC9_PIN)
+                   == 0) ? 1 : 0;
         if (low) {
             high_streak = 0;
             if (low_streak < 0xFF) ++low_streak;

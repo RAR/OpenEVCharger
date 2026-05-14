@@ -3,15 +3,39 @@
 OpenEVCharger targets ARM Cortex-M3 / M4F EVSE controller MCUs (GD32F2,
 N32G45, and similar STM32F2-class chips). The core (FreeRTOS task
 layout, J1772 state machine, OCPP/TLV protocol, OTA, RTC bridge,
-persistence) is board-independent. The board-specific surface lives in:
+persistence) is board-independent.
 
-- `src/core/pin_map_<board>.h` — GPIO pin → function map.
-- `linker/<chip>.ld` — flash + RAM layout.
-- `CMakeLists.txt` — vendor SPL paths, MCU flags, clock config
-  (selected via `-DOPENEVCHARGER_BOARD=<board>`).
+Board selection: `cmake -DOPENEVCHARGER_BOARD=<slug>`. Valid slugs are
+`rippleon-roc001` and `nexcyber-zbu011k`.
 
-Adding a board means producing those three artefacts; everything in `src/`
-above the HAL should compile unchanged.
+The board-specific surface lives in `boards/<board>/`:
+
+- `board.cmake` — vendor-SDK paths, source lists, compile definitions,
+  linker script selection, and any additional CMake targets (e.g. the
+  Nexcyber bench-harness target). Included by the top-level
+  `CMakeLists.txt` after board selection.
+- `pin_map.h` — GPIO pin → function map.
+- `<chip>.ld` — flash + RAM layout for that chip
+  (`gd32f205vg.ld` for rippleon-roc001; `n32g45x.ld` for nexcyber-zbu011k).
+
+The shared HAL interface is `src/hal/*.h`. Per-chip implementations live
+in `src/hal/<chip>/`: `src/hal/gd32f205/` for the GD32F205 (Rippleon) and
+`src/hal/n32g45x/` for the Nations N32G45x (Nexcyber). Peripherals whose
+API genuinely diverges between boards (e.g. `adc_scan`, `gfci`, `relay`)
+carry board-specific `*_nx.h` headers alongside their implementation in
+the chip directory. Board-unique peripherals (e.g. Nexcyber's Nextion
+display, LED ring, SPI2) also live in `src/hal/n32g45x/` with their own
+headers. Chip-independent external-device drivers live in `src/drivers/`
+(currently `w25q`).
+
+A chip-implementation directory that uses `OEVC_HAL_STUB()` for some
+functions (defined in `src/hal/oevc_hal_stub.h`) has an incomplete
+production target: the firmware configures, compiles, and links but is
+not yet functional on hardware.
+
+Adding a board means producing a `boards/<board>/` directory with the
+three artefacts above, plus `src/hal/<chip>/` implementations;
+everything in `src/` above the HAL should compile unchanged.
 
 ## Bench-validated
 
@@ -63,7 +87,13 @@ Hardware differences vs Rippleon — **not interchangeable**:
   cloud-tethered.
 
 Port status: hardware on the bench, SWD probe + 128 KB flash dumped
-(2026-05-07), pin map being reverse-engineered against the live unit.
+(2026-05-07), N32 HAL ported and building. Two targets:
+`openevcharger-nexcyber-bringup` (the M0-M4 bench harness — the image
+actually flashed during bring-up) and `openevcharger` (production —
+currently a compile/link gate: configures, compiles, and links against
+`src/main.c` but is not yet functional, as the N32 HAL uses
+`OEVC_HAL_STUB()` for several peripherals).
+Board scaffolding: [`boards/nexcyber-zbu011k/`](boards/nexcyber-zbu011k/README.md).
 The 7 kW and 9.6 kW US siblings should drop in with zero code changes
 once the 11 kW port lands — same PCBA, same MCU, same Wi-Fi module,
 same DP map; only contactor and advertised-A ceiling differ. They
@@ -84,19 +114,26 @@ If you have an EVSE PCB you'd like to add, open an issue with:
 
 For the curious — what porting actually involves:
 
-1. **MCU bring-up** — clock tree (`src/hal/clock.c`) + UART logger
-   (`src/hal/uart.c`) come up. `printk()` over your debug UART confirms
-   the chip is alive at the right frequency.
-2. **Pin map** — produce `src/core/pin_map_<board>.h`. Required entities:
+1. **MCU bring-up** — create `boards/<board>/` with a `board.cmake`,
+   then add `src/hal/<chip>/clock.c` + `src/hal/<chip>/uart.c`.
+   `printk()` over your debug UART confirms the chip is alive at the
+   right frequency.
+2. **Pin map** — produce `boards/<board>/pin_map.h`. Required entities:
    relay drive + sense, CP PWM out + sense ADC, CC sense, GFCI sense,
    PE continuity, AC absent, NTCs, button matrix, LED strip, SPI to
-   external NOR, UART to comms module, FC41D / equivalent power + reset.
-3. **HAL re-pointing** — adjust the SPL include paths in CMakeLists if
-   the chip is a different family (e.g. STM32F207 instead of GD32F205);
-   most peripheral code in `src/hal/` uses the legacy F1/F2 SPL idioms.
-4. **Linker script** — match the chip's flash + RAM size + `.ramfunc`
-   region for the OTA apply path.
-5. **Re-validate the safety detectors** with bench gear: GFCI, relay
+   external NOR, UART to comms module, Wi-Fi module power + reset.
+3. **HAL implementation** — fill out `src/hal/<chip>/` to implement
+   every header in `src/hal/`. Start with stubs (`OEVC_HAL_STUB()`)
+   to get a compile-gated production target, then replace stubs with
+   real implementations. Peripherals unique to the board (e.g. a
+   different display or LED driver) go in `src/hal/<chip>/` with their
+   own headers.
+4. **Linker script** — `boards/<board>/<chip>.ld`: match the chip's
+   flash + RAM size + `.ramfunc` region for the OTA apply path.
+5. **`board.cmake`** — wire in vendor-SDK include paths, MCU compiler
+   flags, and source lists for `src/hal/<chip>/`. Point `LINKER_SCRIPT`
+   at `boards/<board>/<chip>.ld`.
+6. **Re-validate the safety detectors** with bench gear: GFCI, relay
    weld, over-temp, J1772 state machine. The detectors are written to
    spec but threshold tuning is per-board (e.g. PE continuity raw band).
 

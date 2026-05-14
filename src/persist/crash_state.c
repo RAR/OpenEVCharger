@@ -1,37 +1,31 @@
 #include "crash_state.h"
 #include "pingpong.h"
 #include "../hal/uart.h"
-#include "gd32f20x.h"
+#include "../hal/reset_cause.h"
 #include <string.h>
 
-/* Read RCU_RSTSCK reset-cause flags, then clear via RSTFC. Returns
- * non-zero if the reset was caused by watchdog (FWDGT or WWDGT) —
- * the only signature we treat as a "real crash". POR, NRST pin, and
+/* Read + clear the chip's reset-cause flags, returning non-zero if the
+ * reset was caused by a watchdog or low-power event — the only
+ * signatures we treat as a "real crash". Power-on, NRST pin, and
  * software-reset (openocd `reset run`, panic-driven NVIC SystemReset)
  * are all considered deliberate boots and do NOT increment
  * fast_restart_count.
  *
  * Hardfault recovery still trips fast_restart correctly: the trap
  * handlers spin with interrupts disabled, so IWDG keeps ticking and
- * fires after ~1 s, leaving FWDGTRSTF set on the next boot. */
+ * fires after ~1 s, leaving the watchdog flag set on the next boot.
+ *
+ * The raw reset-cause register decode lives in the per-chip
+ * src/hal/<chip>/reset_cause.c — this stays chip-neutral. */
 static int read_and_clear_reset_was_crash(void)
 {
-    uint32_t rstsck = RCU_RSTSCK;
-    int was_crash = (rstsck & (RCU_RSTSCK_FWDGTRSTF |
-                               RCU_RSTSCK_WWDGTRSTF |
-                               RCU_RSTSCK_LPRSTF)) ? 1 : 0;
+    reset_cause_t cause = reset_cause_get_and_clear();
+    int was_crash = (cause == RESET_CAUSE_WATCHDOG ||
+                     cause == RESET_CAUSE_LOW_POWER) ? 1 : 0;
 
-    const char *cause = "unknown";
-    if      (rstsck & RCU_RSTSCK_FWDGTRSTF) cause = "watchdog (FWDGT)";
-    else if (rstsck & RCU_RSTSCK_WWDGTRSTF) cause = "watchdog (WWDGT)";
-    else if (rstsck & RCU_RSTSCK_LPRSTF)    cause = "low-power";
-    else if (rstsck & RCU_RSTSCK_SWRSTF)    cause = "software (deliberate)";
-    else if (rstsck & RCU_RSTSCK_EPRSTF)    cause = "NRST pin";
-    else if (rstsck & RCU_RSTSCK_PORRSTF)   cause = "power-on";
-    printk("crash_state: reset cause = %s (RSTSCK=0x%08x, %s)\n",
-           cause, (unsigned)rstsck, was_crash ? "counts" : "skipped");
+    printk("crash_state: reset cause = %s (%s)\n",
+           reset_cause_str(cause), was_crash ? "counts" : "skipped");
 
-    RCU_RSTSCK |= RCU_RSTSCK_RSTFC;
     return was_crash;
 }
 

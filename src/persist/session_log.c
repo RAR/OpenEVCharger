@@ -1,6 +1,6 @@
 #include "session_log.h"
 #include "crc16.h"
-#include "../hal/w25q.h"
+#include "../drivers/w25q.h"
 #include "../hal/uart.h"
 #include <string.h>
 

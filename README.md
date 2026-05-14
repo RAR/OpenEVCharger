@@ -19,10 +19,13 @@ user's own hardware.
 - 🚧 **Nexcyber** (Zopoise `ZBU011K-C00X` PCBA, Nations N32G45x +
   Tuya WBR2 / RTL8720CF) — port in progress.
 
-The board-specific surface is small: a pin map, a linker script, and a
-vendor-SDK wiring block in CMake. The safety core (J1772 state machine,
-fault detectors, self-test, OCPP / TLV protocol, OTA, RTC bridge,
-persistence) is board-independent.
+The board-specific surface is small: a `boards/<board>/` directory
+holding a pin map, a linker script, and a `board.cmake` that wires in
+the vendor SDK. The per-chip HAL lives in `src/hal/<chip>/`. The safety
+core (J1772 state machine, fault detectors, self-test, OCPP / TLV
+protocol, OTA, RTC bridge, persistence) is board-independent.
+The Nexcyber port currently ships a bench-harness target
+(`openevcharger-nexcyber-bringup`) plus a compile-gated production target.
 
 **Latest release:** [`2026.19.0`](https://github.com/RAR/OpenEVCharger/releases/tag/2026.19.0)
 — first production cut on the Rippleon target.
@@ -153,9 +156,11 @@ tasks request via inboxes.
 ## Hardware
 
 The full support matrix and porting outline live in
-[`BOARDS.md`](BOARDS.md). To bring up a new board you produce three
-artefacts: `src/core/pin_map_<board>.h`, a `linker/*.ld` for the chip
-size, and a vendor-SDK + clock-config block in `CMakeLists.txt`.
+[`BOARDS.md`](BOARDS.md). Board selection is
+`cmake -DOPENEVCHARGER_BOARD=<slug>` (`rippleon-roc001` or
+`nexcyber-zbu011k`). To bring up a new board you produce a
+`boards/<board>/` directory (`board.cmake`, `pin_map.h`, `<chip>.ld`)
+and a `src/hal/<chip>/` implementation directory.
 
 The reverse-engineering trail (full SWD dump of stock V1.0.066,
 protocol decode, schematic mapping, OCPP cloud capture) is in
@@ -170,13 +175,17 @@ sudo apt install gcc-arm-none-eabi cmake ninja-build openocd
 # Fetch the GD32F20x vendor library
 # (see third_party/GD32F20x_Firmware_Library/README.md)
 
-# Build the MCU image (rippleon target; -DOPENEVCHARGER_BOARD=<board>
-# to pick a different one once supported)
-cmake -B build -S . \
+# Build the MCU image — Rippleon ROC001 (production target)
+cmake -S . -B build/rippleon-roc001 -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain.cmake \
-    -DOPENEVCHARGER_BOARD=rippleon \
-    -G Ninja
-ninja -C build
+    -DOPENEVCHARGER_BOARD=rippleon-roc001
+cmake --build build/rippleon-roc001
+
+# For the Nexcyber board (bench-harness target):
+cmake -S . -B build/nexcyber-zbu011k -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-toolchain-cm4f.cmake \
+    -DOPENEVCHARGER_BOARD=nexcyber-zbu011k
+cmake --build build/nexcyber-zbu011k --target openevcharger-nexcyber-bringup
 
 # Back up stock firmware (REQUIRED before any flash; round-trip-validated)
 ./tools/stock_backup.sh

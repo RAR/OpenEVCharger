@@ -59,6 +59,7 @@ target_include_directories(openevcharger_pure PUBLIC
     ${SRC_DIR}/persist
     ${SRC_DIR}/proto
     ${SRC_DIR}/hal
+    ${SRC_DIR}/drivers
 )
 
 # Host-side mock of hal/w25q.h + tiny stubs for printk / uart_*. Linked
@@ -72,6 +73,7 @@ add_library(openevcharger_w25q_mock STATIC
 target_include_directories(openevcharger_w25q_mock PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${SRC_DIR}/hal
+    ${SRC_DIR}/drivers
 )
 
 add_executable(openevcharger_tests

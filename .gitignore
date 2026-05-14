@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build_*/
 *.elf
 *.bin
 *.hex
@@ -29,7 +30,10 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-# ESPHome FC41D firmware: build cache + per-checkout secrets
-fc41d/.esphome/
+# ESPHome build cache (any location)
+.esphome/
+
+# ESPHome FC41D firmware: per-checkout secrets
 fc41d/secrets.yaml
 build_host/
+tools/.ntc_peek_baseline.json
