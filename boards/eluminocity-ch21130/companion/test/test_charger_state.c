@@ -46,10 +46,17 @@ int main(void)
     b.current_a = 17;
     CHECK_EQ(charger_state_diff(&a, &b) & CS_DIRTY_CURRENT, CS_DIRTY_CURRENT);
     CHECK_EQ(charger_state_diff(&a, &b) & CS_DIRTY_VOLTAGE, 0);
+    b.current_a = a.current_a;                          /* reset: only test one field at a time */
+    b.evse_state = EVSE_STATE_CHARGING;                 /* a.evse_state is UNKNOWN from init */
+    CHECK_EQ(charger_state_diff(&a, &b) & CS_DIRTY_EVSE_STATE, CS_DIRTY_EVSE_STATE);
+    b.evse_state = a.evse_state;
+    b.fault_bits = 0x4;
+    CHECK_EQ(charger_state_diff(&a, &b) & CS_DIRTY_FAULTS, CS_DIRTY_FAULTS);
 
     /* --- fault names --- */
     CHECK_STR(charger_fault_name(0), "RCD");
-    CHECK(charger_fault_name(99) != NULL);            /* out-of-range is safe */
+    CHECK_STR(charger_fault_name(99), "UNKNOWN");      /* out-of-range high */
+    CHECK_STR(charger_fault_name(-1), "UNKNOWN");      /* out-of-range low */
 
     shmem_release(&sm);
     TEST_MAIN_END();
