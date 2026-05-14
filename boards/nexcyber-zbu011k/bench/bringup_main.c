@@ -32,6 +32,16 @@
 #include "core/j1772.h"
 #include "n32g45x.h"
 
+/* The board's PIN_*_PORT macros are uint32_t-typed (see
+ * boards/nexcyber-zbu011k/pin_map.h Task 12 note); the Nations SPL
+ * GPIO_* functions want a GPIO_Module *. Cast back at the call site.
+ * Pure type-level no-op — same machine code as the bare-GPIOx form. */
+#define LED_BLUE_GPIO        ((GPIO_Module *)PIN_LED_BLUE_PORT)
+#define STOP_SENSE_GPIO      ((GPIO_Module *)PIN_STOP_SENSE_PORT)
+#define MAINS_DETECT_L1_GPIO ((GPIO_Module *)PIN_MAINS_DETECT_L1_PORT)
+#define MAINS_DETECT_L2_GPIO ((GPIO_Module *)PIN_MAINS_DETECT_L2_PORT)
+#define SAFETY_LOOP_EN_GPIO  ((GPIO_Module *)PIN_SAFETY_LOOP_EN_PORT)
+
 /* Newlib's __libc_init_array references _init/_fini; we have no C++
  * static ctors so empty stubs are fine. Same idiom as src/main.c on
  * the rippleon target. */
@@ -179,7 +189,7 @@ static void probe_uart4_pc10_9600(void)
     RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_GPIOC | RCC_APB2_PERIPH_AFIO, ENABLE);
     /* PC10 is currently OUT_PP for blue LED. Re-cfg as AF_PP so UART4
      * controls it. Saves prior LED state so we can restore after. */
-    bool prev_blue = (GPIO_ReadOutputDataBit(PIN_LED_BLUE_PORT,
+    bool prev_blue = (GPIO_ReadOutputDataBit(LED_BLUE_GPIO,
                                              PIN_LED_BLUE_PIN) != 0);
     GPIO_InitType io = {0};
     io.Pin = GPIO_PIN_10;
@@ -203,9 +213,9 @@ static void probe_uart4_pc10_9600(void)
     io.GPIO_Speed = GPIO_Speed_2MHz;
     GPIO_InitPeripheral(GPIOC, &io);
     if (prev_blue) {
-        GPIO_SetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+        GPIO_SetBits(LED_BLUE_GPIO, PIN_LED_BLUE_PIN);
     } else {
-        GPIO_ResetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+        GPIO_ResetBits(LED_BLUE_GPIO, PIN_LED_BLUE_PIN);
     }
 }
 
@@ -216,7 +226,7 @@ static void probe_usart3_pc10_remap_9600(void)
 {
     nextion_park_usart2();
     /* Save blue LED ODR so we can restore. */
-    bool prev_blue = (GPIO_ReadOutputDataBit(PIN_LED_BLUE_PORT,
+    bool prev_blue = (GPIO_ReadOutputDataBit(LED_BLUE_GPIO,
                                              PIN_LED_BLUE_PIN) != 0);
 
     RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_USART3, ENABLE);
@@ -252,9 +262,9 @@ static void probe_usart3_pc10_remap_9600(void)
     io.GPIO_Speed = GPIO_Speed_2MHz;
     GPIO_InitPeripheral(GPIOC, &io);
     if (prev_blue) {
-        GPIO_SetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+        GPIO_SetBits(LED_BLUE_GPIO, PIN_LED_BLUE_PIN);
     } else {
-        GPIO_ResetBits(PIN_LED_BLUE_PORT, PIN_LED_BLUE_PIN);
+        GPIO_ResetBits(LED_BLUE_GPIO, PIN_LED_BLUE_PIN);
     }
 }
 
@@ -566,11 +576,11 @@ static void bench_run_cmd(uint32_t cmd)
  * (PC13 = NC switch closed when HIGH; PC3/PC7 = leg present when HIGH). */
 static void read_safety_inputs(int *stop_ok, int *l1, int *l2)
 {
-    *stop_ok = GPIO_ReadInputDataBit(PIN_STOP_SENSE_PORT,
+    *stop_ok = GPIO_ReadInputDataBit(STOP_SENSE_GPIO,
                                      PIN_STOP_SENSE_PIN) ? 1 : 0;
-    *l1 = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_L1_PORT,
+    *l1 = GPIO_ReadInputDataBit(MAINS_DETECT_L1_GPIO,
                                 PIN_MAINS_DETECT_L1_PIN) ? 1 : 0;
-    *l2 = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_L2_PORT,
+    *l2 = GPIO_ReadInputDataBit(MAINS_DETECT_L2_GPIO,
                                 PIN_MAINS_DETECT_L2_PIN) ? 1 : 0;
 }
 
@@ -675,10 +685,10 @@ static void monitor_task(void *arg)
          * rate is bench-blocked; pick something visible to a scope
          * until we measure it. M5+ replaces this with a rate match. */
         if ((tick & 1u) == 0) {
-            GPIO_SetBits(PIN_SAFETY_LOOP_EN_PORT,
+            GPIO_SetBits(SAFETY_LOOP_EN_GPIO,
                          PIN_SAFETY_LOOP_EN_PIN);
         } else {
-            GPIO_ResetBits(PIN_SAFETY_LOOP_EN_PORT,
+            GPIO_ResetBits(SAFETY_LOOP_EN_GPIO,
                            PIN_SAFETY_LOOP_EN_PIN);
         }
 

@@ -17,9 +17,19 @@
  * src/core/pin_map.h (Rippleon) — selected at build time via
  * -DOPENEVCHARGER_BOARD=nexcyber.
  *
- *   PIN_<role>_PORT   -> GPIOx peripheral handle (Nations naming)
+ *   PIN_<role>_PORT   -> GPIOx peripheral handle, cast to uint32_t
  *   PIN_<role>_PIN    -> GPIO_PIN_n
  *   PIN_<role>_RCC    -> RCC_APB2_PERIPH_GPIOx (Nations clock-enable bit)
+ *
+ * PORT-MACRO TYPE NOTE (Task 12): on the Nations N32G45x SDK `GPIOA` etc.
+ * are `GPIO_Module *` POINTERS, whereas the shared chip-neutral GPIO-bit
+ * HAL — gpio_pin_write/gpio_pin_read — takes the port as a `uint32_t`
+ * handle (GD32's PIN_*_PORT macros are integer-typed, so GD32 is happy).
+ * To let shared consumers (src/ui/buzzer.c, src/tasks/io_task.c, ...)
+ * pass these macros straight into the HAL without -Wint-conversion, every
+ * PIN_*_PORT below is `((uint32_t)GPIOx)`. The board-specific n32g45x HAL
+ * files that hand a port to a Nations SPL function (which wants
+ * `GPIO_Module *`) cast it back with `(GPIO_Module *)` at the call site.
  *
  * NOTE on naming difference vs. the rippleon header: the GD32F20x SPL
  * spells the clock-enable token `RCU_GPIOx`; Nations N32G45x SPL
@@ -40,9 +50,9 @@
  * (Tuya MCU protocol; per esphome/testcharger/testcharger.yaml). The
  * stock fw uses 9600 by default; ESPHome side runs at 115200 once we
  * reflash the WBR2 with our LibreTiny-based image. */
-#define PIN_WBR2_TX_PORT        GPIOA
+#define PIN_WBR2_TX_PORT        ((uint32_t)GPIOA)
 #define PIN_WBR2_TX_PIN         GPIO_PIN_9
-#define PIN_WBR2_RX_PORT        GPIOA
+#define PIN_WBR2_RX_PORT        ((uint32_t)GPIOA)
 #define PIN_WBR2_RX_PIN         GPIO_PIN_10
 #define PIN_WBR2_RCC            RCC_APB2_PERIPH_GPIOA
 
@@ -50,9 +60,9 @@
  * Nextion command syntax: `page X⏎`, `t0.txt="..."⏎`, `t0.pic=N⏎`,
  * each frame terminated `\xFF\xFF\xFF`. Page strings observed in the
  * firmware: `setting`, `nogun`, `chargeing`, `waittime`. */
-#define PIN_NEXTION_TX_PORT     GPIOA
+#define PIN_NEXTION_TX_PORT     ((uint32_t)GPIOA)
 #define PIN_NEXTION_TX_PIN      GPIO_PIN_2
-#define PIN_NEXTION_RX_PORT     GPIOA
+#define PIN_NEXTION_RX_PORT     ((uint32_t)GPIOA)
 #define PIN_NEXTION_RX_PIN      GPIO_PIN_3
 #define PIN_NEXTION_RCC         RCC_APB2_PERIPH_GPIOA
 
@@ -76,9 +86,9 @@
  *
  * BL0939-on-USART3 ruled out: SPI2 (PB12-15) is the metering link,
  * verified by the 2026-05-11 PB14 touch-coupling test. */
-#define PIN_USART3_TX_PORT      GPIOB
+#define PIN_USART3_TX_PORT      ((uint32_t)GPIOB)
 #define PIN_USART3_TX_PIN       GPIO_PIN_10
-#define PIN_USART3_RX_PORT      GPIOB
+#define PIN_USART3_RX_PORT      ((uint32_t)GPIOB)
 #define PIN_USART3_RX_PIN       GPIO_PIN_11
 #define PIN_USART3_RCC          RCC_APB2_PERIPH_GPIOB
 
@@ -114,13 +124,13 @@
  * coupling on USART3 (PB11). NSS is software-driven (PB12 OUT_PP
  * rather than AF). Rippleon's src/hal/bl0939.c + src/hal/spi3.c
  * (modulo pin remap to SPI2) port over verbatim for M3. */
-#define PIN_BL0939_NSS_PORT     GPIOB
+#define PIN_BL0939_NSS_PORT     ((uint32_t)GPIOB)
 #define PIN_BL0939_NSS_PIN      GPIO_PIN_12     /* SW chip-select */
-#define PIN_BL0939_SCK_PORT     GPIOB
+#define PIN_BL0939_SCK_PORT     ((uint32_t)GPIOB)
 #define PIN_BL0939_SCK_PIN      GPIO_PIN_13     /* AF push-pull */
-#define PIN_BL0939_MISO_PORT    GPIOB
+#define PIN_BL0939_MISO_PORT    ((uint32_t)GPIOB)
 #define PIN_BL0939_MISO_PIN     GPIO_PIN_14     /* AF input */
-#define PIN_BL0939_MOSI_PORT    GPIOB
+#define PIN_BL0939_MOSI_PORT    ((uint32_t)GPIOB)
 #define PIN_BL0939_MOSI_PIN     GPIO_PIN_15     /* AF push-pull */
 #define PIN_BL0939_RCC          RCC_APB2_PERIPH_GPIOB
 
@@ -133,7 +143,7 @@
  * 1 kHz, 10% / 33% / etc duty per J1772; ±12 V swing handled by external
  * level-shifting / op-amp stages.
  * Naming kept consistent with rippleon's PIN_CP_PWM_*. */
-#define PIN_CP_PWM_PORT         GPIOA
+#define PIN_CP_PWM_PORT         ((uint32_t)GPIOA)
 #define PIN_CP_PWM_PIN          GPIO_PIN_8
 #define PIN_CP_PWM_RCC          RCC_APB2_PERIPH_GPIOA
 
@@ -303,17 +313,17 @@
  * a different stimulus: plug a real EV cable (CC changes), apply
  * heat to gun connector (NTC), close contactors with mains live
  * (I_L1/L2 + GFCI). All bench-blocked. */
-#define PIN_ADC_CP_PORT         GPIOB
+#define PIN_ADC_CP_PORT         ((uint32_t)GPIOB)
 #define PIN_ADC_CP_PIN          GPIO_PIN_2      /* ADC2 ch13 — bench-confirmed */
-#define PIN_ADC_VSENSE_L1_PORT  GPIOB
+#define PIN_ADC_VSENSE_L1_PORT  ((uint32_t)GPIOB)
 #define PIN_ADC_VSENSE_L1_PIN   GPIO_PIN_1      /* TBD (PB1 dead-flat on bench unit) */
-#define PIN_ADC_VSENSE_L2_PORT  GPIOA
+#define PIN_ADC_VSENSE_L2_PORT  ((uint32_t)GPIOA)
 #define PIN_ADC_VSENSE_L2_PIN   GPIO_PIN_5      /* TBD candidate */
-#define PIN_ADC_CC_PORT         GPIOC
+#define PIN_ADC_CC_PORT         ((uint32_t)GPIOC)
 #define PIN_ADC_CC_PIN          GPIO_PIN_4      /* WRONG — replaced by GFCI_SENSE below.
                                                  * Old placeholder retained for
                                                  * backward-compat only. */
-#define PIN_ADC_GFCI_SENSE_PORT GPIOC
+#define PIN_ADC_GFCI_SENSE_PORT ((uint32_t)GPIOC)
 #define PIN_ADC_GFCI_SENSE_PIN  GPIO_PIN_4      /* ADC2 ch5 — BENCH-CONFIRMED 2026-05-11
                                                  * via real residual-current injection.
                                                  * Idle baseline ~1900 raw (mid-rail).
@@ -376,11 +386,11 @@
  *
  * Calibration deferred to M6 (need a known-good NTC and a thermal
  * test rig). For M5 safety, just check open/short fault patterns. */
-#define PIN_ADC_NTC_GUN_A_PORT  GPIOC
+#define PIN_ADC_NTC_GUN_A_PORT  ((uint32_t)GPIOC)
 #define PIN_ADC_NTC_GUN_A_PIN   GPIO_PIN_0      /* ADC1 ch6, high-Z read */
-#define PIN_ADC_NTC_GUN_B_PORT  GPIOC
+#define PIN_ADC_NTC_GUN_B_PORT  ((uint32_t)GPIOC)
 #define PIN_ADC_NTC_GUN_B_PIN   GPIO_PIN_1      /* ADC1 ch7, divided read */
-#define PIN_ADC_NTC_BOARD_PORT  GPIOC
+#define PIN_ADC_NTC_BOARD_PORT  ((uint32_t)GPIOC)
 #define PIN_ADC_NTC_BOARD_PIN   GPIO_PIN_5      /* ADC2 ch12, onboard PCB */
 #define PIN_ADC_RCC_AB          (RCC_APB2_PERIPH_GPIOB)
 #define PIN_ADC_RCC_C           (RCC_APB2_PERIPH_GPIOC)
@@ -392,9 +402,9 @@
 
 /* PA11 / PA12 — capacitive-touch front panel, 2 buttons (TTP223-style ICs).
  * Idle HIGH (no touch); pulled LOW when the user taps. */
-#define PIN_BTN_TOUCH1_PORT     GPIOA
+#define PIN_BTN_TOUCH1_PORT     ((uint32_t)GPIOA)
 #define PIN_BTN_TOUCH1_PIN      GPIO_PIN_11     /* IN_PU, active-low */
-#define PIN_BTN_TOUCH2_PORT     GPIOA
+#define PIN_BTN_TOUCH2_PORT     ((uint32_t)GPIOA)
 #define PIN_BTN_TOUCH2_PIN      GPIO_PIN_12     /* IN_PU, active-low */
 
 /* PC13 — E-stop loop sense (active-low, NC switch). Confirmed
@@ -407,7 +417,7 @@
  * hypothesis was wrong — the GFCI fault path appears to be the
  * separate ADC trace seen as G1 in the telemetry dump (raw ~2195
  * = mid-rail = healthy at the bench, no dedicated digital sense pin). */
-#define PIN_STOP_SENSE_PORT     GPIOC
+#define PIN_STOP_SENSE_PORT     ((uint32_t)GPIOC)
 #define PIN_STOP_SENSE_PIN      GPIO_PIN_13
 
 /* PC3 = mains-detect L1 (IN_FLOATING, active-HIGH).
@@ -431,9 +441,9 @@
  * FAULT_MAINS_MISSING_L1 / _L2 (independent fault codes). Failing
  * to detect either trips the contactor-permit drop.
  */
-#define PIN_MAINS_DETECT_L1_PORT GPIOC
+#define PIN_MAINS_DETECT_L1_PORT ((uint32_t)GPIOC)
 #define PIN_MAINS_DETECT_L1_PIN  GPIO_PIN_3      /* IN_FLOATING, active-HIGH */
-#define PIN_MAINS_DETECT_L2_PORT GPIOC
+#define PIN_MAINS_DETECT_L2_PORT ((uint32_t)GPIOC)
 #define PIN_MAINS_DETECT_L2_PIN  GPIO_PIN_7      /* IN_PD, active-HIGH */
 /* Backward-compat aliases for in-flight references */
 #define PIN_MAINS_DETECT_A_PORT  PIN_MAINS_DETECT_L1_PORT
@@ -451,8 +461,15 @@
  * Watch for a related LED flash on a separate pin during press —
  * snapshot diff caught PA15 IDR briefly HIGH during the same press,
  * making PA15 a strong candidate for the button's status LED. */
-#define PIN_BUTTON_PORT         GPIOC
+#define PIN_BUTTON_PORT         ((uint32_t)GPIOC)
 #define PIN_BUTTON_PIN          GPIO_PIN_9
+/* PIN_BTN_PC9_* — shared-core alias. src/ui/buttons.c and
+ * src/tasks/fc41d_flash_helper.c reference the front-panel button by the
+ * cross-board role name PIN_BTN_PC9_*. On the Nexcyber that IS the PC9
+ * "tiny button" above (bench-confirmed 2026-05-11), so this is a real
+ * mapping, not a placeholder. */
+#define PIN_BTN_PC9_PORT        PIN_BUTTON_PORT
+#define PIN_BTN_PC9_PIN         PIN_BUTTON_PIN
 
 /* =========================================================================
  *  Confirmed digital outputs
@@ -462,7 +479,7 @@
 /* PC6 — beeper (confirmed 2026-05-07 SWD pin-wiggle: HIGH → audible
  * tone on bench at 5 V rail). Driven directly, not via PWM (no TIM
  * AF on PC6 in the static decode). */
-#define PIN_BUZZER_PORT         GPIOC
+#define PIN_BUZZER_PORT         ((uint32_t)GPIOC)
 #define PIN_BUZZER_PIN          GPIO_PIN_6
 
 /* PC11 — safety-supervisor HEARTBEAT (revised again 2026-05-11 pm).
@@ -499,21 +516,28 @@
  *
  * Macro name kept PIN_SAFETY_LOOP_EN_* for continuity; "safety
  * heartbeat" is more precise. */
-#define PIN_SAFETY_LOOP_EN_PORT GPIOC
+#define PIN_SAFETY_LOOP_EN_PORT ((uint32_t)GPIOC)
 #define PIN_SAFETY_LOOP_EN_PIN  GPIO_PIN_11
+/* PIN_HEARTBEAT_* — shared-core alias. src/tasks/io_task.c pulses the
+ * safety-supervisor dead-man heartbeat through the cross-board role name
+ * PIN_HEARTBEAT_*. On the Nexcyber that IS PC11 (bench-confirmed
+ * 2026-05-11 — the pin toggles continuously while the firmware is
+ * happy); same pad as PIN_SAFETY_LOOP_EN_* above. Real mapping. */
+#define PIN_HEARTBEAT_PORT      PIN_SAFETY_LOOP_EN_PORT
+#define PIN_HEARTBEAT_PIN       PIN_SAFETY_LOOP_EN_PIN
 
 /* PC2 — alt-function output (AF_PP/50M), but no peripheral base address
  * referenced. Vendor-remapped peripheral or unused AF. TODO firmware
  * dynamic-trace: read AFIO_MAPR at runtime to resolve.
  */
-#define PIN_PC2_AF_PORT         GPIOC
+#define PIN_PC2_AF_PORT         ((uint32_t)GPIOC)
 #define PIN_PC2_AF_PIN          GPIO_PIN_2
 
 /* PA15 — freed by AFIO SWJ_CFG=010 (SWD only, JTAG off). Likely a status
  * LED or a relay-drive into the ULN2003. Wiggle game silent on 5 V rail
  * (no load activates without 12 V mains). LED walk 2026-05-11 pm with
  * MCU pin HIGH (NPN/MOSFET buffer topology) showed no LED response. */
-#define PIN_PA15_OUT_PORT       GPIOA
+#define PIN_PA15_OUT_PORT       ((uint32_t)GPIOA)
 #define PIN_PA15_OUT_PIN        GPIO_PIN_15
 
 /* =========================================================================
@@ -548,9 +572,9 @@
  * that was misleading. The init sets them OUT_PP (general-purpose
  * push-pull); the "AF" suffix in the macro name was speculative and
  * is corrected here. */
-#define PIN_LED_BLUE_PORT       GPIOC
+#define PIN_LED_BLUE_PORT       ((uint32_t)GPIOC)
 #define PIN_LED_BLUE_PIN        GPIO_PIN_10     /* OUT_PP, active-HIGH */
-#define PIN_LED_GREEN_PORT      GPIOC
+#define PIN_LED_GREEN_PORT      ((uint32_t)GPIOC)
 #define PIN_LED_GREEN_PIN       GPIO_PIN_12     /* OUT_PP, active-HIGH */
 /* PIN_LED_RED — TBD (hardware-damaged on this bench unit) */
 
@@ -571,7 +595,7 @@
  * MCU → ULN2003 sinks coil → relay closes); confirm during
  * Phase 3 integration with a coil-side scope.
  */
-#define PIN_GFCI_CAL_PORT       GPIOB
+#define PIN_GFCI_CAL_PORT       ((uint32_t)GPIOB)
 #define PIN_GFCI_CAL_PIN        GPIO_PIN_0      /* HIGH=inject pulse */
 
 /* =========================================================================
@@ -628,7 +652,7 @@
  *      one-shot close pulse width
  *   2. Cycle PA0 LOW mid-charge to confirm contactors drop (with
  *      current limited / no EV attached for safety) */
-#define PIN_CONTACTOR_HOLD_PORT GPIOA
+#define PIN_CONTACTOR_HOLD_PORT ((uint32_t)GPIOA)
 #define PIN_CONTACTOR_HOLD_PIN  GPIO_PIN_0      /* held HIGH during charge */
 /* Backward-compat alias: earlier code used PIN_CONTACTOR_TEST_*. */
 #define PIN_CONTACTOR_TEST_PORT PIN_CONTACTOR_HOLD_PORT
@@ -648,7 +672,7 @@
  *   - Releases PA1 LOW immediately after the pulse
  *   - Holds PA0 HIGH for the duration of the charging session
  *   - Releases PA0 LOW on session end OR any safety fault */
-#define PIN_CONTACTOR_CLOSE_PORT GPIOA
+#define PIN_CONTACTOR_CLOSE_PORT ((uint32_t)GPIOA)
 #define PIN_CONTACTOR_CLOSE_PIN  GPIO_PIN_1
 /* Backward-compat alias: earlier code used PIN_CONTACTOR_MAIN_*. */
 #define PIN_CONTACTOR_MAIN_PORT  PIN_CONTACTOR_CLOSE_PORT
@@ -663,15 +687,15 @@
  * SWJ_CFG to "SWD only, JTAG off" (per pin-map analysis), freeing
  * PA15 as a normal GPIO. We'll need the same remap in M2+ before
  * driving this pin. */
-#define PIN_BUTTON_LED_PORT     GPIOA
+#define PIN_BUTTON_LED_PORT     ((uint32_t)GPIOA)
 #define PIN_BUTTON_LED_PIN      GPIO_PIN_15     /* candidate; needs PA15 wiggle to confirm */
-#define PIN_OUT_PB8_PORT        GPIOB
+#define PIN_OUT_PB8_PORT        ((uint32_t)GPIOB)
 #define PIN_OUT_PB8_PIN         GPIO_PIN_8      /* TBD */
-#define PIN_OUT_PB9_PORT        GPIOB
+#define PIN_OUT_PB9_PORT        ((uint32_t)GPIOB)
 #define PIN_OUT_PB9_PIN         GPIO_PIN_9      /* TBD */
-#define PIN_OUT_PC8_PORT        GPIOC
+#define PIN_OUT_PC8_PORT        ((uint32_t)GPIOC)
 #define PIN_OUT_PC8_PIN         GPIO_PIN_8      /* TBD */
-#define PIN_OUT_PC10_PORT       GPIOC
+#define PIN_OUT_PC10_PORT       ((uint32_t)GPIOC)
 #define PIN_OUT_PC10_PIN        GPIO_PIN_10     /* TBD */
 
 /* =========================================================================
@@ -686,5 +710,37 @@
  * SWD pins (PA13 SWDIO, PA14 SWCLK) are preserved by AFIO SWJ_CFG=010
  * (SWD-only, JTAG off). PA15 is freed by that same remap.
  */
+
+/* =========================================================================
+ *  PLACEHOLDER pin macros — shared-core compile-gate only (Task 12)
+ * =========================================================================
+ *
+ * The shared src/ core references a handful of cross-board pin roles that
+ * have no real, RE-confirmed equivalent on the Nexcyber. They are defined
+ * here ONLY so the shared core (src/tasks/fc41d_flash_helper.c,
+ * src/tasks/safety_task.c) compiles and LINKS into the production
+ * compile-gate target. That target is explicitly NOT functional — see
+ * boards/nexcyber-zbu011k/board.cmake. The bench harness
+ * (openevcharger-nexcyber-bringup) is the image that runs on hardware
+ * and it does not use any of these.
+ *
+ * Pins chosen from ports D/E/G, which the Nexcyber stock firmware leaves
+ * entirely unreferenced — so even if a placeholder were somehow driven,
+ * it lands on a physically-n/c pad rather than a real signal.
+ *
+ * PIN_FC41D_VEN_* / PIN_FC41D_CEN_*: the Nexcyber Wi-Fi module is a Tuya
+ * WBR2 (RTL8720CF), NOT a Quectel FC41D — there is no FC41D power/chip
+ * enable sequencing on this board. Real WBR2 power sequencing is future
+ * functional work.
+ *
+ * PIN_DIP1_*: no configuration DIP switch has been identified on the
+ * Nexcyber PCB during the 2026-05-07/-11 SWD bench sessions.
+ */
+#define PIN_FC41D_VEN_PORT      ((uint32_t)GPIOE)   /* PLACEHOLDER — no FC41D on Nexcyber (WBR2 module) */
+#define PIN_FC41D_VEN_PIN       GPIO_PIN_1          /* PLACEHOLDER */
+#define PIN_FC41D_CEN_PORT      ((uint32_t)GPIOD)   /* PLACEHOLDER — no FC41D on Nexcyber (WBR2 module) */
+#define PIN_FC41D_CEN_PIN       GPIO_PIN_0          /* PLACEHOLDER */
+#define PIN_DIP1_PORT           ((uint32_t)GPIOD)   /* PLACEHOLDER — no DIP switch RE'd on Nexcyber */
+#define PIN_DIP1_PIN            GPIO_PIN_13         /* PLACEHOLDER */
 
 #endif /* OPENEVCHARGER_BOARDS_NEXCYBER_PIN_MAP_H */

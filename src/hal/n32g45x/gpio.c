@@ -25,6 +25,7 @@
 #include "hal/uart.h"
 #include "pin_map.h"
 #include "n32g45x.h"
+#include "hal/oevc_hal_stub.h"  /* via -Isrc; this file is in both targets */
 
 static void clock_enable_all(void)
 {
@@ -53,14 +54,17 @@ static void swj_disable_jtag(void)
     GPIO_ConfigPinRemap(GPIO_RMP_SW_JTAG_SW_ENABLE, ENABLE);
 }
 
-static void cfg_pin(GPIO_Module *port, uint16_t pin,
+/* `port` is a uint32_t handle (the board's PIN_*_PORT macros are
+ * uint32_t-typed — see boards/nexcyber-zbu011k/pin_map.h Task 12 note);
+ * cast back to GPIO_Module * for the Nations SPL call. */
+static void cfg_pin(uint32_t port, uint16_t pin,
                     GPIO_ModeType mode, GPIO_SpeedType speed)
 {
     GPIO_InitType io = {0};
     io.Pin        = pin;
     io.GPIO_Mode  = mode;
     io.GPIO_Speed = speed;
-    GPIO_InitPeripheral(port, &io);
+    GPIO_InitPeripheral((GPIO_Module *)port, &io);
 }
 
 static void init_outputs_safe_state(void)
@@ -81,14 +85,16 @@ static void init_outputs_safe_state(void)
      * - PA15 status-LED:     LOW (panel indicator off; bench-observed
      *                              briefly HIGH on PC9 press + GFCI fault
      *                              — likely a multi-purpose status LED) */
-    GPIO_ResetBits(PIN_CONTACTOR_MAIN_PORT,   PIN_CONTACTOR_MAIN_PIN);
-    GPIO_ResetBits(PIN_CONTACTOR_TEST_PORT,   PIN_CONTACTOR_TEST_PIN);
-    GPIO_ResetBits(PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
-    GPIO_ResetBits(PIN_SAFETY_LOOP_EN_PORT,   PIN_SAFETY_LOOP_EN_PIN);
-    GPIO_ResetBits(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
-    GPIO_ResetBits(PIN_BUTTON_LED_PORT,       PIN_BUTTON_LED_PIN);
-    GPIO_ResetBits(PIN_LED_BLUE_PORT,         PIN_LED_BLUE_PIN);
-    GPIO_ResetBits(PIN_LED_GREEN_PORT,        PIN_LED_GREEN_PIN);
+    /* PIN_*_PORT macros are uint32_t-typed (see pin_map.h); cast back to
+     * GPIO_Module * for the Nations SPL GPIO_ResetBits() call. */
+    GPIO_ResetBits((GPIO_Module *)PIN_CONTACTOR_MAIN_PORT,   PIN_CONTACTOR_MAIN_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_CONTACTOR_TEST_PORT,   PIN_CONTACTOR_TEST_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_SAFETY_LOOP_EN_PORT,   PIN_SAFETY_LOOP_EN_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_BUTTON_LED_PORT,       PIN_BUTTON_LED_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_LED_BLUE_PORT,         PIN_LED_BLUE_PIN);
+    GPIO_ResetBits((GPIO_Module *)PIN_LED_GREEN_PORT,        PIN_LED_GREEN_PIN);
 
     cfg_pin(PIN_CONTACTOR_MAIN_PORT, PIN_CONTACTOR_MAIN_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
     cfg_pin(PIN_CONTACTOR_TEST_PORT, PIN_CONTACTOR_TEST_PIN, GPIO_Mode_Out_PP, GPIO_Speed_2MHz);
@@ -181,12 +187,14 @@ void gpio_log_straps(void)
      *   - mains_a/b/c TBD — likely 60 Hz toggle on at least one of them
      *     when AC is up
      */
-    int tch1 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH1_PORT,     PIN_BTN_TOUCH1_PIN)     ? 1 : 0;
-    int tch2 = GPIO_ReadInputDataBit(PIN_BTN_TOUCH2_PORT,     PIN_BTN_TOUCH2_PIN)     ? 1 : 0;
-    int btn  = GPIO_ReadInputDataBit(PIN_BUTTON_PORT,         PIN_BUTTON_PIN)         ? 1 : 0;
-    int stop = GPIO_ReadInputDataBit(PIN_STOP_SENSE_PORT,     PIN_STOP_SENSE_PIN)     ? 1 : 0;
-    int ma   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_A_PORT, PIN_MAINS_DETECT_A_PIN) ? 1 : 0;
-    int mb   = GPIO_ReadInputDataBit(PIN_MAINS_DETECT_B_PORT, PIN_MAINS_DETECT_B_PIN) ? 1 : 0;
+    /* PIN_*_PORT macros are uint32_t-typed (see pin_map.h); cast back to
+     * GPIO_Module * for the Nations SPL GPIO_ReadInputDataBit() call. */
+    int tch1 = GPIO_ReadInputDataBit((GPIO_Module *)PIN_BTN_TOUCH1_PORT,     PIN_BTN_TOUCH1_PIN)     ? 1 : 0;
+    int tch2 = GPIO_ReadInputDataBit((GPIO_Module *)PIN_BTN_TOUCH2_PORT,     PIN_BTN_TOUCH2_PIN)     ? 1 : 0;
+    int btn  = GPIO_ReadInputDataBit((GPIO_Module *)PIN_BUTTON_PORT,         PIN_BUTTON_PIN)         ? 1 : 0;
+    int stop = GPIO_ReadInputDataBit((GPIO_Module *)PIN_STOP_SENSE_PORT,     PIN_STOP_SENSE_PIN)     ? 1 : 0;
+    int ma   = GPIO_ReadInputDataBit((GPIO_Module *)PIN_MAINS_DETECT_A_PORT, PIN_MAINS_DETECT_A_PIN) ? 1 : 0;
+    int mb   = GPIO_ReadInputDataBit((GPIO_Module *)PIN_MAINS_DETECT_B_PORT, PIN_MAINS_DETECT_B_PIN) ? 1 : 0;
     printk("straps: touch=%d%d btn=%d stop=%d mains=%d%d\n",
            tch1, tch2, btn, stop, ma, mb);
 }
@@ -207,3 +215,12 @@ int gpio_pin_read(uint32_t port, uint16_t pin)
     GPIO_Module *gpio = (GPIO_Module *)port;
     return GPIO_ReadInputDataBit(gpio, pin) ? 1 : 0;
 }
+
+/* STUB. src/hal/gpio.h declares gpio_dip4_held() and src/main.c calls it
+ * on the shared boot path, but no configuration DIP switch has been
+ * reverse-engineered on the Nexcyber PCB (see boards/nexcyber-zbu011k/
+ * pin_map.h — PIN_DIP1_* is itself a placeholder). Present only so the
+ * Nexcyber production target links; traps if ever reached at runtime.
+ * Task 9 omitted this — a stub-coverage gap closed by Task 12.
+ * See src/hal/oevc_hal_stub.h. */
+int gpio_dip4_held(void) { OEVC_HAL_STUB(); return 0; }

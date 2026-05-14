@@ -18,6 +18,10 @@
 #include "pin_map.h"
 #include "n32g45x.h"
 
+/* PIN_BL0939_NSS_PORT is uint32_t-typed (see pin_map.h Task 12 note);
+ * the Nations SPL GPIO_Set/ResetBits() want a GPIO_Module *. */
+#define BL0939_NSS_GPIO  ((GPIO_Module *)PIN_BL0939_NSS_PORT)
+
 void spi2_init(void)
 {
     /* SPI2 lives on APB1; the GPIOB pads are on APB2. Both are
@@ -47,7 +51,7 @@ void spi2_init(void)
     /* NSS line (PB12) idle HIGH = chip de-asserted. M2 gpio_init_all()
      * already drives it LOW as a "safe state"; immediately raise it
      * here once the SPI side is ready to talk. */
-    GPIO_SetBits(PIN_BL0939_NSS_PORT, PIN_BL0939_NSS_PIN);
+    GPIO_SetBits(BL0939_NSS_GPIO, PIN_BL0939_NSS_PIN);
 }
 
 uint8_t spi2_xfer(uint8_t tx)
@@ -60,10 +64,10 @@ uint8_t spi2_xfer(uint8_t tx)
 
 void spi2_cs_assert(void)
 {
-    GPIO_ResetBits(PIN_BL0939_NSS_PORT, PIN_BL0939_NSS_PIN);
+    GPIO_ResetBits(BL0939_NSS_GPIO, PIN_BL0939_NSS_PIN);
 }
 
 void spi2_cs_deassert(void)
 {
-    GPIO_SetBits(PIN_BL0939_NSS_PORT, PIN_BL0939_NSS_PIN);
+    GPIO_SetBits(BL0939_NSS_GPIO, PIN_BL0939_NSS_PIN);
 }

@@ -117,16 +117,56 @@
         BYPRODUCTS openevcharger-nexcyber-bringup.bin
     )
 
-    # ---------- Production target placeholder ----------
-    # Wired in Task 10. For now alias it to the bench harness so CMakeLists.txt's
-    # shared tail (which expects ${TARGET}) has something to attach to, and the
-    # board still produces a build.
+    # ---------- Production target ----------
+    # Real production firmware (Task 12): src/main.c + the shared src/ core
+    # + the full src/hal/n32g45x/ (real impls where ported, Task-9 stubs
+    # everywhere else). This target is a COMPILE + LINK gate — it is
+    # explicitly NOT functional on hardware (the N32 stub bodies trap; the
+    # WBR2 / Nextion / divergent-API peripherals are stubbed). The image
+    # actually flashed to a bench unit is openevcharger-nexcyber-bringup
+    # above. The production target exists so the shared core is proven to
+    # compile + link clean against the N32 HAL surface.
+    #
+    # NOT in PROD_APP_SRCS: nextion.c, led_ring.c, adc_scan.c, gfci.c,
+    # relay.c — those are bench-harness-only; the production target uses
+    # the *_shared_stub.c files + the ws2812.c stub instead.
 
-    add_executable(${TARGET} ${BRINGUP_SRCS}
+    set(PROD_APP_SRCS
+        src/main.c
+        src/core/fault.c  src/core/j1772.c  src/core/over_temp.c
+        src/core/rfid.c   src/core/system_state.c  src/core/system_time.c
+        src/persist/crc.c  src/persist/boot_count.c  src/persist/pingpong.c
+        src/persist/boot_config.c  src/persist/calibration.c  src/persist/crc16.c
+        src/persist/event_log.c  src/persist/session_log.c  src/persist/crash_state.c
+        src/persist/rfid_authlist.c  src/persist/ota_stage.c
+        src/proto/tlv.c
+        src/ui/buttons.c  src/ui/buzzer.c  src/ui/led_patterns.c
+        src/tasks/safety_task.c  src/tasks/io_task.c  src/tasks/comms_task.c
+        src/tasks/fc41d_flash_helper.c  src/tasks/persist_task.c
+        src/diag/stack_watch.c
+        src/drivers/w25q.c
+        # N32 HAL — real implementations
+        src/hal/n32g45x/clock.c  src/hal/n32g45x/uart.c  src/hal/n32g45x/gpio.c
+        src/hal/n32g45x/cp_pwm.c  src/hal/n32g45x/bl0939.c  src/hal/n32g45x/spi2.c
+        src/hal/n32g45x/board_init.c  src/hal/n32g45x/reset_cause.c
+        # N32 HAL — stubs for unported modules
+        src/hal/n32g45x/rtc.c  src/hal/n32g45x/flash.c  src/hal/n32g45x/spi3.c
+        src/hal/n32g45x/uart5.c  src/hal/n32g45x/rfid.c  src/hal/n32g45x/ws2812.c
+        src/hal/n32g45x/wdg.c  src/hal/n32g45x/adc_inject.c
+        # N32 HAL — shared-interface stubs for divergent-API peripherals
+        src/hal/n32g45x/adc_scan_shared_stub.c
+        src/hal/n32g45x/gfci_shared_stub.c
+        src/hal/n32g45x/relay_shared_stub.c
+    )
+
+    add_executable(${TARGET} ${PROD_APP_SRCS}
         ${FREERTOS_SRCS} ${NX_STARTUP_SRC} ${NX_SYSTEM_SRC} ${NX_SPL_SRCS})
 
     target_include_directories(${TARGET} PRIVATE
-        src/hal/n32g45x boards/nexcyber-zbu011k src
+        src
+        src/hal            # stubs do #include "oevc_hal_stub.h"
+        src/hal/n32g45x    # bl0939.c does #include "spi2.h" (board-unique header)
+        boards/nexcyber-zbu011k   # pin_map.h
         ${NX_CORE} ${NX_VARIANT} ${NX_SPL_INC}
         ${FREERTOS_DIR}/include ${FREERTOS_PORT_DIR})
 

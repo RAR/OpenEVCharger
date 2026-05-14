@@ -36,6 +36,23 @@ static uint8_t bl0939_checksum(uint8_t header, uint8_t addr,
     return (uint8_t)~s;
 }
 
+/* Shared src/hal/bl0939.h entry point. On the rippleon (GD32) target
+ * this configures the bit-bang SCLK/SDI/SDO pads; on the N32G45x the
+ * BL0939 link is hardware SPI2, so the transport bring-up is spi2_init()
+ * (it owns the SPI2 peripheral config + the software-NSS pad). Wiring
+ * bl0939_init() -> spi2_init() keeps the shared safety_task.c call site
+ * board-agnostic.
+ *
+ * NOTE (Task 12): the N32 bl0939.c shipped in Task 9 without this entry
+ * point even though src/hal/bl0939.h declares it and src/tasks/
+ * safety_task.c calls it — a stub-coverage gap. Added here so the
+ * Nexcyber production target links. The bench harness brings SPI2 up
+ * by calling spi2_init() directly, so it is unaffected. */
+void bl0939_init(void)
+{
+    spi2_init();
+}
+
 void bl0939_soft_reset(void)
 {
     /* § 3.1.5: 6 × 0xFF resets the chip's SPI state machine.
