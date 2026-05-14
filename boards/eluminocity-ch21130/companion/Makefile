@@ -19,7 +19,7 @@ SRC := src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
 # TESTS grows as each module's test lands — every task that adds a test/ link
 # rule also appends its target here, so `make test` always builds only what
 # exists.
-TESTS := test/test_smoke
+TESTS := test/test_smoke test/test_shmem
 
 .PHONY: all test clean
 all: delta-bridge
@@ -33,6 +33,9 @@ test: $(TESTS)
 # --- host test link rules (added as modules land) ---
 test/test_smoke: test/test_smoke.c test/test_harness.h
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_smoke.c
+
+test/test_shmem: test/test_shmem.c src/shmem.c src/shmem.h src/shmem_offsets.h
+	$(CC) $(CFLAGS) -Itest -o $@ test/test_shmem.c src/shmem.c
 
 clean:
 	rm -f delta-bridge $(TESTS)

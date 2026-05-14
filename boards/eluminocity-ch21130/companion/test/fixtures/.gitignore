@@ -1,0 +1,2 @@
+# Fixture binaries are committed test artifacts — override root *.bin rule.
+!*.bin
