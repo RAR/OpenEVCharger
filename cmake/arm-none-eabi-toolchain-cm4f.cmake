@@ -1,6 +1,6 @@
 # arm-none-eabi cross-compile toolchain for Cortex-M4F (Nations N32G45x).
 #
-# Selected when -DOPENEVCHARGER_BOARD=nexcyber. Mirrors the M3 toolchain
+# Selected when -DOPENEVCHARGER_BOARD=nexcyber-zbu011k. Mirrors the M3 toolchain
 # (cmake/arm-none-eabi-toolchain.cmake) — same warnings, same nano/nosys
 # specs — but enables the FPU and selects cortex-m4 target flags.
 

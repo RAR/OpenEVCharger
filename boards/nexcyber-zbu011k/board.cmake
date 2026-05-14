@@ -171,6 +171,9 @@
         ${FREERTOS_DIR}/include ${FREERTOS_PORT_DIR})
 
     target_compile_definitions(${TARGET} PRIVATE
-        N32G45X=1 HSE_VALUE=8000000 USE_STDPERIPH_DRIVER=1)
+        N32G45X=1 HSE_VALUE=8000000 USE_STDPERIPH_DRIVER=1
+        # Board-fact default: the Nexcyber PCB has no dedicated PE-continuity
+        # sense pin, so the shared safety_task.c detector is compiled out.
+        OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0)
 
     set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/boards/nexcyber-zbu011k/n32g45x.ld)
