@@ -1,5 +1,5 @@
 #include "io_task.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "core/system_state.h"
 #include "core/evse_state.h"
 #include "core/fault.h"

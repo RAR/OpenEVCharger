@@ -1,5 +1,5 @@
 #include "relay.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "../hal/adc_scan.h"
 #include "gd32f20x.h"
 

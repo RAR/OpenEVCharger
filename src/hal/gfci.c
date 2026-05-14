@@ -1,5 +1,5 @@
 #include "gfci.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "../hal/uart.h"
 #include "../hal/wdg.h"
 #include "gd32f20x.h"

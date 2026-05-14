@@ -1,5 +1,5 @@
 #include "spi3.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "gd32f20x.h"
 
 void spi3_init(void)

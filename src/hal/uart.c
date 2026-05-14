@@ -1,5 +1,5 @@
 #include "uart.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "core/system_time.h"
 #include "gd32f20x.h"
 #include "FreeRTOS.h"

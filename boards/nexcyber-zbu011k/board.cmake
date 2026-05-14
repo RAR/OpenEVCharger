@@ -92,6 +92,7 @@
     # version, silently using the wrong constants / function
     # signatures. Board-specific shadows must win.
     target_include_directories(${TARGET} PRIVATE
+        ${CMAKE_SOURCE_DIR}/boards/nexcyber-zbu011k
         boards/nexcyber
         src
         ${NX_CORE}
@@ -113,4 +114,4 @@
         USE_STDPERIPH_DRIVER=1
     )
 
-    set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/boards/nexcyber/n32g457.ld)
+    set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/boards/nexcyber-zbu011k/n32g45x.ld)

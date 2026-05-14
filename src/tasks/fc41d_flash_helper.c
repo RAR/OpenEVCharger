@@ -1,5 +1,5 @@
 #include "fc41d_flash_helper.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "../hal/uart.h"
 #include "../diag/stack_watch.h"
 

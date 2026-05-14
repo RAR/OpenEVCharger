@@ -1,6 +1,6 @@
 #include "gpio.h"
 #include "uart.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "gd32f20x.h"
 
 static void clock_enable_all(void)

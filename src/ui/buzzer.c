@@ -1,5 +1,5 @@
 #include "buzzer.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "gd32f20x.h"
 
 static buzzer_pattern_t s_pattern = BUZ_OFF;

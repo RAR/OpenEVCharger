@@ -1,5 +1,5 @@
 #include "ws2812.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "gd32f20x.h"
 
 /* Strip protocol family.  All families share the single-wire DIN /

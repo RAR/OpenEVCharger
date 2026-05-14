@@ -10,7 +10,7 @@
 #include "gd32f20x.h"
 #include "hal/clock.h"
 #include "hal/uart.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "hal/gpio.h"
 #include "hal/adc_scan.h"
 #include "hal/cp_pwm.h"

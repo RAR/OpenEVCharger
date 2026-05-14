@@ -102,6 +102,7 @@
     )
 
     target_include_directories(${TARGET} PRIVATE
+        ${CMAKE_SOURCE_DIR}/boards/rippleon-roc001
         src
         src/core
         ${CMSIS_CORE}
@@ -120,4 +121,4 @@
         OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0
     )
 
-    set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/gd32f205vc.ld)
+    set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/boards/rippleon-roc001/gd32f205vg.ld)

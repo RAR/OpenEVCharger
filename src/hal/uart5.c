@@ -1,5 +1,5 @@
 #include "uart5.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "gd32f20x.h"
 
 /* Bench debug 2026-05-03: xStreamBufferSendFromISR was triggering a

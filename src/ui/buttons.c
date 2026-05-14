@@ -1,7 +1,7 @@
 #include "buttons.h"
 #include "hal/uart.h"
 #include "hal/adc_scan.h"
-#include "core/pin_map.h"
+#include "pin_map.h"
 #include "gd32f20x.h"
 
 /* Threshold bands for the PC3 resistor ladder. Bench-tunable in the

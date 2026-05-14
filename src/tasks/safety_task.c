@@ -13,7 +13,7 @@
 #include "../core/evse_state.h"
 #include "../core/over_temp.h"
 #include "../core/rfid.h"
-#include "../core/pin_map.h"
+#include "pin_map.h"
 #include "../persist/crash_state.h"
 #include "../persist/event_log.h"
 #include "../persist/session_log.h"
