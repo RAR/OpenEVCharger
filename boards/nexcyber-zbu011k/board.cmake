@@ -1,3 +1,13 @@
+    # Nexcyber (Nations N32G45x / Cortex-M4F).
+    #
+    # Defines TWO targets:
+    #   openevcharger                  — production firmware (src/main.c + full
+    #                                    src/hal/n32g45x/). Wired in Task 10;
+    #                                    until then this file defines only the
+    #                                    bench harness so the board still builds.
+    #   openevcharger-nexcyber-bringup — the M0-M4 bring-up harness, the image
+    #                                    actually flashed during bench work.
+
     # ---------- Vendor lib paths (Nations SDK) ----------
 
     set(NX_VENDOR  ${CMAKE_SOURCE_DIR}/third_party/N32G45x_Firmware_Library)
@@ -54,64 +64,73 @@
         ${FREERTOS_DIR}/portable/MemMang/heap_4.c
     )
 
-    # ---------- Application sources (M0 + M1 + M2) ----------
+    # ---------- Bench-harness target ----------
 
-    set(APP_SRCS
-        boards/nexcyber/main.c
-        boards/nexcyber/hal/clock.c
-        boards/nexcyber/hal/uart.c
-        boards/nexcyber/hal/gpio.c
-        boards/nexcyber/hal/adc_scan.c
-        boards/nexcyber/hal/cp_pwm.c
-        boards/nexcyber/hal/spi2.c
-        boards/nexcyber/hal/bl0939.c
-        boards/nexcyber/hal/nextion.c
-        boards/nexcyber/hal/relay.c
-        boards/nexcyber/hal/gfci.c
-        boards/nexcyber/hal/led_ring.c
-        # M4 — board-independent core layers pulled in from the
-        # rippleon-side shared sources.
+    set(BRINGUP_SRCS
+        boards/nexcyber-zbu011k/bench/bringup_main.c
+        src/hal/n32g45x/clock.c
+        src/hal/n32g45x/uart.c
+        src/hal/n32g45x/gpio.c
+        src/hal/n32g45x/adc_scan.c
+        src/hal/n32g45x/cp_pwm.c
+        src/hal/n32g45x/spi2.c
+        src/hal/n32g45x/bl0939.c
+        src/hal/n32g45x/nextion.c
+        src/hal/n32g45x/relay.c
+        src/hal/n32g45x/gfci.c
+        src/hal/n32g45x/led_ring.c
         src/core/j1772.c
     )
 
-    # ---------- Target ----------
-
-    add_executable(${TARGET}
-        ${APP_SRCS}
+    add_executable(openevcharger-nexcyber-bringup
+        ${BRINGUP_SRCS}
         ${FREERTOS_SRCS}
         ${NX_STARTUP_SRC}
         ${NX_SYSTEM_SRC}
         ${NX_SPL_SRCS}
     )
 
-    # boards/nexcyber MUST come before src on the include path. The
-    # board-specific HAL ports live at boards/nexcyber/hal/*.h and
-    # SHADOW the rippleon ones at src/hal/*.h with the same names
-    # (adc_scan.h, gpio.h, uart.h, clock.h, etc.). With -I src first,
-    # GCC's #include "hal/foo.h" search resolves to the rippleon
-    # version, silently using the wrong constants / function
-    # signatures. Board-specific shadows must win.
-    target_include_directories(${TARGET} PRIVATE
-        ${CMAKE_SOURCE_DIR}/boards/nexcyber-zbu011k
-        boards/nexcyber
+    target_include_directories(openevcharger-nexcyber-bringup PRIVATE
+        src/hal/n32g45x          # board-specific HAL headers win over src/hal/*.h
+        boards/nexcyber-zbu011k  # pin_map.h
         src
-        ${NX_CORE}
-        ${NX_VARIANT}
-        ${NX_SPL_INC}
-        ${FREERTOS_DIR}/include
-        ${FREERTOS_PORT_DIR}
+        ${NX_CORE} ${NX_VARIANT} ${NX_SPL_INC}
+        ${FREERTOS_DIR}/include ${FREERTOS_PORT_DIR}
     )
 
-    target_compile_definitions(${TARGET} PRIVATE
-        # Nations SPL gates its register access through this guard
-        # (analogous to GD32F20X_CL on the rippleon target).
+    target_compile_definitions(openevcharger-nexcyber-bringup PRIVATE
         N32G45X=1
-        # HSE_VALUE defaults to 8 MHz in n32g45x.h if not pre-defined,
-        # but we set it explicitly so future board revisions can pin a
-        # different crystal here without touching the SDK header.
         HSE_VALUE=8000000
-        # Match upstream Nations example projects.
         USE_STDPERIPH_DRIVER=1
     )
+
+    target_link_options(openevcharger-nexcyber-bringup PRIVATE
+        -T${CMAKE_SOURCE_DIR}/boards/nexcyber-zbu011k/n32g45x.ld
+        -Wl,-Map=openevcharger-nexcyber-bringup.map,--cref
+    )
+
+    set_target_properties(openevcharger-nexcyber-bringup PROPERTIES SUFFIX ".elf")
+
+    add_custom_command(TARGET openevcharger-nexcyber-bringup POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:openevcharger-nexcyber-bringup> openevcharger-nexcyber-bringup.bin
+        COMMAND ${CMAKE_SIZE} $<TARGET_FILE:openevcharger-nexcyber-bringup>
+        BYPRODUCTS openevcharger-nexcyber-bringup.bin
+    )
+
+    # ---------- Production target placeholder ----------
+    # Wired in Task 10. For now alias it to the bench harness so CMakeLists.txt's
+    # shared tail (which expects ${TARGET}) has something to attach to, and the
+    # board still produces a build.
+
+    add_executable(${TARGET} ${BRINGUP_SRCS}
+        ${FREERTOS_SRCS} ${NX_STARTUP_SRC} ${NX_SYSTEM_SRC} ${NX_SPL_SRCS})
+
+    target_include_directories(${TARGET} PRIVATE
+        src/hal/n32g45x boards/nexcyber-zbu011k src
+        ${NX_CORE} ${NX_VARIANT} ${NX_SPL_INC}
+        ${FREERTOS_DIR}/include ${FREERTOS_PORT_DIR})
+
+    target_compile_definitions(${TARGET} PRIVATE
+        N32G45X=1 HSE_VALUE=8000000 USE_STDPERIPH_DRIVER=1)
 
     set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/boards/nexcyber-zbu011k/n32g45x.ld)
