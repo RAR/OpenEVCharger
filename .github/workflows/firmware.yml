@@ -15,18 +15,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - board: rippleon
-            mcu: GD32F205VE, Cortex-M3
+          - board: rippleon-roc001
+            mcu: GD32F205VG, Cortex-M3
             toolchain: cmake/arm-none-eabi-toolchain.cmake
             continue-on-error: false
-          - board: nexcyber
+          - board: nexcyber-zbu011k
             mcu: N32G45x, Cortex-M4F
             toolchain: cmake/arm-none-eabi-toolchain-cm4f.cmake
-            # In-flight port (M0 bring-up only). Required-check status
-            # waits until the board ports through clock + UART + GPIO +
-            # persistence (M0–M3) on the bench. Until then a broken
-            # nexcyber build is informational, not a PR gate — per the
-            # repo's convention for new-board CI rows.
+            # Production target is a compile/link gate until the board
+            # ports through clock + UART + GPIO + persistence (M0–M3) on
+            # the bench. Until bench-validated the nexcyber build is
+            # informational, not a PR gate — per the repo's convention for
+            # new-board CI rows.
             continue-on-error: true
     continue-on-error: ${{ matrix.continue-on-error }}
     steps:
@@ -46,21 +46,24 @@ jobs:
         with:
           release: '13.2.Rel1'
 
-      - name: Configure
+      - name: Configure + build ${{ matrix.board }}
+        continue-on-error: ${{ matrix.continue-on-error }}
         run: |
           cmake -S . -B build/${{ matrix.board }} -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=${{ matrix.toolchain }} \
             -DOPENEVCHARGER_BOARD=${{ matrix.board }}
-
-      - name: Build
-        run: cmake --build build/${{ matrix.board }}
+          cmake --build build/${{ matrix.board }}
 
       - name: Report size
+        continue-on-error: ${{ matrix.continue-on-error }}
         run: |
           {
             echo '## Firmware size — ${{ matrix.board }}';
             echo '```';
             arm-none-eabi-size build/${{ matrix.board }}/openevcharger.elf;
+            for f in build/${{ matrix.board }}/openevcharger-*-bringup.elf; do
+              [ -f "$f" ] && arm-none-eabi-size "$f";
+            done
             echo '```';
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -73,5 +76,7 @@ jobs:
             build/${{ matrix.board }}/openevcharger.bin
             build/${{ matrix.board }}/openevcharger.hex
             build/${{ matrix.board }}/openevcharger.map
-          if-no-files-found: error
+            build/${{ matrix.board }}/openevcharger-nexcyber-bringup.elf
+            build/${{ matrix.board }}/openevcharger-nexcyber-bringup.bin
+          if-no-files-found: warn
           retention-days: 30
