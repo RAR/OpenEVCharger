@@ -40,10 +40,11 @@ void led_override_get(uint8_t *mode, uint8_t rgb_out[3])
  *
  * pixels_per_sec = COMET_MIN_PPS + ratio_pct·(MAX-MIN)/100
  * At LEDS=134, MIN=30 → 4.5 s/rev; MAX=200 → 0.67 s/rev (1.5 Hz). */
-#define COMET_TAIL_LEN  18u
-#define COMET_MIN_PPS   30u
-#define COMET_MAX_PPS   200u
-#define COMET_BG_PCT    6u   /* dim background, pre-brightness_pct */
+#define COMET_TAIL_LEN    18u   /* total comet length, head to tail end */
+#define COMET_BRIGHT_LEN   8u   /* solid-bright core at the head end */
+#define COMET_MIN_PPS     30u
+#define COMET_MAX_PPS    200u
+#define COMET_BG_PCT       6u   /* dim background, pre-brightness_pct */
 
 static uint8_t breathe(uint32_t t_ms, uint32_t period_ms)
 {
@@ -98,13 +99,22 @@ static void render_comet(uint32_t t_ms, uint8_t ratio_pct,
                    ((uint32_t)(COMET_MAX_PPS - COMET_MIN_PPS) *
                     (uint32_t)ratio_pct) / 100u;
 
-    /* Wrap t_ms into a single revolution before scaling to avoid 32-bit
-     * overflow on long uptimes. period_ms ≤ 1000·LEDS/MIN_PPS ≈ 4467 ms
-     * at LEDS=134, so phase_ms · LEDS fits easily in uint32. */
+    /* Sub-pixel head position in 8.8 fixed point. At 50 fps render and
+     * MIN_PPS=30 the head advances only 0.6 pixels per 20 ms frame, so
+     * integer-pixel head positions produced visible "skipping" at low
+     * charge rates. Working in q8 sub-pixels and anti-aliasing both the
+     * leading edge (1 pixel wide) and the trailing tail makes motion
+     * smooth at any pps. */
+    const uint32_t LEDS_Q8   = (uint32_t)OPENEVCHARGER_WS2812_LEDS * 256u;
+    const uint32_t TAIL_Q8   = (uint32_t)COMET_TAIL_LEN   * 256u;
+    const uint32_t BRIGHT_Q8 = (uint32_t)COMET_BRIGHT_LEN * 256u;
+
+    /* period_ms ≤ 1000·LEDS/MIN_PPS ≈ 4467 ms at LEDS=134, so
+     * phase_ms · LEDS_Q8 ≤ 4467·34304 ≈ 1.5e8 — fits in uint32. */
     uint32_t period_ms = (1000u * OPENEVCHARGER_WS2812_LEDS) / pps;
     if (period_ms == 0u) period_ms = 1u;
     uint32_t phase_ms = t_ms % period_ms;
-    uint32_t head_int = (phase_ms * OPENEVCHARGER_WS2812_LEDS) / period_ms;
+    uint32_t head_q8  = (phase_ms * LEDS_Q8) / period_ms;
 
     /* Pre-compute gamma 2.0 once per frame — the per-pixel work then
      * collapses to (gx · pct) / 100 instead of three multiplies. */
@@ -113,13 +123,27 @@ static void render_comet(uint32_t t_ms, uint8_t ratio_pct,
     uint32_t gb = ((uint32_t)b * b) / 255u;
 
     for (unsigned i = 0; i < OPENEVCHARGER_WS2812_LEDS; ++i) {
-        uint32_t d = (OPENEVCHARGER_WS2812_LEDS + head_int - i) %
-                     OPENEVCHARGER_WS2812_LEDS;
+        /* d_q8 = sub-pixel distance from pixel-i back to the head,
+         * unsigned wrap. d_q8 ∈ [0, 256) means the head is currently
+         * within pixel i; [256, TAIL_Q8) is the trailing fade; the last
+         * 256 sub-pixels (LEDS_Q8-256..LEDS_Q8) are the leading anti-
+         * alias zone where the head is approaching but hasn't arrived. */
+        uint32_t d_q8 = (LEDS_Q8 + head_q8 - (uint32_t)i * 256u) % LEDS_Q8;
         uint32_t pct;
-        if (d < COMET_TAIL_LEN) {
+        if (d_q8 < BRIGHT_Q8) {
+            /* solid-bright core. */
+            pct = 100u;
+        } else if (d_q8 < TAIL_Q8) {
+            /* linear fade from full at BRIGHT_Q8 to BG at TAIL_Q8. */
+            uint32_t fade_pos = d_q8 - BRIGHT_Q8;
+            uint32_t fade_len = TAIL_Q8 - BRIGHT_Q8;
             pct = COMET_BG_PCT +
-                  ((100u - COMET_BG_PCT) *
-                   (COMET_TAIL_LEN - d)) / COMET_TAIL_LEN;
+                  ((100u - COMET_BG_PCT) * (fade_len - fade_pos)) / fade_len;
+        } else if (d_q8 >= LEDS_Q8 - 256u) {
+            /* leading edge: linear BG → full over 1 pixel of approach. */
+            uint32_t lead = LEDS_Q8 - d_q8;        /* 1..256 */
+            pct = COMET_BG_PCT +
+                  ((100u - COMET_BG_PCT) * (256u - lead)) / 256u;
         } else {
             pct = COMET_BG_PCT;
         }
