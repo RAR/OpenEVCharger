@@ -1,5 +1,6 @@
 #include "charger_state.h"
 #include "shmem_offsets.h"
+#include <assert.h>
 #include <string.h>
 
 void charger_state_init(struct charger_state *cs)
@@ -38,7 +39,9 @@ void charger_state_read(struct charger_state *cs, const struct shmem *sm)
     unsigned char alarm[ALARM_BITMAP_LEN];
     shmem_copy(sm, OFF_ALARM_BITMAP, alarm, ALARM_BITMAP_LEN);
     cs->fault_bits = 0;
-    for (int i = 0; i < ALARM_BITMAP_LEN && i < 32; i++)
+    static_assert(ALARM_BITMAP_LEN <= 32,
+        "fault_bits must widen if ALARM_BITMAP_LEN grows past 32");
+    for (int i = 0; i < ALARM_BITMAP_LEN; i++)
         if (alarm[i])
             cs->fault_bits |= (1u << i);
 }
