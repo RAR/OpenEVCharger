@@ -785,12 +785,35 @@ git commit -m "hal/n32g45x: add OEVC_HAL_STUB macro + stubs for unported + diver
 
 ---
 
-### Task 10: Wire the Nexcyber production target
+> **EXECUTION AMENDMENT (2026-05-14):** Task 10 was split during execution.
+> Wiring the Nexcyber production target uncovered a spec/plan gap — the shared
+> `src/` tree is **not** chip-clean: `src/ui/{buttons,buzzer}.c`,
+> `src/tasks/{io_task,safety_task,fc41d_flash_helper}.c`, and
+> `src/persist/crash_state.c` use raw GD32 SPL (`gpio_bit_set/reset`,
+> `gpio_input_bit_get`, raw `RCU_RSTSCK`), and `src/persist/calibration.c`
+> carries a stale `#include "gd32f20x.h"`. So `src/main.c` alone being
+> board-agnostic is not enough for the Nexcyber production target to compile.
+> Revised sequence:
+> - **Task 10** (below, Steps 1–5) — extract the board-init hooks, make
+>   `src/main.c` board-agnostic. **Done — commit `273eaaa`.**
+> - **Task 11 (NEW)** — chip-clean the shared `src/` tree behind a GPIO-bit +
+>   reset-cause HAL.
+> - **Task 12 (NEW)** — wire the Nexcyber production target (the original
+>   Task 10 Steps 6–10).
+> - Original Tasks 11/12/13 renumber to **13/14/15**.
+
+### Task 10: Extract board-init hooks (board-agnostic `src/main.c`)
 
 **Files:**
-- Create: `src/hal/board_init.h` (the `board_early_init()` hook interface)
+- Create: `src/hal/board_init.h` (the board-hook interface)
 - Create: `src/hal/gd32f205/board_init.c`, `src/hal/n32g45x/board_init.c`
-- Modify: `src/main.c` (extract chip-specific early init); `boards/rippleon-roc001/board.cmake`, `boards/nexcyber-zbu011k/board.cmake`
+- Modify: `src/main.c` (extract chip-specific bring-up); `boards/rippleon-roc001/board.cmake`
+
+**Scope note:** Steps 6–10 below (the Nexcyber production target) moved to the
+new **Task 12**. Steps 1–5 are Task 10 proper; the implementation used **three**
+hooks (`board_early_init`, `board_debug_pins_init`, `board_fc41d_release`) rather
+than the two the steps sketch — `src/main.c`'s raw vendor code sat at three
+non-contiguous sites, so 1:1 hooks preserve `main()`'s call order.
 
 - [ ] **Step 1: Create `src/hal/board_init.h`**
 
@@ -942,9 +965,46 @@ git commit -m "main: extract board_early_init() hook; wire Nexcyber production t
 
 ---
 
+## Phase 5b — Chip-clean the core, then wire the production target
+
+### Task 11: Chip-clean the shared `src/` tree (GPIO-bit + reset-cause HAL)
+
+**Files:**
+- Modify: `src/hal/gpio.h` (+ `gpio_pin_write` / `gpio_pin_read`)
+- Create: `src/hal/reset_cause.h`
+- Modify: `src/hal/gd32f205/gpio.c`, `src/hal/n32g45x/gpio.c` (impl the new bit ops)
+- Create: `src/hal/gd32f205/reset_cause.c` (real), `src/hal/n32g45x/reset_cause.c` (stub)
+- Modify the 6 raw-GD32 consumers: `src/ui/buttons.c`, `src/ui/buzzer.c`,
+  `src/tasks/io_task.c`, `src/tasks/safety_task.c`, `src/tasks/fc41d_flash_helper.c`,
+  `src/persist/crash_state.c`; drop the stale include in `src/persist/calibration.c`
+- Modify: both `board.cmake` files (add the new HAL `.c` files to APP_SRCS / bench srcs)
+
+The shared `src/` tree must compile under the N32 toolchain. Add a chip-neutral
+GPIO bit-level HAL (`gpio_pin_write(uint32_t port, uint16_t pin, int level)`,
+`gpio_pin_read(...)`) and a reset-cause HAL (`reset_cause.h` enum +
+`reset_cause_get_and_clear()`), convert the 6 consumers to use them, and remove
+every direct `#include "gd32f20x.h"` / raw SPL call / raw `RCU_RSTSCK` access
+from `src/`. **Gate:** both boards build + host tests pass; AND each of the 7
+touched `src/` files passes `-fsyntax-only` under *both* the GD32 and N32
+include setups (proves chip-cleanliness). This is a refactor, not a pure move —
+codegen is not byte-identical; verify behavior-equivalence at the source level.
+
+### Task 12: Wire the Nexcyber production target
+
+**Files:** Modify `boards/nexcyber-zbu011k/board.cmake` (replace the
+bench-harness-alias `${TARGET}` placeholder with the real production target).
+
+This is the deferred half of the original Task 10 — Steps 6–10 of the Task 10
+section above. With the core chip-clean (Task 11) and the N32 stubs in place
+(Task 9), the production `openevcharger` target (`src/main.c` + shared core +
+full `src/hal/n32g45x/` real-impls-and-stubs) now configures, compiles, and
+links for `nexcyber-zbu011k`. **Gate:** both nexcyber ELFs build
+(`openevcharger.elf` + `openevcharger-nexcyber-bringup.elf`); `nm` shows `main`;
+rippleon + host unaffected. Not functional — stub bodies trap.
+
 ## Phase 6 — Cleanup, CI, docs
 
-### Task 11: Repo hygiene — gitignore, stale artifacts, vendored OCPP copy
+### Task 13: Repo hygiene — gitignore, stale artifacts, vendored OCPP copy
 
 **Files:**
 - Modify: `.gitignore`
@@ -992,7 +1052,7 @@ git commit -m "repo: tighten .gitignore, drop tracked build artifacts + stale ve
 
 ---
 
-### Task 12: Update CI for the new slugs + target names
+### Task 14: Update CI for the new slugs + target names
 
 **Files:**
 - Modify: `.github/workflows/firmware.yml` (and `host-tests.yml` / `fc41d-config.yml` if they reference board names or build paths)
@@ -1044,7 +1104,7 @@ CI runs on push — the workflow result is verified after the branch is pushed (
 
 ---
 
-### Task 13: Rewrite the docs to describe the structure as-built
+### Task 15: Rewrite the docs to describe the structure as-built
 
 **Files:**
 - Modify: `BOARDS.md`, `README.md`, `boards/nexcyber-zbu011k/README.md`
