@@ -213,100 +213,6 @@ if(OPENEVCHARGER_BOARD STREQUAL "rippleon")
         OPENEVCHARGER_PE_CONTINUITY_DETECTOR=0
     )
 
-    # Bench-time options. Default OFF unless explicitly passed via cmake.
-    if(OPENEVCHARGER_SEMIHOSTING)
-        target_compile_definitions(${TARGET} PRIVATE OPENEVCHARGER_SEMIHOSTING=1)
-    endif()
-    if(DEFINED OPENEVCHARGER_WS2812_LEDS)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_WS2812_LEDS=${OPENEVCHARGER_WS2812_LEDS})
-    endif()
-    if(DEFINED OPENEVCHARGER_WS2812_INVERT)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_WS2812_INVERT=${OPENEVCHARGER_WS2812_INVERT})
-    endif()
-    if(DEFINED OPENEVCHARGER_LED_PROTOCOL_UCS1903)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_LED_PROTOCOL_UCS1903=${OPENEVCHARGER_LED_PROTOCOL_UCS1903})
-    endif()
-    if(DEFINED OPENEVCHARGER_LED_PROTOCOL_APA106)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_LED_PROTOCOL_APA106=${OPENEVCHARGER_LED_PROTOCOL_APA106})
-    endif()
-    if(DEFINED OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW=${OPENEVCHARGER_LED_PROTOCOL_SK6812_RGBW})
-    endif()
-    if(DEFINED OPENEVCHARGER_LED_FORCE_GREEN)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_LED_FORCE_GREEN=${OPENEVCHARGER_LED_FORCE_GREEN})
-    endif()
-    # One-shot: erase crash_state ping-pong sectors at boot to clear a
-    # latched FAST_RESTART / CRASH_LOOP_SAFE_FAIL on the bench. Set =1 for
-    # a single flash cycle, then unset and re-flash.
-    if(DEFINED OPENEVCHARGER_BENCH_CRASH_RESET)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_BENCH_CRASH_RESET=${OPENEVCHARGER_BENCH_CRASH_RESET})
-    endif()
-    # Replace the SDK's broken 120m_hxtal PLL chain with a clean direct
-    # config (HXTAL/2 * 30 = 120 MHz). Default OFF for rollback safety;
-    # enable with -DOPENEVCHARGER_REAL_120M_PLL=1.
-    if(DEFINED OPENEVCHARGER_REAL_120M_PLL)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_REAL_120M_PLL=${OPENEVCHARGER_REAL_120M_PLL})
-    endif()
-    # One-shot bench probe: at boot, bit-bang the BL0939 SPI link and
-    # log raw responses. Use to confirm SCLK/SDI/SDO wiring + that the
-    # chip is alive before adding register-level protocol code.
-    if(DEFINED OPENEVCHARGER_BL0939_SMOKE)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_BL0939_SMOKE=${OPENEVCHARGER_BL0939_SMOKE})
-    endif()
-    # CC ladder detector (FAULT_CC_OUT_OF_RANGE). Default OFF until a
-    # bench characterisation pass nails down the OEM CC divider topology.
-    # Decoder still runs unconditionally so cc_max_amps publishes for
-    # diagnostic logging.
-    if(DEFINED OPENEVCHARGER_CC_DETECTOR)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_CC_DETECTOR=${OPENEVCHARGER_CC_DETECTOR})
-    endif()
-    # Boot CAL-pulse-and-EXTI self-test for the GFCI module
-    # (FAULT_GFCI_SELF_TEST). Default OFF — the PE3 polarity is
-    # contradicted in pin_map.h and the CAL-→-sense path hasn't been
-    # bench-validated on this PCB. Set =1 once a bench run with PE3 +
-    # PE2 scope confirms the path.
-    if(DEFINED OPENEVCHARGER_GFCI_CAL_SELF_TEST)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_GFCI_CAL_SELF_TEST=${OPENEVCHARGER_GFCI_CAL_SELF_TEST})
-    endif()
-    # E9: pre-scheduler stage→flash OTA apply path. Default ON as of
-    # 2026-05-05 — bench-validated end-to-end: layout-divergent payload
-    # round-tripped (commit 5b97f93), RAM-side reset confirmed, FAIL
-    # banner verified. Pass -DOPENEVCHARGER_OTA_APPLY_ENABLED=0 to suppress
-    # the apply (e.g. for a recovery image that shouldn't auto-overwrite
-    # itself) — boot_config.pending_ota_flag is then logged and cleared
-    # without touching internal flash.
-    if(NOT DEFINED OPENEVCHARGER_OTA_APPLY_ENABLED)
-        set(OPENEVCHARGER_OTA_APPLY_ENABLED 1)
-    endif()
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_OTA_APPLY_ENABLED=${OPENEVCHARGER_OTA_APPLY_ENABLED})
-    # Phase-B bench marker: when set, main() prints a distinct banner at
-    # boot. Use it to tell pre- and post-OTA images apart on the bench
-    # console with an otherwise-identical source tree.
-    if(DEFINED OPENEVCHARGER_OTA_TEST_MARKER)
-        target_compile_definitions(${TARGET} PRIVATE
-            OPENEVCHARGER_OTA_TEST_MARKER=${OPENEVCHARGER_OTA_TEST_MARKER})
-    endif()
-    # Bench survey of FreeRTOS task stack high-water marks. Prints a single
-    # `stack: io=W safety=W comms=W persist=W` line every 30 s from io_task.
-    # Default ON for bench builds; pass -DOPENEVCHARGER_STACK_WATCH=0 for production.
-    if(NOT DEFINED OPENEVCHARGER_STACK_WATCH)
-        set(OPENEVCHARGER_STACK_WATCH 1)
-    endif()
-    target_compile_definitions(${TARGET} PRIVATE
-        OPENEVCHARGER_STACK_WATCH=${OPENEVCHARGER_STACK_WATCH})
-
     set(LINKER_SCRIPT ${CMAKE_SOURCE_DIR}/linker/gd32f205vc.ld)
 
 # ============================================================================
@@ -457,6 +363,9 @@ if(_OEVC_GIT_SHA)
     target_compile_definitions(${TARGET} PRIVATE
         OPENEVCHARGER_GIT_SHA="${_OEVC_GIT_SHA}")
 endif()
+
+# Build-time / bench feature flags (board-independent).
+include(${CMAKE_SOURCE_DIR}/cmake/options.cmake)
 
 target_link_options(${TARGET} PRIVATE
     -T${LINKER_SCRIPT}
