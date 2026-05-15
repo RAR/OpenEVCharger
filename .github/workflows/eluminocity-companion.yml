@@ -1,0 +1,44 @@
+name: eluminocity-companion
+
+on:
+  push:
+    paths:
+      - 'boards/eluminocity-ch21130/**'
+      - '.github/workflows/eluminocity-companion.yml'
+  pull_request:
+    paths:
+      - 'boards/eluminocity-ch21130/**'
+      - '.github/workflows/eluminocity-companion.yml'
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: boards/eluminocity-ch21130/companion
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host unit tests
+        run: make test
+      - name: DcoFImage wrapper tests
+        run: cd image && python3 test_wrap_dco.py
+      - name: Image build script syntax
+        run: cd image && sh -n build-dcofimage.sh
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: boards/eluminocity-ch21130/companion
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch musl armv5te toolchain
+        run: |
+          cd /tmp
+          curl -fsSL -O https://musl.cc/armv5l-linux-musleabi-cross.tgz
+          tar xzf armv5l-linux-musleabi-cross.tgz
+          echo "/tmp/armv5l-linux-musleabi-cross/bin" >> "$GITHUB_PATH"
+      - name: Cross-compile delta-bridge
+        run: make clean && make
+      - name: Verify it is a static ARM binary
+        run: file delta-bridge | grep -E 'ARM.*static(-pie)? linked'
