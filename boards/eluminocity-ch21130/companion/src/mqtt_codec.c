@@ -162,3 +162,44 @@ int mqtt_parse_connack(const unsigned char *buf, size_t len)
         return -1;
     return buf[3] == 0x00 ? 0 : (int)buf[3];
 }
+
+int mqtt_decode_publish(const unsigned char *buf, size_t len,
+                        const char **out_topic, size_t *out_topic_len,
+                        const unsigned char **out_payload,
+                        size_t *out_payload_len)
+{
+    if (!buf || len < 2)
+        return -1;
+    /* Fixed header: PUBLISH = 0x30..0x3F (top nibble 0x3). Reject anything
+     * else so a caller that mis-dispatches doesn't silently parse junk. */
+    if ((buf[0] & 0xF0) != 0x30)
+        return -1;
+    /* QoS lives in bits 0x06 of the first byte. We only handle QoS 0; the
+     * bridge subscribes at QoS 0 so QoS-1/2 packets shouldn't appear, but
+     * defensive rejection beats a misparse that skips a packet id. */
+    if (buf[0] & 0x06)
+        return -1;
+
+    size_t rl_consumed = 0;
+    size_t remlen = mqtt_decode_remlen(buf + 1, len - 1, &rl_consumed);
+    if (remlen == (size_t)-1)
+        return -1;
+    /* The fixed header occupies 1 + rl_consumed bytes; the rest of the
+     * packet must be exactly `remlen` bytes inside `buf`. */
+    size_t header_n = 1 + rl_consumed;
+    if (header_n > len || remlen > len - header_n)
+        return -1;
+    const unsigned char *vh = buf + header_n;
+    size_t vh_room = remlen;
+    if (vh_room < 2)
+        return -1;
+    size_t topic_len = ((size_t)vh[0] << 8) | (size_t)vh[1];
+    if (vh_room < 2 + topic_len)
+        return -1;
+
+    *out_topic       = (const char *)(vh + 2);
+    *out_topic_len   = topic_len;
+    *out_payload     = vh + 2 + topic_len;
+    *out_payload_len = vh_room - 2 - topic_len;
+    return 0;
+}

@@ -84,6 +84,10 @@ unsigned int charger_state_diff(const struct charger_state *prev,
     if (prev->pilot_state    != cur->pilot_state)               d |= CS_DIRTY_PILOT_STATE;
     if (prev->pri_state      != cur->pri_state)                 d |= CS_DIRTY_PRI_STATE;
     if (prev->user_state     != cur->user_state)                d |= CS_DIRTY_USER_STATE;
+    /* "authorized" is a thresholded view (>=1) of user_state; only mark
+     * dirty when that boolean transitions, so HA isn't spammed when
+     * user_state cycles 1↔2 (auth↔charging). */
+    if ((prev->user_state >= 1) != (cur->user_state >= 1))       d |= CS_DIRTY_AUTHORIZE;
     if (prev->red_led        != cur->red_led)                   d |= CS_DIRTY_RED_LED;
     if (prev->stm32_link_ok  != cur->stm32_link_ok)             d |= CS_DIRTY_STM32_LINK;
     if (prev->fault_bits     != cur->fault_bits)                d |= CS_DIRTY_FAULTS;

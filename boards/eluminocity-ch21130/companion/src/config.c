@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 void config_defaults(struct config *c)
 {
@@ -12,6 +13,7 @@ void config_defaults(struct config *c)
     c->poll_hz = 1;
     snprintf(c->log_level, sizeof(c->log_level), "info");
     snprintf(c->log_path,  sizeof(c->log_path),  "/Storage/delta-bridge.log");
+    c->write_enable = 0;        /* v0.3: opt-in; default preserves v0.2 RO. */
 }
 
 /* Trim leading/trailing ASCII whitespace in place; returns the new start. */
@@ -31,13 +33,28 @@ static void set_str(char *dst, const char *src)
     snprintf(dst, CONFIG_STR_MAX, "%s", src);
 }
 
+/* Parse a permissive boolean. Returns 1 for true / on / yes / 1, 0 for
+ * false / off / no / 0, and -1 if the value is unrecognised. */
+static int parse_bool(const char *v)
+{
+    if (!strcasecmp(v, "true")  || !strcasecmp(v, "yes") ||
+        !strcasecmp(v, "on")    || !strcmp(v, "1"))
+        return 1;
+    if (!strcasecmp(v, "false") || !strcasecmp(v, "no") ||
+        !strcasecmp(v, "off")   || !strcmp(v, "0"))
+        return 0;
+    return -1;
+}
+
 int config_parse(struct config *c, const char *text)
 {
     if (!text)
         return 0;
     char line[256];
     const char *p = text;
+    int lineno = 0;
     while (*p) {
+        lineno++;
         size_t i = 0;
         while (*p && *p != '\n' && i < sizeof(line) - 1)
             line[i++] = *p++;
@@ -64,7 +81,25 @@ int config_parse(struct config *c, const char *text)
         else if (!strcmp(key, "poll_hz"))      c->poll_hz = atoi(val);
         else if (!strcmp(key, "log_level"))    set_str(c->log_level, val);
         else if (!strcmp(key, "log_path"))     set_str(c->log_path, val);
-        /* unknown key: ignored */
+        else if (!strcmp(key, "write_enable")) {
+            int b = parse_bool(val);
+            if (b < 0) {
+                fprintf(stderr,
+                        "delta-bridge: config: invalid bool '%s' for "
+                        "'write_enable' at line %d, defaulting to false\n",
+                        val, lineno);
+                c->write_enable = 0;
+            } else {
+                c->write_enable = b;
+            }
+        }
+        else {
+            /* Unknown keys are non-fatal but surfaced — the M0 bench session
+             * called out that silent ignoring made typos hard to spot. */
+            fprintf(stderr,
+                    "delta-bridge: config: unknown key '%s' at line %d, "
+                    "ignored\n", key, lineno);
+        }
     }
     if (c->poll_hz < 1)
         c->poll_hz = 1;

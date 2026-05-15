@@ -48,6 +48,30 @@ int main(int argc, char **argv)
      * serial source — /Storage/SerialNumber or a shmem offset). */
     const char *device_id = cfg.device_id[0] ? cfg.device_id : "evmu30";
 
+    /* Surface the loaded config — the M0 session called out silent
+     * write_enable / unknown-key behaviour. Print this BEFORE the loop so an
+     * operator can confirm intent at a glance from journalctl. */
+    fprintf(stderr,
+            "delta-bridge: config loaded — broker=%s:%d topic_prefix=%s "
+            "device_id=%s poll_hz=%d write_enable=%s\n",
+            cfg.broker_host, cfg.broker_port, cfg.topic_prefix, device_id,
+            cfg.poll_hz, cfg.write_enable ? "true" : "false");
+
+    /* 1. attach shmem first (RW vs RO depending on write_enable); the
+     * adapter needs the pointer so it can route commands to bounded writes. */
+    struct shmem sm;
+    memset(&sm, 0, sizeof(sm));
+    sm.shmid = -1;
+    int bo = 0;
+    while (!g_stop) {
+        int rc = cfg.write_enable ? shmem_attach_rw(&sm) : shmem_attach(&sm);
+        if (rc == 0)
+            break;
+        bo = backoff_next(bo);
+        fprintf(stderr, "delta-bridge: shmem not ready, retry in %ds\n", bo);
+        interruptible_sleep(bo);
+    }
+
     struct mqtt_adapter_config acfg = {
         .broker_host  = cfg.broker_host,
         .broker_port  = cfg.broker_port,
@@ -56,20 +80,11 @@ int main(int argc, char **argv)
         .topic_prefix = cfg.topic_prefix,
         .device_id    = device_id,
         .keepalive_s  = 60,
+        .write_enable = cfg.write_enable,
+        .shm          = cfg.write_enable ? &sm : NULL,
     };
     struct northbound nb;
     mqtt_adapter_create(&nb, &acfg);
-
-    /* 1. attach shmem, retrying — we may have raced Delta's `main` at boot */
-    struct shmem sm;
-    memset(&sm, 0, sizeof(sm));
-    sm.shmid = -1;
-    int bo = 0;
-    while (!g_stop && shmem_attach(&sm) != 0) {
-        bo = backoff_next(bo);
-        fprintf(stderr, "delta-bridge: shmem not ready, retry in %ds\n", bo);
-        interruptible_sleep(bo);
-    }
 
     struct charger_state prev, cur;
     charger_state_init(&prev);
