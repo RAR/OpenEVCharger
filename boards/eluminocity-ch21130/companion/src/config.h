@@ -17,6 +17,14 @@ struct config {
     /* v0.3 write-controls master switch. 0 = read-only (v0.2 behaviour);
      * 1 = bridge does shmem RW attach + MQTT subscribe + command dispatch. */
     int  write_enable;
+    /* v0.4 embedded HTTP server. web_enable=0 (default) leaves the v0.3
+     * MQTT-only behaviour. web_enable=1 starts the on-device config UI on
+     * web_port; auth is HTTP Basic against web_user/web_pass. Empty
+     * web_user or web_pass disables auth (first-boot setup mode). */
+    int  web_enable;
+    int  web_port;
+    char web_user[CONFIG_STR_MAX];
+    char web_pass[CONFIG_STR_MAX];
 };
 
 /* Reset `c` to built-in defaults. */
