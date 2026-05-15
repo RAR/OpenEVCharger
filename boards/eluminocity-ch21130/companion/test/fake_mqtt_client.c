@@ -1,14 +1,9 @@
 /* Test double for mqtt_client.h: records publishes so tests can assert topic
  * and payload. Same symbols as src/mqtt_client.c — link one OR the other. */
 #include "mqtt_client.h"
+#include "fake_mqtt_client.h"
 #include <string.h>
 
-#define FAKE_MAX 64
-struct fake_pub {
-    char topic[160];
-    char payload[256];
-    int  retain;
-};
 struct fake_pub fake_pubs[FAKE_MAX];
 int             fake_pub_count;
 int             fake_connected;

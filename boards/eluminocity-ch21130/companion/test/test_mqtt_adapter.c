@@ -2,11 +2,7 @@
 #include "test_harness.h"
 #include "mqtt_adapter.h"
 #include "northbound.h"
-
-/* exposed by fake_mqtt_client.c */
-struct fake_pub { char topic[160]; char payload[256]; int retain; };
-extern struct fake_pub fake_pubs[];
-extern int fake_pub_count;
+#include "fake_mqtt_client.h"
 
 static int find_pub(const char *topic, const char *payload)
 {
@@ -29,6 +25,12 @@ int main(void)
     CHECK_EQ(mqtt_adapter_create(&nb, &cfg), 0);
     CHECK_EQ(nb.init(&nb), 0);
 
+    /* init() must have published availability=online (retained) before any state */
+    CHECK_EQ(fake_pub_count, 1);
+    CHECK_STR(fake_pubs[0].topic,   "delta-bridge/abc/availability");
+    CHECK_STR(fake_pubs[0].payload, "online");
+    CHECK_EQ(fake_pubs[0].retain, 1);
+
     struct charger_state cs;
     charger_state_init(&cs);
     cs.voltage_v = 121; cs.current_a = 15; cs.stm32_link = 1;
@@ -45,7 +47,8 @@ int main(void)
                    "homeassistant/sensor/delta_abc_voltage/config") == 0)
             saw_discovery = 1;
         if (strcmp(fake_pubs[i].topic, "delta-bridge/abc/voltage") == 0 &&
-            strcmp(fake_pubs[i].payload, "121") == 0)
+            strcmp(fake_pubs[i].payload, "121") == 0 &&
+            fake_pubs[i].retain == 1)
             saw_voltage = 1;
         if (strcmp(fake_pubs[i].topic, "delta-bridge/abc/evse_state") == 0 &&
             strcmp(fake_pubs[i].payload, "charging") == 0)
@@ -61,6 +64,8 @@ int main(void)
     CHECK_EQ(nb.publish_state(&nb, &cs, CS_DIRTY_CURRENT, 0), 0);
     CHECK(find_pub("delta-bridge/abc/current", "16"));
     CHECK_EQ(fake_pub_count, 1);            /* nothing else re-published */
+
+    CHECK_EQ(nb.tick(&nb), 0);
 
     /* availability published online on init */
     nb.shutdown(&nb);

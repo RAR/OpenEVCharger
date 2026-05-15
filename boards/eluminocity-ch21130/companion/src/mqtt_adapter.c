@@ -112,40 +112,41 @@ static int nb_publish_state(struct northbound *nb,
     if (!a->connected)
         return -1;
 
+    int err = 0;
     if (full)
-        publish_all_discovery(a);
+        publish_all_discovery(a);    /* discovery failures are best-effort */
 
-    char topic[160], val[256];
+    char topic[160], val[384];
 
     if (full || (dirty & CS_DIRTY_VOLTAGE)) {
         state_topic(a, topic, sizeof(topic), "voltage");
         snprintf(val, sizeof(val), "%d", cs->voltage_v);
-        mqtt_client_publish(&a->client, topic, val, 1);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_CURRENT)) {
         state_topic(a, topic, sizeof(topic), "current");
         snprintf(val, sizeof(val), "%d", cs->current_a);
-        mqtt_client_publish(&a->client, topic, val, 1);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_EVSE_STATE)) {
         state_topic(a, topic, sizeof(topic), "evse_state");
-        mqtt_client_publish(&a->client, topic, evse_state_str(cs->evse_state), 1);
+        if (mqtt_client_publish(&a->client, topic, evse_state_str(cs->evse_state), 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_HEARTBEAT)) {
         state_topic(a, topic, sizeof(topic), "heartbeat");
         snprintf(val, sizeof(val), "%d", cs->heartbeat);
-        mqtt_client_publish(&a->client, topic, val, 1);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_LINK)) {
         state_topic(a, topic, sizeof(topic), "stm32_link");
-        mqtt_client_publish(&a->client, topic, cs->stm32_link ? "ON" : "OFF", 1);
+        if (mqtt_client_publish(&a->client, topic, cs->stm32_link ? "ON" : "OFF", 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_FAULTS)) {
         state_topic(a, topic, sizeof(topic), "faults");
         format_faults(cs->fault_bits, val, sizeof(val));
-        mqtt_client_publish(&a->client, topic, val, 1);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
-    return 0;
+    return err;
 }
 
 static int nb_tick(struct northbound *nb)
