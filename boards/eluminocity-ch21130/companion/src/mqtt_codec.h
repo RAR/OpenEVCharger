@@ -29,13 +29,26 @@ int mqtt_encode_publish(unsigned char *buf, size_t cap,
 int mqtt_encode_pingreq(unsigned char *buf, size_t cap);
 int mqtt_encode_disconnect(unsigned char *buf, size_t cap);
 
-/* SUBSCRIBE — stub for v1 (read-only). Defined so the v1.1 control path has a
- * seam; encodes a single-topic QoS-0 subscribe. Returns length or -1. */
+/* SUBSCRIBE — encode a single-topic QoS-0 subscribe (MQTT 3.1.1 §3.8).
+ * Returns total packet length or -1 if the buffer is too small. */
 int mqtt_encode_subscribe(unsigned char *buf, size_t cap,
                           unsigned short packet_id, const char *topic);
 
 /* Parse a CONNACK. Returns 0 if the connection was accepted (return code 0),
  * non-zero otherwise (bad packet or non-zero return code). */
 int mqtt_parse_connack(const unsigned char *buf, size_t len);
+
+/* Decode a PUBLISH packet from a buffer that starts at the fixed header
+ * (byte 0 = 0x30..0x3F). On success returns 0 and writes pointers into
+ * `buf` for the topic and payload (with their byte counts). The returned
+ * pointers are valid for the caller's `buf` lifetime; no allocation.
+ *
+ * Defensive: rejects QoS > 0 with -1 (the bridge only subscribes at QoS 0,
+ * and we don't carry a packet-id parser); rejects truncated buffers with -1
+ * before any out-of-bounds read; rejects non-PUBLISH first byte with -1. */
+int mqtt_decode_publish(const unsigned char *buf, size_t len,
+                        const char **out_topic, size_t *out_topic_len,
+                        const unsigned char **out_payload,
+                        size_t *out_payload_len);
 
 #endif /* MQTT_CODEC_H */
