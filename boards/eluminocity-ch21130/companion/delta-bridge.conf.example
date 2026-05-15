@@ -1,0 +1,10 @@
+# delta-bridge configuration — install as /Storage/delta-bridge.conf
+broker_host  = 192.168.1.10
+broker_port  = 1883
+# broker_user = mqttuser
+# broker_pass = mqttpass
+topic_prefix = delta-bridge
+# device_id left blank -> derived at runtime
+poll_hz      = 1
+log_level    = info
+log_path     = /Storage/delta-bridge.log
