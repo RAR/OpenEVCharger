@@ -278,6 +278,30 @@ int rfid_reader_start(struct rfid_reader **out,
                 port ? port : "/dev/ttyAMA4", strerror(errno));
         return -1;
     }
+
+    /* Notes on init:
+     *
+     * The reader's antenna IS NOT enabled by a UART command. The stock
+     * /root/RFID binary contains a `Set_Antana(on)` function that would
+     * emit `[03][11][03][XOR][00]`, but that function is dead code — never
+     * called from main(). What does enable the antenna is the GPIO+PWM
+     * init that stock's `main()` does once at startup (11 echo-to-sysfs
+     * system() calls + PWM_Init on /dev/spr320_pwm1). Those run on the
+     * unit's boot init, before the reader chip wakes up.
+     *
+     * That means killing /root/RFID and running our daemon will only work
+     * if (a) the GPIO state has survived the stock-daemon death — likely,
+     * since sysfs GPIO values are persistent — and (b) the reader chip
+     * doesn't require the PWM signal as a live clock — open question,
+     * the bench-RE agent's hypothesis was "PWM is buzzer only".
+     *
+     * If you hit the "card sits on reader, nothing happens" symptom and
+     * stock RFID worked at boot, it's most likely option (b): the reader
+     * needs the PWM keepalive. The fix would be to open /dev/spr320_pwm1
+     * and call PWM_Init ourselves on startup. Be aware: the SPEAr3xx
+     * kernel PWM driver has a NULL-deref bug on close+reopen, so once
+     * we open it we shouldn't close until the process exits. */
+
     g_reader.active = 1;
     *out = &g_reader;
     fprintf(stderr, "delta-bridge: rfid: started on %s @ 115200 8N1, "
