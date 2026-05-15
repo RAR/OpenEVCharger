@@ -15,7 +15,12 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-#define MQTT_BUF 512
+/* HA discovery payloads for `number` / `switch` entities — with both
+ * command_topic and state_topic plus a 5-field device block — easily run
+ * 500+ bytes. 512 was too small (silent encode-overflow, the v0.3 first-deploy
+ * bug). Bump comfortably for headroom and leave overflow logging below as
+ * insurance. */
+#define MQTT_BUF 2048
 
 void mqtt_client_init(struct mqtt_client *c)
 {
@@ -88,10 +93,11 @@ int mqtt_client_connect(struct mqtt_client *c, const struct mqtt_config *cfg)
         return -1;
     }
 
-    /* Switch to non-blocking so tick() can poll without stalling the loop. */
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0)
-        (void)fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    /* Keep the socket BLOCKING. SO_SNDTIMEO / SO_RCVTIMEO (5s each, set above)
+     * bound the worst-case stall. tick()'s recv uses MSG_DONTWAIT to poll
+     * inbound packets without blocking; outbound publish/subscribe sends rely
+     * on blocking I/O so a multi-packet discovery burst doesn't trip EAGAIN
+     * partway and tear down a healthy link (the v0.3 reconnect-loop bug). */
 
     c->fd            = fd;
     c->keepalive_s   = cfg->keepalive_s;
@@ -105,7 +111,17 @@ int mqtt_client_publish(struct mqtt_client *c, const char *topic,
         return -1;
     unsigned char buf[MQTT_BUF];
     int n = mqtt_encode_publish(buf, sizeof(buf), topic, payload, retain);
-    if (n < 0 || send_all(c->fd, buf, (size_t)n) != 0) {
+    if (n < 0) {
+        /* Encoded packet didn't fit in MQTT_BUF — typically a HA discovery
+         * payload that grew with new fields. Surface it instead of silently
+         * dropping (the v0.3 first-deploy bug was this exact silent path). */
+        fprintf(stderr,
+                "delta-bridge: mqtt: publish '%s' payload (%zu B) too large "
+                "for %d-byte buffer; dropped\n",
+                topic, strlen(payload), MQTT_BUF);
+        return -1;
+    }
+    if (send_all(c->fd, buf, (size_t)n) != 0) {
         mqtt_client_disconnect(c);
         return -1;
     }
