@@ -29,6 +29,26 @@
 #include "shmem.h"
 #include "shmem_offsets.h"
 
+/* web.c calls mqtt_adapter_get_last_scan() from build_state_json. Provide a
+ * stub here so the test binary doesn't have to pull in the full adapter
+ * (which would drag mqtt_client.c + mqtt_codec.c into the link). The default
+ * "no scan yet" path is the right behaviour for the existing /api/state
+ * assertions; tests that need a populated value override it via a flag. */
+static int  g_stub_seen = 0;
+static char g_stub_uid[32] = "";
+static long g_stub_age_ms  = 0;
+int mqtt_adapter_get_last_scan(char *uid_out, size_t uid_cap, long *ms_ago)
+{
+    if (!g_stub_seen) {
+        if (uid_out && uid_cap) uid_out[0] = '\0';
+        if (ms_ago) *ms_ago = 0;
+        return 0;
+    }
+    if (uid_out) snprintf(uid_out, uid_cap, "%s", g_stub_uid);
+    if (ms_ago)  *ms_ago = g_stub_age_ms;
+    return 1;
+}
+
 /* Shared shmem buffer for control tests. */
 static unsigned char g_shm_buf[SHMEM_SIZE];
 
@@ -378,6 +398,40 @@ static void test_state_json(void)
     CHECK(strstr(body, "\"red_led\":1") != NULL);
     CHECK(strstr(body, "\"stm32_link_ok\":true") != NULL);
     CHECK(strstr(body, "\"active_faults\":\"none\"") != NULL);
+    /* v0.5: last_uid is always present (empty when never scanned); the
+     * last_scan_ms_ago key is OMITTED when no scan has landed yet. */
+    CHECK(strstr(body, "\"last_uid\":\"\"") != NULL);
+    CHECK(strstr(body, "\"last_scan_ms_ago\"") == NULL);
+}
+
+/* /api/state with a stubbed RFID scan exposes last_uid + last_scan_ms_ago. */
+static void test_state_includes_rfid_when_seen(void)
+{
+    struct config cfg;
+    struct shmem sm; make_shm(&sm);
+    config_defaults(&cfg);
+    snprintf(cfg.device_id, sizeof(cfg.device_id), "testunit");
+    struct web_server ws;
+    mk_ws_noauth(&ws, &cfg, &sm);
+
+    g_stub_seen   = 1;
+    snprintf(g_stub_uid, sizeof(g_stub_uid), "04A1B2C3");
+    g_stub_age_ms = 250;
+
+    char req[256], resp[8192];
+    size_t rn = mkreq(req, sizeof(req), "GET", "/api/state", NULL, NULL);
+    size_t wn = web_handle_request(&ws, req, rn, resp, sizeof(resp));
+    CHECK(wn > 0);
+    CHECK_EQ(status_of(resp), 200);
+    const char *body = body_of(resp);
+    CHECK(body != NULL);
+    CHECK(strstr(body, "\"last_uid\":\"04A1B2C3\"") != NULL);
+    CHECK(strstr(body, "\"last_scan_ms_ago\":250") != NULL);
+
+    /* Reset stub state for downstream tests. */
+    g_stub_seen = 0;
+    g_stub_uid[0] = '\0';
+    g_stub_age_ms = 0;
 }
 
 /* --- 6. /api/config GET + POST ----------------------------------------- */
@@ -629,6 +683,7 @@ int main(void)
     test_auth();
     test_helpers();
     test_state_json();
+    test_state_includes_rfid_when_seen();
     test_config_get_masks_passwords();
     test_config_post_partial_keeps_pass();
     test_config_post_validation();

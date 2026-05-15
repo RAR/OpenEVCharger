@@ -17,6 +17,7 @@
 #include "commands.h"
 #include "charger_state.h"
 #include "shmem.h"
+#include "mqtt_adapter.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -412,6 +413,13 @@ static size_t build_state_json(struct web_server *ws, char *body, size_t cap)
 
     const char *device_id = ws->cfg->device_id[0] ? ws->cfg->device_id : "evmu30";
 
+    /* RFID — pulled from the adapter's static ctx. If no scan has ever
+     * landed, last_uid is "" and we omit last_scan_ms_ago per the spec. */
+    char rfid_uid[32] = "";
+    long rfid_ms_ago = 0;
+    int  rfid_seen = mqtt_adapter_get_last_scan(rfid_uid, sizeof(rfid_uid),
+                                                &rfid_ms_ago);
+
     int n = snprintf(body, cap,
         "{"
         "\"availability\":\"%s\","
@@ -428,8 +436,8 @@ static size_t build_state_json(struct web_server *ws, char *body, size_t cap)
         "\"stm32_link_ok\":%s,"
         "\"stm32_fault_raw\":%u,"
         "\"fault_bits\":%u,"
-        "\"active_faults\":\"%s\""
-        "}",
+        "\"active_faults\":\"%s\","
+        "\"last_uid\":\"%s\"",
         availability_online ? "online" : "offline",
         device_id,
         cs.voltage_v, cs.current_a, cs.power_w,
@@ -440,9 +448,20 @@ static size_t build_state_json(struct web_server *ws, char *body, size_t cap)
         cs.stm32_link_ok ? "true" : "false",
         (unsigned)cs.stm32_fault_raw,
         (unsigned)cs.fault_bits,
-        faults);
+        faults,
+        rfid_uid);
     if (n < 0 || (size_t)n >= cap) return 0;
-    return (size_t)n;
+    size_t off = (size_t)n;
+    if (rfid_seen) {
+        int w = snprintf(body + off, cap - off,
+                         ",\"last_scan_ms_ago\":%ld", rfid_ms_ago);
+        if (w < 0 || (size_t)w >= cap - off) return 0;
+        off += (size_t)w;
+    }
+    if (off + 1 >= cap) return 0;
+    body[off++] = '}';
+    body[off]   = '\0';
+    return off;
 }
 
 /* --- config JSON (mask passwords) -------------------------------------- */
