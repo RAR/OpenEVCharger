@@ -31,7 +31,10 @@
 #include <unistd.h>
 
 #define MAX_REQ_BYTES   (8 * 1024)
-#define RESP_CAP        (8 * 1024)
+/* RESP_CAP sized to comfortably hold INDEX_HTML (~11 KB) plus headers. The
+ * other responses (JSON state/config) are <2 KB; the SPA is what drives the
+ * upper bound. */
+#define RESP_CAP        (16 * 1024)
 
 /* --- base64 -------------------------------------------------------------- */
 

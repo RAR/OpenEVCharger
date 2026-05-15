@@ -110,13 +110,19 @@ static void test_parser_basic(void)
     struct web_server ws;
     mk_ws_noauth(&ws, &cfg, &sm);
 
-    char req[1024], resp[8192];
+    /* GET / returns the full SPA (~11 KB). Give the response buffer 16 KB
+     * so the test mirrors the server's actual RESP_CAP. */
+    char req[1024];
+    static char resp[16 * 1024];
     size_t rn = mkreq(req, sizeof(req), "GET", "/", NULL, NULL);
     size_t wn = web_handle_request(&ws, req, rn, resp, sizeof(resp));
     CHECK(wn > 0);
     CHECK_EQ(status_of(resp), 200);
     CHECK(strstr(resp, "Content-Type: text/html") != NULL);
     CHECK(strstr(resp, "Connection: close") != NULL);
+    CHECK(strstr(resp, "delta-bridge") != NULL);
+    CHECK(strstr(resp, "/api/state") != NULL);
+    CHECK(strstr(resp, "/api/config") != NULL);
 }
 
 static void test_parser_bad_version(void)
