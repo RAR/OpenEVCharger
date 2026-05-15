@@ -72,6 +72,11 @@ const char *pilot_state_str(enum pilot_state s);
 #define CS_DIRTY_RED_LED      (1u << 8)
 #define CS_DIRTY_STM32_LINK   (1u << 9)
 #define CS_DIRTY_FAULTS       (1u << 10)
+/* v0.3: authorize_state is a thresholded view of user_state — "ON" iff
+ * user_state >= 1 — published only when that boolean flips, not on every
+ * user_state value change. The adapter consumes this bit when write_enable
+ * is on; otherwise it's effectively unused. */
+#define CS_DIRTY_AUTHORIZE    (1u << 11)
 
 /* Returns the OR of CS_DIRTY_* bits for every field that differs between
  * `prev` and `cur`. 0 means identical. Floats compare with an epsilon

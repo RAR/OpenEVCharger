@@ -3,8 +3,12 @@
 #include "mqtt_adapter.h"
 #include "mqtt_client.h"
 #include "charger_state.h"
+#include "shmem.h"
+#include "shmem_offsets.h"
 
+#include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -15,11 +19,14 @@ static long mqtt_adapter_now_ms(void)
     return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
-/* Static single-instance context (the bridge has exactly one adapter). */
+/* Single-instance context (the bridge has exactly one adapter). The publish
+ * callback gets a void* to this struct, so command handlers can reach the
+ * shmem pointer + topic prefix without globals. */
 struct adapter_ctx {
     struct mqtt_adapter_config cfg;
     struct mqtt_client         client;
     char availability_topic[160];
+    char cmd_prefix[160];          /* "<topic_prefix>/<device_id>/set/" */
     int  connected;
 };
 static struct adapter_ctx g_ctx;
@@ -30,11 +37,33 @@ static void state_topic(const struct adapter_ctx *a, char *out, size_t cap,
 {
     snprintf(out, cap, "%s/%s/%s", a->cfg.topic_prefix, a->cfg.device_id, field);
 }
+static void command_topic(const struct adapter_ctx *a, char *out, size_t cap,
+                          const char *field)
+{
+    snprintf(out, cap, "%s/%s/set/%s",
+             a->cfg.topic_prefix, a->cfg.device_id, field);
+}
 static void discovery_topic(const struct adapter_ctx *a, char *out, size_t cap,
                             const char *component, const char *field)
 {
     snprintf(out, cap, "homeassistant/%s/delta_%s_%s/config",
              component, a->cfg.device_id, field);
+}
+
+/* Stitch the standard HA `device` block into a payload buffer. Returns the
+ * number of bytes appended (or 0 on overflow). Kept as a helper so every
+ * discovery payload here ships the same identifiers — HA groups entities by
+ * `device.identifiers`, and any drift fragments the device card. */
+static int append_device_block(char *out, size_t n, size_t cap,
+                               const struct adapter_ctx *a)
+{
+    if (n >= cap) return 0;
+    int w = snprintf(out + n, cap - n,
+        ",\"device\":{\"identifiers\":[\"delta_%s\"],"
+        "\"name\":\"Delta EVMU30 (%s)\",\"manufacturer\":\"Delta\","
+        "\"model\":\"EVMU30\"}",
+        a->cfg.device_id, a->cfg.device_id);
+    return (w > 0 && (size_t)w < cap - n) ? w : 0;
 }
 
 /* Publish one HA discovery config. `unit`, `device_class`, `state_class` are
@@ -44,29 +73,104 @@ static void publish_discovery(struct adapter_ctx *a, const char *component,
                               const char *unit, const char *device_class,
                               const char *state_class)
 {
-    char topic[160], st[160], payload[512];
+    char topic[160], st[160], payload[640];
     discovery_topic(a, topic, sizeof(topic), component, field);
     state_topic(a, st, sizeof(st), field);
 
     int n = snprintf(payload, sizeof(payload),
         "{\"name\":\"%s\",\"state_topic\":\"%s\","
         "\"unique_id\":\"delta_%s_%s\","
-        "\"availability_topic\":\"%s\","
-        "\"device\":{\"identifiers\":[\"delta_%s\"],"
-        "\"name\":\"Delta EVMU30 (%s)\",\"manufacturer\":\"Delta\","
-        "\"model\":\"EVMU30\"}",
-        name, st, a->cfg.device_id, field, a->availability_topic,
-        a->cfg.device_id, a->cfg.device_id);
-    if (unit && n > 0 && n < (int)sizeof(payload))
+        "\"availability_topic\":\"%s\"",
+        name, st, a->cfg.device_id, field, a->availability_topic);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return;
+    n += append_device_block(payload, (size_t)n, sizeof(payload), a);
+    if (unit && (size_t)n < sizeof(payload))
         n += snprintf(payload + n, sizeof(payload) - n,
                       ",\"unit_of_measurement\":\"%s\"", unit);
-    if (device_class && n > 0 && n < (int)sizeof(payload))
+    if (device_class && (size_t)n < sizeof(payload))
         n += snprintf(payload + n, sizeof(payload) - n,
                       ",\"device_class\":\"%s\"", device_class);
-    if (state_class && n > 0 && n < (int)sizeof(payload))
+    if (state_class && (size_t)n < sizeof(payload))
         n += snprintf(payload + n, sizeof(payload) - n,
                       ",\"state_class\":\"%s\"", state_class);
-    if (n > 0 && n < (int)sizeof(payload))
+    if ((size_t)n < sizeof(payload))
+        snprintf(payload + n, sizeof(payload) - n, "}");
+
+    mqtt_client_publish(&a->client, topic, payload, 1);
+}
+
+/* number.set_current — shares the rated_amps state topic with the read-only
+ * sensor it replaces. min/max/step pulled from the EVSE's hardware-published
+ * J1772 range (6..30 A); the firmware clamps writes below 6, so HA enforcing
+ * the same band keeps the UI honest. */
+static void publish_discovery_set_current(struct adapter_ctx *a)
+{
+    char topic[160], st[160], ct[160], payload[640];
+    discovery_topic(a, topic, sizeof(topic), "number", "set_current");
+    state_topic(a, st, sizeof(st), "rated_amps");   /* reuses RO state topic */
+    command_topic(a, ct, sizeof(ct), "rated_amps");
+
+    int n = snprintf(payload, sizeof(payload),
+        "{\"name\":\"Set Current\","
+        "\"command_topic\":\"%s\",\"state_topic\":\"%s\","
+        "\"unique_id\":\"delta_%s_set_current\","
+        "\"availability_topic\":\"%s\","
+        "\"min\":6,\"max\":30,\"step\":1,\"mode\":\"slider\","
+        "\"unit_of_measurement\":\"A\",\"device_class\":\"current\","
+        "\"optimistic\":false",
+        ct, st, a->cfg.device_id, a->availability_topic);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return;
+    n += append_device_block(payload, (size_t)n, sizeof(payload), a);
+    if ((size_t)n < sizeof(payload))
+        snprintf(payload + n, sizeof(payload) - n, "}");
+
+    mqtt_client_publish(&a->client, topic, payload, 1);
+}
+
+/* switch.authorize — payload "ON"/"OFF", state_topic carries the same value
+ * (HA needs state_on/state_off so it can render correctly without an
+ * extra value_template). */
+static void publish_discovery_authorize(struct adapter_ctx *a)
+{
+    char topic[160], st[160], ct[160], payload[640];
+    discovery_topic(a, topic, sizeof(topic), "switch", "authorize");
+    state_topic(a, st, sizeof(st), "authorize_state");
+    command_topic(a, ct, sizeof(ct), "authorize");
+
+    int n = snprintf(payload, sizeof(payload),
+        "{\"name\":\"Authorize\","
+        "\"command_topic\":\"%s\",\"state_topic\":\"%s\","
+        "\"unique_id\":\"delta_%s_authorize\","
+        "\"availability_topic\":\"%s\","
+        "\"payload_on\":\"ON\",\"payload_off\":\"OFF\","
+        "\"state_on\":\"ON\",\"state_off\":\"OFF\","
+        "\"optimistic\":false",
+        ct, st, a->cfg.device_id, a->availability_topic);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return;
+    n += append_device_block(payload, (size_t)n, sizeof(payload), a);
+    if ((size_t)n < sizeof(payload))
+        snprintf(payload + n, sizeof(payload) - n, "}");
+
+    mqtt_client_publish(&a->client, topic, payload, 1);
+}
+
+/* button.clear_faults — no state topic. HA buttons publish "PRESS" by
+ * convention but we accept anything (and ignore the payload). */
+static void publish_discovery_clear_faults(struct adapter_ctx *a)
+{
+    char topic[160], ct[160], payload[640];
+    discovery_topic(a, topic, sizeof(topic), "button", "clear_faults");
+    command_topic(a, ct, sizeof(ct), "clear_faults");
+
+    int n = snprintf(payload, sizeof(payload),
+        "{\"name\":\"Clear Faults\","
+        "\"command_topic\":\"%s\","
+        "\"unique_id\":\"delta_%s_clear_faults\","
+        "\"availability_topic\":\"%s\"",
+        ct, a->cfg.device_id, a->availability_topic);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return;
+    n += append_device_block(payload, (size_t)n, sizeof(payload), a);
+    if ((size_t)n < sizeof(payload))
         snprintf(payload + n, sizeof(payload) - n, "}");
 
     mqtt_client_publish(&a->client, topic, payload, 1);
@@ -79,9 +183,14 @@ static void publish_all_discovery(struct adapter_ctx *a)
     publish_discovery(a, "sensor", "current",    "Current",    "A", "current",     "measurement");
     publish_discovery(a, "sensor", "power",      "Power",      "W", "power",       "measurement");
 
-    /* J1772 PWM + ampacity */
+    /* J1772 PWM + ampacity. The rated_amps entity is published as a plain
+     * read-only sensor in v0.2 mode; v0.3 with write_enable swaps it for a
+     * number entity (see below). The state topic is the same in both cases
+     * so existing automations don't break across the toggle. */
     publish_discovery(a, "sensor", "pilot_duty", "Pilot Duty", "%", NULL, "measurement");
-    publish_discovery(a, "sensor", "rated_amps", "Rated Amps", "A", "current", NULL);
+    if (!a->cfg.write_enable)
+        publish_discovery(a, "sensor", "rated_amps", "Rated Amps",
+                          "A", "current", NULL);
 
     /* Plain enum / scalar state — no unit, no device_class. */
     publish_discovery(a, "sensor", "pilot_state", "Pilot State", NULL, NULL, NULL);
@@ -95,6 +204,13 @@ static void publish_all_discovery(struct adapter_ctx *a)
 
     /* Active alarm-bit names (comma-separated, "none" when no bits set). */
     publish_discovery(a, "sensor", "active_faults", "Active Faults", NULL, NULL, NULL);
+
+    /* Writable entities — only when the bridge is configured RW. */
+    if (a->cfg.write_enable) {
+        publish_discovery_set_current(a);
+        publish_discovery_authorize(a);
+        publish_discovery_clear_faults(a);
+    }
 }
 
 /* Build the comma-joined list of active fault names (or "none"). Bits are
@@ -116,6 +232,138 @@ static void format_faults(unsigned int bits, char *out, size_t cap)
         snprintf(out, cap, "none");
 }
 
+/* --- Command handlers ----------------------------------------------------
+ * Invoked from on_command(), which has already isolated the suffix after
+ * the last '/' of the topic. Payloads are NOT NUL-terminated — pass the
+ * pointer + length explicitly. */
+
+/* Parse the payload as a decimal integer in [min..max]. Returns 0 on success
+ * and writes *out; -1 if the payload is empty, non-numeric, or out of range. */
+static int parse_int_payload(const unsigned char *payload, size_t len,
+                             long min, long max, long *out)
+{
+    if (len == 0 || len > 31)
+        return -1;
+    char buf[32];
+    memcpy(buf, payload, len);
+    buf[len] = '\0';
+    /* Trim trailing whitespace — some MQTT GUIs append a newline. */
+    while (len > 0 && (buf[len - 1] == ' '  || buf[len - 1] == '\t' ||
+                       buf[len - 1] == '\r' || buf[len - 1] == '\n'))
+        buf[--len] = '\0';
+    if (len == 0)
+        return -1;
+    char *endp = NULL;
+    long v = strtol(buf, &endp, 10);
+    if (!endp || *endp != '\0')
+        return -1;
+    if (v < min || v > max)
+        return -1;
+    *out = v;
+    return 0;
+}
+
+static void handle_rated_amps(struct adapter_ctx *a,
+                              const unsigned char *payload, size_t len)
+{
+    long v = 0;
+    if (parse_int_payload(payload, len, 6, 30, &v) != 0) {
+        fprintf(stderr,
+                "delta-bridge: rated_amps: payload out of range or invalid "
+                "(want int 6..30), ignored\n");
+        return;
+    }
+    if (!a->cfg.shm) {
+        fprintf(stderr,
+                "delta-bridge: rated_amps: write_enable=true but shmem is NULL\n");
+        return;
+    }
+    if (shmem_write_u8(a->cfg.shm, OFF_RATED_AMPS, (uint8_t)v) != 0) {
+        fprintf(stderr, "delta-bridge: rated_amps: shmem write failed\n");
+        return;
+    }
+    fprintf(stderr, "delta-bridge: rated_amps -> %ld A\n", v);
+}
+
+static void handle_authorize(struct adapter_ctx *a,
+                             const unsigned char *payload, size_t len)
+{
+    uint8_t v;
+    if (len == 2 && payload[0] == 'O' && payload[1] == 'N')
+        v = 1;
+    else if (len == 3 &&
+             payload[0] == 'O' && payload[1] == 'F' && payload[2] == 'F')
+        v = 0;
+    else {
+        fprintf(stderr,
+                "delta-bridge: authorize: payload must be 'ON' or 'OFF', "
+                "ignored\n");
+        return;
+    }
+    if (!a->cfg.shm) {
+        fprintf(stderr,
+                "delta-bridge: authorize: write_enable=true but shmem is NULL\n");
+        return;
+    }
+    if (shmem_write_u8(a->cfg.shm, OFF_USER_STATE, v) != 0) {
+        fprintf(stderr, "delta-bridge: authorize: shmem write failed\n");
+        return;
+    }
+    fprintf(stderr, "delta-bridge: authorize -> %s\n", v ? "ON" : "OFF");
+}
+
+static void handle_clear_faults(struct adapter_ctx *a,
+                                const unsigned char *payload, size_t len)
+{
+    (void)payload; (void)len;        /* HA buttons send "PRESS"; we ignore */
+    if (!a->cfg.shm) {
+        fprintf(stderr,
+                "delta-bridge: clear_faults: write_enable=true but shmem is NULL\n");
+        return;
+    }
+    if (shmem_write_u32_le(a->cfg.shm, OFF_ALARM_BITMAP, 0u) != 0) {
+        fprintf(stderr, "delta-bridge: clear_faults: shmem write failed\n");
+        return;
+    }
+    fprintf(stderr, "delta-bridge: clear_faults: alarm bitmap cleared\n");
+}
+
+/* Dispatch incoming PUBLISH packets routed by the MQTT client. The topic
+ * is NOT NUL-terminated — work with topic+topic_len. We match against the
+ * last path segment, which is the human-readable command name. */
+static void on_command(void *user,
+                       const char *topic, size_t topic_len,
+                       const unsigned char *payload, size_t payload_len)
+{
+    struct adapter_ctx *a = user;
+
+    /* Find the last '/'. */
+    size_t slash = topic_len;
+    for (size_t i = topic_len; i > 0; i--) {
+        if (topic[i - 1] == '/') { slash = i - 1; break; }
+    }
+    if (slash >= topic_len) {
+        fprintf(stderr,
+                "delta-bridge: command: topic has no '/', dropped\n");
+        return;
+    }
+    const char *suffix = topic + slash + 1;
+    size_t suffix_len = topic_len - slash - 1;
+
+    /* Compare suffix without allocating. */
+    #define IS(s) (suffix_len == sizeof(s) - 1 && \
+                   memcmp(suffix, (s), sizeof(s) - 1) == 0)
+    if (IS("rated_amps"))        handle_rated_amps(a, payload, payload_len);
+    else if (IS("authorize"))    handle_authorize(a, payload, payload_len);
+    else if (IS("clear_faults")) handle_clear_faults(a, payload, payload_len);
+    else {
+        fprintf(stderr,
+                "delta-bridge: command: unknown set/* suffix '%.*s', ignored\n",
+                (int)suffix_len, suffix);
+    }
+    #undef IS
+}
+
 /* --- northbound vtable --- */
 static int nb_init(struct northbound *nb)
 {
@@ -130,6 +378,20 @@ static int nb_init(struct northbound *nb)
     if (mqtt_client_connect(&a->client, &mc) != 0)
         return -1;
     mqtt_client_publish(&a->client, a->availability_topic, "online", 1);
+
+    if (a->cfg.write_enable) {
+        /* Install dispatch BEFORE subscribing so we don't drop a retained
+         * SUBACK-then-publish race. */
+        mqtt_client_set_publish_cb(&a->client, on_command, a);
+        /* +2 over cmd_prefix to fit "+\0"; sizeof(cmd_prefix)=160 so 162 is safe. */
+        char wildcard[sizeof(a->cmd_prefix) + 2];
+        snprintf(wildcard, sizeof(wildcard), "%s+", a->cmd_prefix);
+        if (mqtt_client_subscribe(&a->client, wildcard) != 0) {
+            /* SUBSCRIBE failure means the link is unhealthy; treat as
+             * "init failed" and let main.c reconnect. */
+            return -1;
+        }
+    }
     a->connected = 1;
     return 0;
 }
@@ -203,6 +465,16 @@ static int nb_publish_state(struct northbound *nb,
         format_faults(cs->fault_bits, val, sizeof(val));
         if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
+    /* authorize_state — published whether or not write_enable is on, so HA
+     * can show the switch state even if the user toggles write_enable on
+     * later. The topic costs ~30 retained bytes; keeping it always-on keeps
+     * the bridge's published contract stable across config changes. */
+    if (full || (dirty & CS_DIRTY_AUTHORIZE)) {
+        state_topic(a, topic, sizeof(topic), "authorize_state");
+        if (mqtt_client_publish(&a->client, topic,
+                                cs->user_state >= 1 ? "ON" : "OFF", 1) != 0)
+            err = -1;
+    }
     return err;
 }
 
@@ -230,6 +502,8 @@ int mqtt_adapter_create(struct northbound *nb,
     mqtt_client_init(&g_ctx.client);
     snprintf(g_ctx.availability_topic, sizeof(g_ctx.availability_topic),
              "%s/%s/availability", cfg->topic_prefix, cfg->device_id);
+    snprintf(g_ctx.cmd_prefix, sizeof(g_ctx.cmd_prefix),
+             "%s/%s/set/", cfg->topic_prefix, cfg->device_id);
 
     nb->ctx           = &g_ctx;
     nb->init          = nb_init;
