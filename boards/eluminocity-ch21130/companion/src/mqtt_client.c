@@ -111,17 +111,15 @@ int mqtt_client_tick(struct mqtt_client *c, long now_ms)
     if (c->fd < 0)
         return -1;
 
-    /* drain anything inbound (PINGRESP, etc.) without blocking — the RCVTIMEO
-     * bounds it; we do not parse it for v1 (QoS 0, read-only). */
-    unsigned char scratch[MQTT_BUF];
-    /* non-blocking peek: a real recv would block up to RCVTIMEO, so only read
-     * when keepalive is due and we just sent a PINGREQ below. */
-
+    /* v1: only PINGREQ resets last_send_ms; publishes do not. MQTT 3.1.1
+     * §3.1.2.10 lets any control packet reset the timer — keeping PINGREQ-only
+     * is a deliberate simplification (wasteful at most, never wrong). */
     if (c->keepalive_s > 0 &&
         now_ms - c->last_send_ms >= (long)c->keepalive_s * 1000 / 2) {
         unsigned char buf[4];
+        unsigned char scratch[MQTT_BUF];
         int n = mqtt_encode_pingreq(buf, sizeof(buf));
-        if (send_all(c->fd, buf, (size_t)n) != 0) {
+        if (n < 0 || send_all(c->fd, buf, (size_t)n) != 0) {
             mqtt_client_disconnect(c);
             return -1;
         }
