@@ -31,11 +31,29 @@ struct mqtt_adapter_config {
      * writable (typically attached via shmem_attach_rw). */
     int         write_enable;
     struct shmem *shm;
+    /* v0.5 RFID. When `rfid_enable` is non-zero the adapter publishes HA
+     * discovery for `sensor.last_uid` + `event.scan`, and mqtt_adapter_on_rfid_scan()
+     * is the publish entry point that the main loop wires to the reader's
+     * on_scan callback. */
+    int         rfid_enable;
 };
 
 /* Populate `nb` with the MQTT adapter vtable + a static context built from
  * `cfg`. `cfg` strings must outlive `nb`. Returns 0 on success. */
 int mqtt_adapter_create(struct northbound *nb,
                         const struct mqtt_adapter_config *cfg);
+
+/* Publish an RFID scan: retained `<prefix>/<dev>/rfid/last_uid` + non-retained
+ * `<prefix>/<dev>/rfid/scan_event` JSON `{"event_type":"card_scanned","uid":...}`.
+ * The adapter is single-instance so this finds it via static ctx; safe to call
+ * from any thread that's also the publish thread (we're single-threaded). */
+void mqtt_adapter_on_rfid_scan(const char *uid_hex);
+
+/* Web layer hook: copy the most-recent UID into `uid_out` and the
+ * monotonic-ms age of the scan into `*ms_ago`. Returns 1 if a scan has been
+ * observed (uid_out + *ms_ago valid), 0 otherwise (uid_out="" and *ms_ago=0).
+ * Cap of 32 is plenty (20-char UltraLight UID + NUL). */
+#include <stddef.h>
+int  mqtt_adapter_get_last_scan(char *uid_out, size_t uid_cap, long *ms_ago);
 
 #endif /* MQTT_ADAPTER_H */

@@ -362,9 +362,113 @@ static void test_write_enabled(void)
     shmem_release(&sm);
 }
 
+/* --- Phase 3: rfid_enable = 1 (RFID discovery + on-scan publishes). ----
+ *
+ * Decoupled from write_enable: a user can flip on the RFID reader without
+ * also flipping on the control surface. */
+static void test_rfid_enabled(void)
+{
+    fake_mqtt_client_reset();
+
+    struct mqtt_adapter_config cfg = {
+        .broker_host = "localhost", .broker_port = 1883,
+        .topic_prefix = "delta-bridge", .device_id = "abc",
+        .keepalive_s = 60,
+        .write_enable = 0,
+        .shm = NULL,
+        .rfid_enable = 1,
+    };
+    struct northbound nb;
+    CHECK_EQ(mqtt_adapter_create(&nb, &cfg), 0);
+    CHECK_EQ(nb.init(&nb), 0);
+
+    /* Discovery republished on a full publish. */
+    struct charger_state cs;
+    charger_state_init(&cs);
+    CHECK_EQ(nb.publish_state(&nb, &cs, 0, 1 /*full*/), 0);
+
+    CHECK(saw_topic("homeassistant/sensor/delta_abc_last_uid/config"));
+    CHECK(saw_topic("homeassistant/event/delta_abc_scan/config"));
+
+    /* sensor.last_uid discovery payload essentials. */
+    {
+        const char *p = payload_for("homeassistant/sensor/delta_abc_last_uid/config");
+        CHECK(p != NULL);
+        CHECK(strstr(p, "\"name\":\"Last RFID Scan\"") != NULL);
+        CHECK(strstr(p, "\"state_topic\":\"delta-bridge/abc/rfid/last_uid\"") != NULL);
+        CHECK(strstr(p, "\"unique_id\":\"delta_abc_last_uid\"") != NULL);
+    }
+    /* event.scan discovery payload essentials. */
+    {
+        const char *p = payload_for("homeassistant/event/delta_abc_scan/config");
+        CHECK(p != NULL);
+        CHECK(strstr(p, "\"state_topic\":\"delta-bridge/abc/rfid/scan_event\"") != NULL);
+        CHECK(strstr(p, "\"event_types\":[\"card_scanned\"]") != NULL);
+        CHECK(strstr(p, "\"unique_id\":\"delta_abc_scan_event\"") != NULL);
+    }
+
+    /* on_rfid_scan publishes retained last_uid + non-retained event JSON. */
+    fake_pub_count = 0;
+    mqtt_adapter_on_rfid_scan("04A1B2C3");
+    CHECK_EQ(fake_pub_count, 2);
+    CHECK(find_pub("delta-bridge/abc/rfid/last_uid", "04A1B2C3"));
+    {
+        const char *p = payload_for("delta-bridge/abc/rfid/scan_event");
+        CHECK(p != NULL);
+        CHECK(strstr(p, "\"event_type\":\"card_scanned\"") != NULL);
+        CHECK(strstr(p, "\"uid\":\"04A1B2C3\"") != NULL);
+    }
+    /* Retain flags: last_uid retained (1), scan_event non-retained (0). */
+    int saw_uid_retained = 0, saw_event_nonretained = 0;
+    for (int i = 0; i < fake_pub_count; i++) {
+        if (!strcmp(fake_pubs[i].topic, "delta-bridge/abc/rfid/last_uid"))
+            saw_uid_retained = fake_pubs[i].retain == 1;
+        if (!strcmp(fake_pubs[i].topic, "delta-bridge/abc/rfid/scan_event"))
+            saw_event_nonretained = fake_pubs[i].retain == 0;
+    }
+    CHECK(saw_uid_retained);
+    CHECK(saw_event_nonretained);
+
+    /* mqtt_adapter_get_last_scan returns the most recent. */
+    char uid[32];
+    long age = -1;
+    CHECK_EQ(mqtt_adapter_get_last_scan(uid, sizeof(uid), &age), 1);
+    CHECK_STR(uid, "04A1B2C3");
+    CHECK(age >= 0);
+
+    nb.shutdown(&nb);
+}
+
+/* And when rfid_enable=0, the discovery topics MUST NOT appear. */
+static void test_rfid_disabled(void)
+{
+    fake_mqtt_client_reset();
+
+    struct mqtt_adapter_config cfg = {
+        .broker_host = "localhost", .broker_port = 1883,
+        .topic_prefix = "delta-bridge", .device_id = "abc",
+        .keepalive_s = 60,
+        .rfid_enable = 0,
+    };
+    struct northbound nb;
+    CHECK_EQ(mqtt_adapter_create(&nb, &cfg), 0);
+    CHECK_EQ(nb.init(&nb), 0);
+
+    struct charger_state cs;
+    charger_state_init(&cs);
+    CHECK_EQ(nb.publish_state(&nb, &cs, 0, 1 /*full*/), 0);
+
+    CHECK(!saw_topic("homeassistant/sensor/delta_abc_last_uid/config"));
+    CHECK(!saw_topic("homeassistant/event/delta_abc_scan/config"));
+
+    nb.shutdown(&nb);
+}
+
 int main(void)
 {
     test_read_only();
     test_write_enabled();
+    test_rfid_enabled();
+    test_rfid_disabled();
     TEST_MAIN_END();
 }

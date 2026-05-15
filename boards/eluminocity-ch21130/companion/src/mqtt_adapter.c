@@ -29,6 +29,11 @@ struct adapter_ctx {
     char availability_topic[160];
     char cmd_prefix[160];          /* "<topic_prefix>/<device_id>/set/" */
     int  connected;
+    /* v0.5: last RFID UID + when (CLOCK_MONOTONIC ms) it was seen. Empty
+     * uid means "never scanned". Updated from mqtt_adapter_on_rfid_scan();
+     * read by the web layer via mqtt_adapter_get_last_scan(). */
+    char last_uid[32];
+    long last_scan_ms;
 };
 static struct adapter_ctx g_ctx;
 
@@ -155,6 +160,57 @@ static void publish_discovery_authorize(struct adapter_ctx *a)
     mqtt_client_publish(&a->client, topic, payload, 1);
 }
 
+/* sensor.last_uid — retained UID string. We deliberately do NOT set a
+ * device_class (HA has no "rfid" class) so the entity renders as a generic
+ * text sensor. No unit. The state topic is `<prefix>/<dev>/rfid/last_uid`
+ * — we go via the state_topic helper but with the multi-segment "rfid/last_uid"
+ * field name, which works because the helper just appends. */
+static void publish_discovery_last_uid(struct adapter_ctx *a)
+{
+    char topic[160], st[160], payload[640];
+    discovery_topic(a, topic, sizeof(topic), "sensor", "last_uid");
+    state_topic(a, st, sizeof(st), "rfid/last_uid");
+
+    int n = snprintf(payload, sizeof(payload),
+        "{\"name\":\"Last RFID Scan\","
+        "\"state_topic\":\"%s\","
+        "\"unique_id\":\"delta_%s_last_uid\","
+        "\"availability_topic\":\"%s\","
+        "\"icon\":\"mdi:nfc-variant\"",
+        st, a->cfg.device_id, a->availability_topic);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return;
+    n += append_device_block(payload, (size_t)n, sizeof(payload), a);
+    if ((size_t)n < sizeof(payload))
+        snprintf(payload + n, sizeof(payload) - n, "}");
+
+    mqtt_client_publish(&a->client, topic, payload, 1);
+}
+
+/* event.scan — HA "event" component. Each scan_event publish fires a card-
+ * scanned event in HA, with the UID in the JSON attributes. Non-retained
+ * on the state side so HA's last_triggered timestamp moves each scan. */
+static void publish_discovery_scan_event(struct adapter_ctx *a)
+{
+    char topic[160], st[160], payload[640];
+    discovery_topic(a, topic, sizeof(topic), "event", "scan");
+    state_topic(a, st, sizeof(st), "rfid/scan_event");
+
+    int n = snprintf(payload, sizeof(payload),
+        "{\"name\":\"RFID Scan Event\","
+        "\"state_topic\":\"%s\","
+        "\"unique_id\":\"delta_%s_scan_event\","
+        "\"availability_topic\":\"%s\","
+        "\"event_types\":[\"card_scanned\"],"
+        "\"icon\":\"mdi:nfc-tap\"",
+        st, a->cfg.device_id, a->availability_topic);
+    if (n <= 0 || (size_t)n >= sizeof(payload)) return;
+    n += append_device_block(payload, (size_t)n, sizeof(payload), a);
+    if ((size_t)n < sizeof(payload))
+        snprintf(payload + n, sizeof(payload) - n, "}");
+
+    mqtt_client_publish(&a->client, topic, payload, 1);
+}
+
 /* button.clear_faults — no state topic. HA buttons publish "PRESS" by
  * convention but we accept anything (and ignore the payload). */
 static void publish_discovery_clear_faults(struct adapter_ctx *a)
@@ -211,6 +267,12 @@ static void publish_all_discovery(struct adapter_ctx *a)
         publish_discovery_set_current(a);
         publish_discovery_authorize(a);
         publish_discovery_clear_faults(a);
+    }
+
+    /* RFID entities — only when the bridge is operating the reader. */
+    if (a->cfg.rfid_enable) {
+        publish_discovery_last_uid(a);
+        publish_discovery_scan_event(a);
     }
 }
 
@@ -426,6 +488,54 @@ static void nb_shutdown(struct northbound *nb)
         mqtt_client_disconnect(&a->client);
         a->connected = 0;
     }
+}
+
+void mqtt_adapter_on_rfid_scan(const char *uid_hex)
+{
+    struct adapter_ctx *a = &g_ctx;
+    if (!a->connected || !uid_hex || !*uid_hex) {
+        /* Even when disconnected we record the last seen UID so the /api/state
+         * surface stays useful and the next reconnect's discovery republish
+         * gets a representative `last_uid` retained value. */
+        if (uid_hex && *uid_hex) {
+            snprintf(a->last_uid, sizeof(a->last_uid), "%s", uid_hex);
+            a->last_scan_ms = mqtt_adapter_now_ms();
+        }
+        return;
+    }
+    snprintf(a->last_uid, sizeof(a->last_uid), "%s", uid_hex);
+    a->last_scan_ms = mqtt_adapter_now_ms();
+
+    char topic[160], payload[160];
+
+    /* Retained UID. */
+    state_topic(a, topic, sizeof(topic), "rfid/last_uid");
+    mqtt_client_publish(&a->client, topic, uid_hex, 1);
+
+    /* Non-retained event payload. The HA `event` component reads
+     * `event_type` from the JSON. Keep additional fields under the same
+     * top-level object so HA exposes them as event attributes. */
+    state_topic(a, topic, sizeof(topic), "rfid/scan_event");
+    int n = snprintf(payload, sizeof(payload),
+                     "{\"event_type\":\"card_scanned\",\"uid\":\"%s\"}",
+                     uid_hex);
+    if (n > 0 && (size_t)n < sizeof(payload))
+        mqtt_client_publish(&a->client, topic, payload, 0);
+}
+
+/* Web layer reads via this helper to avoid leaking g_ctx. Returns 1 if a
+ * scan has been observed (and fills *uid_out + *ms_ago), 0 otherwise. */
+int mqtt_adapter_get_last_scan(char *uid_out, size_t uid_cap, long *ms_ago)
+{
+    struct adapter_ctx *a = &g_ctx;
+    if (a->last_uid[0] == '\0') {
+        if (uid_out && uid_cap) uid_out[0] = '\0';
+        if (ms_ago) *ms_ago = 0;
+        return 0;
+    }
+    if (uid_out) snprintf(uid_out, uid_cap, "%s", a->last_uid);
+    if (ms_ago)  *ms_ago = mqtt_adapter_now_ms() - a->last_scan_ms;
+    return 1;
 }
 
 int mqtt_adapter_create(struct northbound *nb,
