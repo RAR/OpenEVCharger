@@ -28,6 +28,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #define MAX_REQ_BYTES   (8 * 1024)

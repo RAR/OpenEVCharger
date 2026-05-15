@@ -8,3 +8,17 @@ topic_prefix = delta-bridge
 poll_hz      = 1
 log_level    = info
 log_path     = /Storage/delta-bridge.log
+
+# v0.3 write controls. Off by default; flip to true to expose
+# number.set_current / switch.authorize / button.clear_faults in HA.
+# write_enable = false
+
+# v0.4 embedded web UI. Off by default. When web_enable=true the bridge
+# listens on web_port (default 8080) and serves a one-page status +
+# config UI. Auth is HTTP Basic; if web_user OR web_pass is empty,
+# auth is DISABLED for first-boot setup (a warning prints at startup).
+# Lock down both fields before exposing the bridge on a shared network.
+# web_enable = false
+# web_port   = 8080
+# web_user   = admin
+# web_pass   = changeme

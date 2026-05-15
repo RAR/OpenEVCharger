@@ -10,6 +10,7 @@
 #include "charger_state.h"
 #include "northbound.h"
 #include "mqtt_adapter.h"
+#include "web.h"
 #include "backoff.h"
 
 #include <signal.h>
@@ -53,9 +54,13 @@ int main(int argc, char **argv)
      * operator can confirm intent at a glance from journalctl. */
     fprintf(stderr,
             "delta-bridge: config loaded — broker=%s:%d topic_prefix=%s "
-            "device_id=%s poll_hz=%d write_enable=%s\n",
+            "device_id=%s poll_hz=%d write_enable=%s web_enable=%s "
+            "web_port=%d\n",
             cfg.broker_host, cfg.broker_port, cfg.topic_prefix, device_id,
-            cfg.poll_hz, cfg.write_enable ? "true" : "false");
+            cfg.poll_hz,
+            cfg.write_enable ? "true" : "false",
+            cfg.web_enable   ? "true" : "false",
+            cfg.web_port);
 
     /* 1. attach shmem first (RW vs RO depending on write_enable); the
      * adapter needs the pointer so it can route commands to bounded writes. */
@@ -85,6 +90,27 @@ int main(int argc, char **argv)
     };
     struct northbound nb;
     mqtt_adapter_create(&nb, &acfg);
+
+    /* v0.4 embedded web server — opt-in via web_enable. State reads always
+     * work; control writes only succeed when write_enable=true (the helpers
+     * return -2/503 if shm is NULL). bring_up is best-effort: a port
+     * collision logs and skips the server but does NOT bring down the MQTT
+     * bridge. */
+    struct web_server ws;
+    memset(&ws, 0, sizeof(ws));
+    ws.listen_fd = -1;
+    int web_up = 0;
+    if (cfg.web_enable) {
+        ws.port      = cfg.web_port;
+        ws.web_user  = cfg.web_user;
+        ws.web_pass  = cfg.web_pass;
+        ws.cfg       = &cfg;
+        ws.shm       = cfg.write_enable ? &sm : NULL;
+        ws.orig_argv = argv;
+        ws.conf_path = conf_path;
+        if (web_server_start(&ws) == 0)
+            web_up = 1;
+    }
 
     struct charger_state prev, cur;
     charger_state_init(&prev);
@@ -124,11 +150,18 @@ int main(int argc, char **argv)
         if (nb.tick(&nb) != 0)
             adapter_up = 0;
 
+        /* 5. web tick — drain any pending HTTP requests. Best-effort: a
+         * failure here doesn't impact the MQTT loop. */
+        if (web_up)
+            web_tick(&ws);
+
         usleep(period_us);
     }
 
-    /* 5. graceful shutdown */
+    /* 6. graceful shutdown */
     nb.shutdown(&nb);
+    if (web_up)
+        web_server_stop(&ws);
     shmem_release(&sm);
     fprintf(stderr, "delta-bridge: stopped\n");
     return 0;

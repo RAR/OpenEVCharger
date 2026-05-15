@@ -10,7 +10,7 @@
  * Sections:
  *   - <header>   device name + big availability indicator
  *   - <section.status>   1 Hz auto-refreshing readout of /api/state
- *   - <section.controls> slider + ON/OFF + clear-faults; POSTs to /api/control/*
+ *   - <section.controls> slider + ON/OFF + clear-faults; POSTs to /api/control endpoints
  *   - <section.config>   form bound to /api/config; passwords masked
  *
  * Maintenance:
