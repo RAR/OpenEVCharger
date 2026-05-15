@@ -20,7 +20,7 @@ SRC := src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
 # rule also appends its target here, so `make test` always builds only what
 # exists.
 TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_codec \
-         test/test_mqtt_adapter test/test_config
+         test/test_mqtt_adapter test/test_config test/test_backoff
 
 .PHONY: all test clean
 all: delta-bridge
@@ -52,6 +52,9 @@ test/test_mqtt_adapter: test/test_mqtt_adapter.c src/mqtt_adapter.c \
 
 test/test_config: test/test_config.c src/config.c src/config.h
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_config.c src/config.c
+
+test/test_backoff: test/test_backoff.c src/backoff.h
+	$(CC) $(CFLAGS) -Itest -o $@ test/test_backoff.c
 
 clean:
 	rm -f delta-bridge $(TESTS)
