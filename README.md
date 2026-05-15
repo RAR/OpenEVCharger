@@ -156,11 +156,21 @@ tasks request via inboxes.
 ## Hardware
 
 The full support matrix and porting outline live in
-[`BOARDS.md`](BOARDS.md). Board selection is
-`cmake -DOPENEVCHARGER_BOARD=<slug>` (`rippleon-roc001` or
-`nexcyber-zbu011k`). To bring up a new board you produce a
-`boards/<board>/` directory (`board.cmake`, `pin_map.h`, `<chip>.ld`)
-and a `src/hal/<chip>/` implementation directory.
+[`BOARDS.md`](BOARDS.md). Two kinds of board:
+
+- **MCU-firmware boards** — clean-room replacement of the safety-MCU
+  firmware. Build via `cmake -DOPENEVCHARGER_BOARD=<slug>` with
+  `rippleon-roc001` (bench-validated, GD32F205VG) or `nexcyber-zbu011k`
+  (in-progress, Nations N32G45x). Bring up a new one by producing
+  `boards/<board>/` (`board.cmake`, `pin_map.h`, `<chip>.ld`) and a
+  `src/hal/<chip>/` implementation directory.
+- **Companion-only boards** — for chargers where the OEM firmware is
+  intentionally kept (e.g. an embedded-Linux app processor running the
+  OCPP/cloud stack). The deliverable is a Linux-userland daemon that
+  augments stock firmware. `eluminocity-ch21130` (Delta EVMU30; bridge
+  builds + tests, bench validation pending) is the only one today.
+  These don't participate in the CMake board matrix — see
+  [`boards/eluminocity-ch21130/companion/`](boards/eluminocity-ch21130/companion/).
 
 The reverse-engineering trail (full SWD dump of stock V1.0.066,
 protocol decode, schematic mapping, OCPP cloud capture) is in
@@ -198,11 +208,23 @@ For the companion-module Wi-Fi side, set `csms_url` and other secrets in
 `boards/rippleon-roc001/fc41d/secrets.yaml` and run:
 
 ```sh
-cd fc41d && esphome run openevcharger.yaml
+cd boards/rippleon-roc001/fc41d && esphome run openevcharger.yaml
 ```
 
 First flash is via WCH CH343G USB-UART (LibreTiny bootloader); subsequent
 updates are OTA over Wi-Fi.
+
+### Companion-only build (Eluminocity CH-21130 / Delta EVMU30)
+
+The `delta-bridge` daemon — Linux-userland, static musl, no MCU port.
+Cross-compile with the musl armv5te toolchain (see
+[board README](boards/eluminocity-ch21130/README.md)):
+
+```sh
+cd boards/eluminocity-ch21130/companion
+make test       # host unit tests (~85 checks across 7 suites)
+make            # cross-compile delta-bridge for armv5te
+```
 
 See [`docs/bring-up.md`](docs/bring-up.md) for the full bench procedure
 and the milestone-by-milestone validation log.

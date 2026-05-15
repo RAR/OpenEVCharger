@@ -1,12 +1,21 @@
 # Supported Boards
 
-OpenEVCharger targets ARM Cortex-M3 / M4F EVSE controller MCUs (GD32F2,
-N32G45, and similar STM32F2-class chips). The core (FreeRTOS task
-layout, J1772 state machine, OCPP/TLV protocol, OTA, RTC bridge,
-persistence) is board-independent.
+OpenEVCharger supports two kinds of board:
 
-Board selection: `cmake -DOPENEVCHARGER_BOARD=<slug>`. Valid slugs are
-`rippleon-roc001` and `nexcyber-zbu011k`.
+- **MCU-firmware boards** — clean-room replacement of the safety-MCU
+  firmware. Targets ARM Cortex-M3 / M4F EVSE controller MCUs (GD32F2,
+  N32G45, and similar STM32F2-class chips). The core (FreeRTOS task
+  layout, J1772 state machine, OCPP/TLV protocol, OTA, RTC bridge,
+  persistence) is board-independent. Built with
+  `cmake -DOPENEVCHARGER_BOARD=<slug>`; valid slugs are
+  `rippleon-roc001` and `nexcyber-zbu011k`.
+- **Companion-only boards** — for chargers where the OEM firmware is
+  intentionally kept (typically an embedded-Linux app processor on the
+  OEM side runs the OCPP / web-UI stack). The deliverable is a
+  Linux-userland daemon that augments stock firmware via shared memory.
+  These boards do **not** participate in the CMake board matrix; they
+  build via their own `companion/Makefile` (musl cross-compile).
+  Only one today: `eluminocity-ch21130`.
 
 The board-specific surface lives in `boards/<board>/`:
 
@@ -109,6 +118,44 @@ If you have an EVSE PCB you'd like to add, open an issue with:
   size + chip variant).
 - Schematic if available; otherwise we'll need a scope to trace pinout
   the same way ROC001 was done.
+
+## Companion-only (no MCU firmware port)
+
+### Eluminocity CH-21130 — Delta EVMU3015HNSEL OEM
+
+Factory-virgin 2016 Delta AC Mini wallbox rebranded by Eluminocity (a
+defunct German operator, ~2018-2020) for BMW Light & Charge / ReachNow
+streetlight fleets in Seattle, Munich, Chicago, Oxford, Eindhoven. The
+sibling AC Mini Plus (`EVPE3215MUK`, V02.0B.06) ships the same chassis
+under various rebrands; we target the older 2016 generation.
+
+Architecture is fundamentally different from the MCU-firmware boards:
+an ARM926 Linux app processor runs OCPP 1.5 + a web UI as the
+"companion"; a STM32F334 is the safety MCU and stays a trusted black
+box. The companion-only deliverable is **`delta-bridge`** — a read-only
+C daemon that attaches to the stock firmware's SysV shared-memory
+segment and publishes charger state to Home Assistant over MQTT with HA
+discovery. The bridge is non-invasive (no shmem writes in v1) and
+crash-isolated from the safety path.
+
+| | |
+|---|---|
+| Packaged SKU | Eluminocity CH-21130 (= Delta `EVMU3015HNSEL`) |
+| Region | US 240 V split-phase, 30 A hardwired |
+| App processor | ST SPEAr320S (ARM926EJ-S @ 333 MHz, ARMv5TE) |
+| Safety MCU | STM32F334C8T6 — **untouched** by this project |
+| Wi-Fi | Sparklan WUBA-171GN (Atheros AR9271 USB) |
+| Stock cloud stack | OCPP 1.5 SOAP + DeltaOCPP daemon (kept running) |
+| Bridge transport | MQTT 3.1.1 over plain TCP, QoS 0, HA discovery, LWT |
+| Distribution | USB-flashable `DcoFImage` (legacy `DELTADCOF` magic + byte-sum) — also produces a `DcoFImage-stock-restore` revert image |
+| Build | `cd boards/eluminocity-ch21130/companion && make` (musl armv5te) |
+| Status | Bridge implemented + 85/85 host tests + clean cross-compile (CI green); bench validation milestones M0–M3 pending |
+
+Board scaffolding: [`boards/eluminocity-ch21130/`](boards/eluminocity-ch21130/README.md).
+RE docs (inter-MCU protocol, shmem layout, OCPP / firmware bundle,
+decoded shmem snapshot) live in [`boards/eluminocity-ch21130/docs/`](boards/eluminocity-ch21130/docs/).
+Spec + plan: [`docs/superpowers/specs/2026-05-14-eluminocity-ch21130-mqtt-bridge-design.md`](docs/superpowers/specs/2026-05-14-eluminocity-ch21130-mqtt-bridge-design.md)
+and the matching `plans/` doc.
 
 ## Porting outline
 
