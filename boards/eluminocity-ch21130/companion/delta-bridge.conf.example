@@ -22,3 +22,13 @@ log_path     = /Storage/delta-bridge.log
 # web_port   = 8080
 # web_user   = admin
 # web_pass   = changeme
+
+# v0.5 custom RFID reader. Off by default so the stock /root/RFID daemon
+# keeps owning /dev/ttyAMA4. Flip rfid_enable=true to take over — the bridge
+# kills /root/RFID, polls for ISO14443A UIDs at rfid_poll_hz, and publishes
+# scans to MQTT (sensor.last_uid + event.scan). UID is uppercase ASCII hex.
+# No allowlist policy in the bridge — HA owns it.
+# rfid_enable     = false
+# rfid_port       = /dev/ttyAMA4
+# rfid_kill_stock = true
+# rfid_poll_hz    = 5

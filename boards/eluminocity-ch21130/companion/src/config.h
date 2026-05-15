@@ -25,6 +25,15 @@ struct config {
     int  web_port;
     char web_user[CONFIG_STR_MAX];
     char web_pass[CONFIG_STR_MAX];
+    /* v0.5 — custom RFID reader replaces the stock /root/RFID daemon. Off
+     * by default; once enabled the bridge kills the stock daemon (so it
+     * doesn't fight us for /dev/ttyAMA4), polls 0x20 (Request_CardSN), and
+     * publishes any debounced UID to MQTT. No allowlist policy here —
+     * HA owns it. See docs/08-rfid-auth-flow.md. */
+    int  rfid_enable;
+    char rfid_port[CONFIG_STR_MAX];
+    int  rfid_kill_stock;
+    int  rfid_poll_hz;
 };
 
 /* Reset `c` to built-in defaults. */

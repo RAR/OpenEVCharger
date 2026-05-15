@@ -12,6 +12,7 @@
 #include "mqtt_adapter.h"
 #include "web.h"
 #include "backoff.h"
+#include "rfid.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -26,6 +27,17 @@ static void interruptible_sleep(int s)
 {
     for (int i = 0; i < s && !g_stop; i++)
         sleep(1);
+}
+
+/* RFID -> MQTT adapter bridge. The reader callback ABI takes (user, uid)
+ * but our adapter is single-instance and reaches its ctx via static linkage;
+ * `user` is unused. Defined at file scope (not inline) so the build doesn't
+ * depend on GCC's nested-function extension. */
+static void on_rfid_scan(void *user, const char *uid_hex)
+{
+    (void)user;
+    fprintf(stderr, "delta-bridge: rfid: scan UID=%s\n", uid_hex);
+    mqtt_adapter_on_rfid_scan(uid_hex);
 }
 
 int main(int argc, char **argv)
@@ -55,12 +67,17 @@ int main(int argc, char **argv)
     fprintf(stderr,
             "delta-bridge: config loaded — broker=%s:%d topic_prefix=%s "
             "device_id=%s poll_hz=%d write_enable=%s web_enable=%s "
-            "web_port=%d\n",
+            "web_port=%d rfid_enable=%s rfid_port=%s rfid_kill_stock=%s "
+            "rfid_poll_hz=%d\n",
             cfg.broker_host, cfg.broker_port, cfg.topic_prefix, device_id,
             cfg.poll_hz,
             cfg.write_enable ? "true" : "false",
             cfg.web_enable   ? "true" : "false",
-            cfg.web_port);
+            cfg.web_port,
+            cfg.rfid_enable     ? "true" : "false",
+            cfg.rfid_port,
+            cfg.rfid_kill_stock ? "true" : "false",
+            cfg.rfid_poll_hz);
 
     /* 1. attach shmem first (RW vs RO depending on write_enable); the
      * adapter needs the pointer so it can route commands to bounded writes. */
@@ -87,9 +104,25 @@ int main(int argc, char **argv)
         .keepalive_s  = 60,
         .write_enable = cfg.write_enable,
         .shm          = cfg.write_enable ? &sm : NULL,
+        .rfid_enable  = cfg.rfid_enable,
     };
     struct northbound nb;
     mqtt_adapter_create(&nb, &acfg);
+
+    /* RFID reader — opt-in, can run independent of write_enable. The reader
+     * needs the stock /root/RFID daemon out of the way, so it pulls the
+     * trigger on kill (configurable) before opening /dev/ttyAMA4. */
+    struct rfid_reader *rdr = NULL;
+    if (cfg.rfid_enable) {
+        if (rfid_reader_start(&rdr, cfg.rfid_port, cfg.rfid_kill_stock,
+                              on_rfid_scan, NULL) == 0) {
+            rfid_reader_set_poll_hz(rdr, cfg.rfid_poll_hz);
+        } else {
+            fprintf(stderr,
+                    "delta-bridge: rfid: start failed — continuing without "
+                    "RFID\n");
+        }
+    }
 
     /* v0.4 embedded web server — opt-in via web_enable. State reads always
      * work; control writes only succeed when write_enable=true (the helpers
@@ -155,13 +188,19 @@ int main(int argc, char **argv)
         if (web_up)
             web_tick(&ws);
 
+        /* 6. rfid tick — non-blocking; cheap when no card is in field. */
+        if (rdr)
+            rfid_reader_tick(rdr);
+
         usleep(period_us);
     }
 
-    /* 6. graceful shutdown */
+    /* 7. graceful shutdown */
     nb.shutdown(&nb);
     if (web_up)
         web_server_stop(&ws);
+    if (rdr)
+        rfid_reader_stop(rdr);
     shmem_release(&sm);
     fprintf(stderr, "delta-bridge: stopped\n");
     return 0;

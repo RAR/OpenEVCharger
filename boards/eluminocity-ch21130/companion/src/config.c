@@ -16,6 +16,10 @@ void config_defaults(struct config *c)
     c->write_enable = 0;        /* v0.3: opt-in; default preserves v0.2 RO. */
     c->web_enable   = 0;        /* v0.4: opt-in; off by default. */
     c->web_port     = 8080;
+    c->rfid_enable     = 0;     /* v0.5: opt-in; off keeps stock daemon owning the UART. */
+    snprintf(c->rfid_port, sizeof(c->rfid_port), "/dev/ttyAMA4");
+    c->rfid_kill_stock = 1;     /* if we're enabling, default-take ownership */
+    c->rfid_poll_hz    = 5;
 }
 
 /* Trim leading/trailing ASCII whitespace in place; returns the new start. */
@@ -110,6 +114,32 @@ int config_parse(struct config *c, const char *text)
         else if (!strcmp(key, "web_port"))  c->web_port = atoi(val);
         else if (!strcmp(key, "web_user"))  set_str(c->web_user, val);
         else if (!strcmp(key, "web_pass"))  set_str(c->web_pass, val);
+        else if (!strcmp(key, "rfid_enable")) {
+            int b = parse_bool(val);
+            if (b < 0) {
+                fprintf(stderr,
+                        "delta-bridge: config: invalid bool '%s' for "
+                        "'rfid_enable' at line %d, defaulting to false\n",
+                        val, lineno);
+                c->rfid_enable = 0;
+            } else {
+                c->rfid_enable = b;
+            }
+        }
+        else if (!strcmp(key, "rfid_port"))   set_str(c->rfid_port, val);
+        else if (!strcmp(key, "rfid_kill_stock")) {
+            int b = parse_bool(val);
+            if (b < 0) {
+                fprintf(stderr,
+                        "delta-bridge: config: invalid bool '%s' for "
+                        "'rfid_kill_stock' at line %d, defaulting to true\n",
+                        val, lineno);
+                c->rfid_kill_stock = 1;
+            } else {
+                c->rfid_kill_stock = b;
+            }
+        }
+        else if (!strcmp(key, "rfid_poll_hz")) c->rfid_poll_hz = atoi(val);
         else {
             /* Unknown keys are non-fatal but surfaced — the M0 bench session
              * called out that silent ignoring made typos hard to spot. */
@@ -122,6 +152,10 @@ int config_parse(struct config *c, const char *text)
         c->poll_hz = 1;
     if (c->web_port < 1 || c->web_port > 65535)
         c->web_port = 8080;
+    /* rfid_reader clamps internally too, but we normalise here so the
+     * startup-log line shows the value actually in effect. */
+    if (c->rfid_poll_hz < 1)  c->rfid_poll_hz = 1;
+    if (c->rfid_poll_hz > 50) c->rfid_poll_hz = 50;
     return 0;
 }
 
