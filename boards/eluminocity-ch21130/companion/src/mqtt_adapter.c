@@ -1,9 +1,19 @@
+#define _POSIX_C_SOURCE 200112L
+
 #include "mqtt_adapter.h"
 #include "mqtt_client.h"
 #include "charger_state.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+static long mqtt_adapter_now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
 
 /* Static single-instance context (the bridge has exactly one adapter). */
 struct adapter_ctx {
@@ -152,8 +162,7 @@ static int nb_publish_state(struct northbound *nb,
 static int nb_tick(struct northbound *nb)
 {
     struct adapter_ctx *a = nb->ctx;
-    /* now_ms is supplied by main.c in the real loop; the fake ignores it. */
-    return mqtt_client_tick(&a->client, 0);
+    return mqtt_client_tick(&a->client, mqtt_adapter_now_ms());
 }
 
 static void nb_shutdown(struct northbound *nb)

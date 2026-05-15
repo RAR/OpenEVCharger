@@ -15,18 +15,10 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 
 static volatile sig_atomic_t g_stop = 0;
 static void on_signal(int sig) { (void)sig; g_stop = 1; }
-
-static long now_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
 
 /* Sleep `s` seconds but wake early on a stop signal. */
 static void interruptible_sleep(int s)
@@ -44,9 +36,13 @@ int main(int argc, char **argv)
         fprintf(stderr, "delta-bridge: no config at %s, using defaults\n",
                 conf_path);
 
-    signal(SIGTERM, on_signal);
-    signal(SIGINT,  on_signal);
-    signal(SIGPIPE, SIG_IGN);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = on_signal;
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT,  &sa, NULL);
+    sa.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &sa, NULL);
 
     /* device_id: config value, else a fixed fallback (M0 will wire the real
      * serial source — /Storage/SerialNumber or a shmem offset). */
@@ -66,6 +62,8 @@ int main(int argc, char **argv)
 
     /* 1. attach shmem, retrying — we may have raced Delta's `main` at boot */
     struct shmem sm;
+    memset(&sm, 0, sizeof(sm));
+    sm.shmid = -1;
     int bo = 0;
     while (!g_stop && shmem_attach(&sm) != 0) {
         bo = backoff_next(bo);
@@ -111,7 +109,6 @@ int main(int argc, char **argv)
         if (nb.tick(&nb) != 0)
             adapter_up = 0;
 
-        (void)now_ms;                       /* used by the real keepalive path */
         usleep(period_us);
     }
 
