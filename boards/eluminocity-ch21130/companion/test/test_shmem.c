@@ -33,6 +33,31 @@ int main(void)
     CHECK_EQ(alarm[0], 0x08);
     CHECK_EQ(alarm[1], 0x00);
 
+    /* --- bounds-checked write helpers (v0.3 write path) --- */
+    /* fixture buffers are writable; round-trip writes through the readers */
+    CHECK_EQ(shmem_write_u8(&sm, OFF_RATED_AMPS, 20), 0);
+    CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS), 20);
+
+    CHECK_EQ(shmem_write_u32_le(&sm, OFF_ALARM_BITMAP, 0u), 0);
+    CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP), 0u);
+
+    CHECK_EQ(shmem_write_u16_le(&sm, OFF_VRMS_MEAS, 0xBEEF), 0);
+    CHECK_EQ(shmem_u16_le(&sm, OFF_VRMS_MEAS), 0xBEEF);
+
+    /* OOB writes return -1, don't crash, don't touch out-of-bounds memory */
+    CHECK_EQ(shmem_write_u8(&sm, SHMEM_SIZE + 5, 0xAA), -1);
+    CHECK_EQ(shmem_write_u16_le(&sm, SHMEM_SIZE - 1, 0xDEAD), -1);
+    CHECK_EQ(shmem_write_u32_le(&sm, SHMEM_SIZE - 2, 0xCAFEBABE), -1);
+
+    /* RO mapping (simulated by flipping writable=0) refuses all writes */
+    sm.writable = 0;
+    CHECK_EQ(shmem_write_u8(&sm, OFF_RATED_AMPS, 5), -1);
+    CHECK_EQ(shmem_write_u16_le(&sm, OFF_VRMS_MEAS, 0), -1);
+    CHECK_EQ(shmem_write_u32_le(&sm, OFF_ALARM_BITMAP, 0), -1);
+    /* and the segment is unchanged */
+    CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS), 20);
+    sm.writable = 1;
+
     shmem_release(&sm);
     TEST_MAIN_END();
 }
