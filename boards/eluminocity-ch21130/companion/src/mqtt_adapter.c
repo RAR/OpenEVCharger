@@ -37,10 +37,12 @@ static void discovery_topic(const struct adapter_ctx *a, char *out, size_t cap,
              component, a->cfg.device_id, field);
 }
 
-/* Publish one HA discovery config for a sensor field. */
+/* Publish one HA discovery config. `unit`, `device_class`, `state_class` are
+ * optional (NULL -> omit). */
 static void publish_discovery(struct adapter_ctx *a, const char *component,
                               const char *field, const char *name,
-                              const char *unit, const char *device_class)
+                              const char *unit, const char *device_class,
+                              const char *state_class)
 {
     char topic[160], st[160], payload[512];
     discovery_topic(a, topic, sizeof(topic), component, field);
@@ -61,6 +63,9 @@ static void publish_discovery(struct adapter_ctx *a, const char *component,
     if (device_class && n > 0 && n < (int)sizeof(payload))
         n += snprintf(payload + n, sizeof(payload) - n,
                       ",\"device_class\":\"%s\"", device_class);
+    if (state_class && n > 0 && n < (int)sizeof(payload))
+        n += snprintf(payload + n, sizeof(payload) - n,
+                      ",\"state_class\":\"%s\"", state_class);
     if (n > 0 && n < (int)sizeof(payload))
         snprintf(payload + n, sizeof(payload) - n, "}");
 
@@ -69,16 +74,31 @@ static void publish_discovery(struct adapter_ctx *a, const char *component,
 
 static void publish_all_discovery(struct adapter_ctx *a)
 {
-    publish_discovery(a, "sensor", "voltage", "Voltage", "V", "voltage");
-    publish_discovery(a, "sensor", "current", "Current", "A", "current");
-    publish_discovery(a, "sensor", "evse_state", "EVSE State", NULL, NULL);
-    publish_discovery(a, "sensor", "heartbeat", "Heartbeat", NULL, NULL);
-    publish_discovery(a, "binary_sensor", "stm32_link", "STM32 Link", NULL,
-                      "connectivity");
-    publish_discovery(a, "sensor", "faults", "Active Faults", NULL, NULL);
+    /* Metering — full HA SensorDeviceClass attributes for energy dashboards. */
+    publish_discovery(a, "sensor", "voltage",    "Voltage",    "V", "voltage",     "measurement");
+    publish_discovery(a, "sensor", "current",    "Current",    "A", "current",     "measurement");
+    publish_discovery(a, "sensor", "power",      "Power",      "W", "power",       "measurement");
+
+    /* J1772 PWM + ampacity */
+    publish_discovery(a, "sensor", "pilot_duty", "Pilot Duty", "%", NULL, "measurement");
+    publish_discovery(a, "sensor", "rated_amps", "Rated Amps", "A", "current", NULL);
+
+    /* Plain enum / scalar state — no unit, no device_class. */
+    publish_discovery(a, "sensor", "pilot_state", "Pilot State", NULL, NULL, NULL);
+    publish_discovery(a, "sensor", "pri_state",   "Pri State",   NULL, NULL, NULL);
+    publish_discovery(a, "sensor", "user_state",  "User State",  NULL, NULL, NULL);
+    publish_discovery(a, "sensor", "red_led",     "Red LED",     NULL, NULL, NULL);
+
+    /* STM32 link — binary connectivity sensor. */
+    publish_discovery(a, "binary_sensor", "stm32_link_ok", "STM32 Link",
+                      NULL, "connectivity", NULL);
+
+    /* Active alarm-bit names (comma-separated, "none" when no bits set). */
+    publish_discovery(a, "sensor", "active_faults", "Active Faults", NULL, NULL, NULL);
 }
 
-/* Build the comma-joined list of active fault names (or "none"). */
+/* Build the comma-joined list of active fault names (or "none"). Bits are
+ * iterated in ascending bit-position order so the string is deterministic. */
 static void format_faults(unsigned int bits, char *out, size_t cap)
 {
     size_t n = 0;
@@ -130,29 +150,56 @@ static int nb_publish_state(struct northbound *nb,
 
     if (full || (dirty & CS_DIRTY_VOLTAGE)) {
         state_topic(a, topic, sizeof(topic), "voltage");
-        snprintf(val, sizeof(val), "%d", cs->voltage_v);
+        snprintf(val, sizeof(val), "%.1f", cs->voltage_v);
         if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_CURRENT)) {
         state_topic(a, topic, sizeof(topic), "current");
-        snprintf(val, sizeof(val), "%d", cs->current_a);
+        snprintf(val, sizeof(val), "%.2f", cs->current_a);
         if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
-    if (full || (dirty & CS_DIRTY_EVSE_STATE)) {
-        state_topic(a, topic, sizeof(topic), "evse_state");
-        if (mqtt_client_publish(&a->client, topic, evse_state_str(cs->evse_state), 1) != 0) err = -1;
-    }
-    if (full || (dirty & CS_DIRTY_HEARTBEAT)) {
-        state_topic(a, topic, sizeof(topic), "heartbeat");
-        snprintf(val, sizeof(val), "%d", cs->heartbeat);
+    if (full || (dirty & CS_DIRTY_POWER)) {
+        state_topic(a, topic, sizeof(topic), "power");
+        snprintf(val, sizeof(val), "%.0f", cs->power_w);
         if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }
-    if (full || (dirty & CS_DIRTY_LINK)) {
-        state_topic(a, topic, sizeof(topic), "stm32_link");
-        if (mqtt_client_publish(&a->client, topic, cs->stm32_link ? "ON" : "OFF", 1) != 0) err = -1;
+    if (full || (dirty & CS_DIRTY_PILOT_DUTY)) {
+        state_topic(a, topic, sizeof(topic), "pilot_duty");
+        snprintf(val, sizeof(val), "%u", (unsigned)cs->pilot_duty_pct);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
+    }
+    if (full || (dirty & CS_DIRTY_RATED_AMPS)) {
+        state_topic(a, topic, sizeof(topic), "rated_amps");
+        snprintf(val, sizeof(val), "%u", (unsigned)cs->rated_amps);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
+    }
+    if (full || (dirty & CS_DIRTY_PILOT_STATE)) {
+        state_topic(a, topic, sizeof(topic), "pilot_state");
+        if (mqtt_client_publish(&a->client, topic,
+                                pilot_state_str(cs->pilot_state), 1) != 0) err = -1;
+    }
+    if (full || (dirty & CS_DIRTY_PRI_STATE)) {
+        state_topic(a, topic, sizeof(topic), "pri_state");
+        snprintf(val, sizeof(val), "%u", (unsigned)cs->pri_state);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
+    }
+    if (full || (dirty & CS_DIRTY_USER_STATE)) {
+        state_topic(a, topic, sizeof(topic), "user_state");
+        snprintf(val, sizeof(val), "%u", (unsigned)cs->user_state);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
+    }
+    if (full || (dirty & CS_DIRTY_RED_LED)) {
+        state_topic(a, topic, sizeof(topic), "red_led");
+        snprintf(val, sizeof(val), "%u", (unsigned)cs->red_led);
+        if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
+    }
+    if (full || (dirty & CS_DIRTY_STM32_LINK)) {
+        state_topic(a, topic, sizeof(topic), "stm32_link_ok");
+        if (mqtt_client_publish(&a->client, topic,
+                                cs->stm32_link_ok ? "ON" : "OFF", 1) != 0) err = -1;
     }
     if (full || (dirty & CS_DIRTY_FAULTS)) {
-        state_topic(a, topic, sizeof(topic), "faults");
+        state_topic(a, topic, sizeof(topic), "active_faults");
         format_faults(cs->fault_bits, val, sizeof(val));
         if (mqtt_client_publish(&a->client, topic, val, 1) != 0) err = -1;
     }

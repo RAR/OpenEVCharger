@@ -7,22 +7,31 @@ int main(void)
     struct shmem sm;
     CHECK_EQ(shmem_load_file(&sm, "test/fixtures/shmem_snapshot.bin"), 0);
 
-    CHECK_EQ(shmem_u8(&sm, OFF_CONNECTOR_STATE), 0x02);
-    CHECK_EQ(shmem_u8(&sm, OFF_HEARTBEAT),       0x55);
-    CHECK_EQ(shmem_u8(&sm, OFF_STM32_LINK),      0x01);
-    CHECK_EQ(shmem_u8(&sm, OFF_VRMS),            0x78);
-    CHECK_EQ(shmem_u8(&sm, OFF_IRMS),            0x10);
-    CHECK_EQ(shmem_u8(&sm, OFF_FAULT_FLAGS),     0x42);
-    CHECK_EQ(shmem_u8(&sm, OFF_FW_UPGRADE_GATE), 0x09);
+    /* Byte-wise reads at named offsets (see make_shmem_fixture.py). */
+    CHECK_EQ(shmem_u8(&sm, OFF_USER_STATE),  0x02);
+    CHECK_EQ(shmem_u8(&sm, OFF_RED_LED),     0x02);
+    CHECK_EQ(shmem_u8(&sm, OFF_PRI_STATE),   0x03);
+    CHECK_EQ(shmem_u8(&sm, OFF_PILOT_STATE), 0x02);
+    CHECK_EQ(shmem_u8(&sm, OFF_STM32_FAULT), 0x00);
+    CHECK_EQ(shmem_u8(&sm, OFF_PILOT_DUTY),  0x32);
+    CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS),  0x1E);
+
+    /* LE u16/u32 helpers */
+    CHECK_EQ(shmem_u16_le(&sm, OFF_VRMS_MEAS), 2300);   /* 230.0 V × 10 */
+    CHECK_EQ(shmem_u16_le(&sm, OFF_IRMS_MEAS),  160);   /* 16.0 A × 10  */
+    CHECK_EQ(shmem_u32_le(&sm, OFF_POWER_MEAS), 3500u); /* raw / 1000 = 3.5 */
+    CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP), 0x00000008u);
 
     /* out-of-range offset returns 0 defensively, never crashes */
     CHECK_EQ(shmem_u8(&sm, SHMEM_SIZE + 100), 0);
+    CHECK_EQ(shmem_u16_le(&sm, SHMEM_SIZE - 1), 0);   /* second byte OOB */
+    CHECK_EQ(shmem_u32_le(&sm, SHMEM_SIZE - 2), 0);
 
-    /* alarm bitmap copy */
-    unsigned char alarm[ALARM_BITMAP_LEN];
-    shmem_copy(&sm, OFF_ALARM_BITMAP, alarm, ALARM_BITMAP_LEN);
-    CHECK_EQ(alarm[3], 0x01);
-    CHECK_EQ(alarm[0], 0x00);
+    /* shmem_copy still works */
+    unsigned char alarm[4];
+    shmem_copy(&sm, OFF_ALARM_BITMAP, alarm, sizeof(alarm));
+    CHECK_EQ(alarm[0], 0x08);
+    CHECK_EQ(alarm[1], 0x00);
 
     shmem_release(&sm);
     TEST_MAIN_END();

@@ -65,6 +65,24 @@ unsigned char shmem_u8(const struct shmem *sm, size_t off)
     return sm->base[off];
 }
 
+unsigned short shmem_u16_le(const struct shmem *sm, size_t off)
+{
+    /* Byte-wise: ARMv5 traps unaligned u16 loads at certain CP15 configs,
+     * and the producer marshalls byte-by-byte anyway. */
+    unsigned b0 = shmem_u8(sm, off);
+    unsigned b1 = shmem_u8(sm, off + 1);
+    return (unsigned short)(b0 | (b1 << 8));
+}
+
+unsigned int shmem_u32_le(const struct shmem *sm, size_t off)
+{
+    unsigned b0 = shmem_u8(sm, off);
+    unsigned b1 = shmem_u8(sm, off + 1);
+    unsigned b2 = shmem_u8(sm, off + 2);
+    unsigned b3 = shmem_u8(sm, off + 3);
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
 void shmem_copy(const struct shmem *sm, size_t off, void *dst, size_t len)
 {
     unsigned char *d = dst;

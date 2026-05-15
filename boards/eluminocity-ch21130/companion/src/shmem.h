@@ -30,6 +30,13 @@ void shmem_release(struct shmem *sm);
 /* Read a single byte. Out-of-range offsets return 0 (defensive, never crash). */
 unsigned char shmem_u8(const struct shmem *sm, size_t off);
 
+/* Read a 16-bit little-endian word, byte-by-byte (ARMv5 may trap unaligned
+ * 2-byte loads). Out-of-range bytes are read as 0. */
+unsigned short shmem_u16_le(const struct shmem *sm, size_t off);
+
+/* Read a 32-bit little-endian word, byte-by-byte. Out-of-range bytes are 0. */
+unsigned int shmem_u32_le(const struct shmem *sm, size_t off);
+
 /* Copy `len` bytes from `off` into `dst`. Out-of-range bytes are zero-filled. */
 void shmem_copy(const struct shmem *sm, size_t off, void *dst, size_t len);
 

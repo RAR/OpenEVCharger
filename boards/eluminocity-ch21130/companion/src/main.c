@@ -95,8 +95,8 @@ int main(int argc, char **argv)
         /* 3. read + publish */
         charger_state_read(&cur, &sm);
         unsigned int dirty = charger_state_diff(&prev, &cur);
-        int full = (prev.evse_state == EVSE_STATE_UNKNOWN &&
-                    prev.voltage_v == 0 && prev.current_a == 0);
+        int full = (prev.pilot_state == PILOT_UNKNOWN &&
+                    prev.voltage_v == 0.0f && prev.current_a == 0.0f);
         if (full || dirty) {
             if (nb.publish_state(&nb, &cur, dirty, full) != 0) {
                 adapter_up = 0;             /* link down -> reconnect + full */
