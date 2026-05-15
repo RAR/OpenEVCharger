@@ -33,6 +33,8 @@ static void set_str(char *dst, const char *src)
 
 int config_parse(struct config *c, const char *text)
 {
+    if (!text)
+        return 0;
     char line[256];
     const char *p = text;
     while (*p) {

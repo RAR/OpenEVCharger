@@ -50,7 +50,7 @@ test/test_mqtt_adapter: test/test_mqtt_adapter.c src/mqtt_adapter.c \
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_mqtt_adapter.c src/mqtt_adapter.c \
 	      src/charger_state.c src/shmem.c src/mqtt_codec.c test/fake_mqtt_client.c
 
-test/test_config: test/test_config.c src/config.c
+test/test_config: test/test_config.c src/config.c src/config.h
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_config.c src/config.c
 
 clean:
