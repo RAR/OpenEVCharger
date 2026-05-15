@@ -3,6 +3,7 @@
 #include "mqtt_adapter.h"
 #include "mqtt_client.h"
 #include "charger_state.h"
+#include "commands.h"
 #include "shmem.h"
 #include "shmem_offsets.h"
 
@@ -235,97 +236,30 @@ static void format_faults(unsigned int bits, char *out, size_t cap)
 /* --- Command handlers ----------------------------------------------------
  * Invoked from on_command(), which has already isolated the suffix after
  * the last '/' of the topic. Payloads are NOT NUL-terminated — pass the
- * pointer + length explicitly. */
-
-/* Parse the payload as a decimal integer in [min..max]. Returns 0 on success
- * and writes *out; -1 if the payload is empty, non-numeric, or out of range. */
-static int parse_int_payload(const unsigned char *payload, size_t len,
-                             long min, long max, long *out)
-{
-    if (len == 0 || len > 31)
-        return -1;
-    char buf[32];
-    memcpy(buf, payload, len);
-    buf[len] = '\0';
-    /* Trim trailing whitespace — some MQTT GUIs append a newline. */
-    while (len > 0 && (buf[len - 1] == ' '  || buf[len - 1] == '\t' ||
-                       buf[len - 1] == '\r' || buf[len - 1] == '\n'))
-        buf[--len] = '\0';
-    if (len == 0)
-        return -1;
-    char *endp = NULL;
-    long v = strtol(buf, &endp, 10);
-    if (!endp || *endp != '\0')
-        return -1;
-    if (v < min || v > max)
-        return -1;
-    *out = v;
-    return 0;
-}
+ * pointer + length explicitly.
+ *
+ * v0.4: validation + shmem write now live in commands.c so the HTTP API
+ * shares the exact same code path. These wrappers just route from the
+ * MQTT-side suffix dispatch into those helpers and discard return values
+ * (the helpers log success/failure themselves). */
 
 static void handle_rated_amps(struct adapter_ctx *a,
                               const unsigned char *payload, size_t len)
 {
-    long v = 0;
-    if (parse_int_payload(payload, len, 6, 30, &v) != 0) {
-        fprintf(stderr,
-                "delta-bridge: rated_amps: payload out of range or invalid "
-                "(want int 6..30), ignored\n");
-        return;
-    }
-    if (!a->cfg.shm) {
-        fprintf(stderr,
-                "delta-bridge: rated_amps: write_enable=true but shmem is NULL\n");
-        return;
-    }
-    if (shmem_write_u8(a->cfg.shm, OFF_RATED_AMPS, (uint8_t)v) != 0) {
-        fprintf(stderr, "delta-bridge: rated_amps: shmem write failed\n");
-        return;
-    }
-    fprintf(stderr, "delta-bridge: rated_amps -> %ld A\n", v);
+    cs_apply_rated_amps_write(a->cfg.shm, payload, len, NULL, NULL, 0);
 }
 
 static void handle_authorize(struct adapter_ctx *a,
                              const unsigned char *payload, size_t len)
 {
-    uint8_t v;
-    if (len == 2 && payload[0] == 'O' && payload[1] == 'N')
-        v = 1;
-    else if (len == 3 &&
-             payload[0] == 'O' && payload[1] == 'F' && payload[2] == 'F')
-        v = 0;
-    else {
-        fprintf(stderr,
-                "delta-bridge: authorize: payload must be 'ON' or 'OFF', "
-                "ignored\n");
-        return;
-    }
-    if (!a->cfg.shm) {
-        fprintf(stderr,
-                "delta-bridge: authorize: write_enable=true but shmem is NULL\n");
-        return;
-    }
-    if (shmem_write_u8(a->cfg.shm, OFF_USER_STATE, v) != 0) {
-        fprintf(stderr, "delta-bridge: authorize: shmem write failed\n");
-        return;
-    }
-    fprintf(stderr, "delta-bridge: authorize -> %s\n", v ? "ON" : "OFF");
+    cs_apply_authorize_write(a->cfg.shm, payload, len, NULL, NULL, 0);
 }
 
 static void handle_clear_faults(struct adapter_ctx *a,
                                 const unsigned char *payload, size_t len)
 {
     (void)payload; (void)len;        /* HA buttons send "PRESS"; we ignore */
-    if (!a->cfg.shm) {
-        fprintf(stderr,
-                "delta-bridge: clear_faults: write_enable=true but shmem is NULL\n");
-        return;
-    }
-    if (shmem_write_u32_le(a->cfg.shm, OFF_ALARM_BITMAP, 0u) != 0) {
-        fprintf(stderr, "delta-bridge: clear_faults: shmem write failed\n");
-        return;
-    }
-    fprintf(stderr, "delta-bridge: clear_faults: alarm bitmap cleared\n");
+    cs_apply_clear_faults_write(a->cfg.shm, NULL, 0);
 }
 
 /* Dispatch incoming PUBLISH packets routed by the MQTT client. The topic

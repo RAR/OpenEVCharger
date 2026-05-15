@@ -14,13 +14,13 @@ CFLAGS_OPT  ?= -O2
 CFLAGS       = $(CFLAGS_WARN) $(CFLAGS_STD) $(CFLAGS_OPT) -Isrc
 
 SRC := src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
-       src/mqtt_adapter.c src/config.c src/main.c
+       src/mqtt_adapter.c src/commands.c src/config.c src/main.c
 
 # TESTS grows as each module's test lands — every task that adds a test/ link
 # rule also appends its target here, so `make test` always builds only what
 # exists.
 TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_codec \
-         test/test_mqtt_adapter test/test_config test/test_backoff
+         test/test_mqtt_adapter test/test_config test/test_backoff test/test_commands
 
 .PHONY: all test clean
 all: delta-bridge
@@ -46,9 +46,13 @@ test/test_mqtt_codec: test/test_mqtt_codec.c src/mqtt_codec.c
 
 test/test_mqtt_adapter: test/test_mqtt_adapter.c src/mqtt_adapter.c \
                         src/charger_state.c src/shmem.c src/mqtt_codec.c \
-                        test/fake_mqtt_client.c
+                        src/commands.c test/fake_mqtt_client.c
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_mqtt_adapter.c src/mqtt_adapter.c \
-	      src/charger_state.c src/shmem.c src/mqtt_codec.c test/fake_mqtt_client.c
+	      src/charger_state.c src/shmem.c src/mqtt_codec.c src/commands.c \
+	      test/fake_mqtt_client.c
+
+test/test_commands: test/test_commands.c src/commands.c src/shmem.c
+	$(CC) $(CFLAGS) -Itest -o $@ test/test_commands.c src/commands.c src/shmem.c
 
 test/test_config: test/test_config.c src/config.c src/config.h
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_config.c src/config.c
