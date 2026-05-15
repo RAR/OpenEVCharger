@@ -32,35 +32,24 @@ jobs:
         working-directory: boards/eluminocity-ch21130/companion
     steps:
       - uses: actions/checkout@v4
+      # musl.cc has been blocking GitHub Actions wholesale since 2025-05-27
+      # (abuse). Pull the toolchain out of the muslcc/x86_64 Docker Hub image
+      # instead — Docker Hub remains reachable from GHA. The extracted dir is
+      # cached so subsequent runs skip the docker pull.
       - name: Cache musl armv5te toolchain
         id: cache-toolchain
         uses: actions/cache@v4
         with:
-          path: /tmp/armv5l-linux-musleabi-cross.tgz
-          key: musl-armv5l-cross-v1
-      - name: Fetch musl armv5te toolchain
+          path: /tmp/armv5l-linux-musleabi-cross
+          key: muslcc-armv5l-linux-musleabi-v1
+      - name: Extract musl toolchain from Docker Hub
         if: steps.cache-toolchain.outputs.cache-hit != 'true'
         run: |
-          cd /tmp
-          # musl.cc is occasionally unreachable from GitHub runners; try mirrors with retries.
-          for url in \
-            https://musl.cc/armv5l-linux-musleabi-cross.tgz \
-            https://more.musl.cc/10/x86_64-linux-musl/armv5l-linux-musleabi-cross.tgz \
-          ; do
-            echo "trying $url"
-            if curl -fsSL --retry 5 --retry-connrefused --retry-delay 10 --max-time 300 \
-                 -o armv5l-linux-musleabi-cross.tgz "$url"; then
-              echo "fetched from $url"
-              exit 0
-            fi
-          done
-          echo "all mirrors failed" >&2
-          exit 1
-      - name: Unpack toolchain
-        run: |
-          cd /tmp
-          tar xzf armv5l-linux-musleabi-cross.tgz
-          echo "/tmp/armv5l-linux-musleabi-cross/bin" >> "$GITHUB_PATH"
+          docker create --name musl muslcc/x86_64:armv5l-linux-musleabi
+          docker cp musl:/armv5l-linux-musleabi-cross /tmp/
+          docker rm musl
+      - name: Put toolchain on PATH
+        run: echo "/tmp/armv5l-linux-musleabi-cross/bin" >> "$GITHUB_PATH"
       - name: Cross-compile delta-bridge
         run: make clean && make
       - name: Verify it is a static ARM binary
