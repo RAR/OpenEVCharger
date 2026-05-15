@@ -1,88 +1,131 @@
 #include "charger_state.h"
 #include "shmem_offsets.h"
-#include <assert.h>
+#include <math.h>
 #include <string.h>
 
 void charger_state_init(struct charger_state *cs)
 {
     memset(cs, 0, sizeof(*cs));
-    cs->evse_state = EVSE_STATE_UNKNOWN;
+    cs->pilot_state    = PILOT_UNKNOWN;
+    cs->stm32_link_ok  = true;     /* timeout bit clear = link healthy */
 }
 
-/* Connector-state byte -> evse_state. Values from decode_sharemem.py /docs/02;
- * BENCH-VERIFY-PENDING (M0). Unknown bytes map to EVSE_STATE_UNKNOWN. */
-static enum evse_state decode_connector(unsigned char b)
+static enum pilot_state decode_pilot(unsigned char b)
 {
     switch (b) {
-    case 0x00: return EVSE_STATE_IDLE;
-    case 0x01: return EVSE_STATE_IDLE;        /* available, no cable */
-    case 0x02: return EVSE_STATE_CONNECTED;   /* cable, not charging */
-    case 0x03: return EVSE_STATE_CHARGING;
-    case 0x04: return EVSE_STATE_FAULT;
-    default:   return EVSE_STATE_UNKNOWN;
+    case 0: return PILOT_A;
+    case 1: return PILOT_B;
+    case 2: return PILOT_C;
+    case 3: return PILOT_D;
+    case 4: return PILOT_TRANSIENT;
+    case 5: return PILOT_F;
+    default: return PILOT_UNKNOWN;
     }
 }
 
 void charger_state_read(struct charger_state *cs, const struct shmem *sm)
 {
-    /* v1 scaling is identity-with-units: the raw bytes are published as-is in
-     * V / A. Real scale factors (and whether the per-unit Gain calibration
-     * applies) are tuned against a multimeter at milestone M1 — when that
-     * happens, only the two lines below change. */
-    cs->voltage_v  = shmem_u8(sm, OFF_VRMS);
-    cs->current_a  = shmem_u8(sm, OFF_IRMS);
+    /* Metering — LE multi-byte; see docs/06 §1.
+     * Scaling factors are bench-empirical (2026-05-15 on the EVMU30 bench unit,
+     * 120 V mains, undervoltage-faulted; shmem_dump showed raw VRMS = 0x3129
+     * → 12585, real mains = 120 V split-phase → unit is reading L-N ≈ 125 V):
+     *   - VRMS_MEAS  raw u16 / 100.0  (raw 12585 → 125.85 V)
+     *   - IRMS_MEAS  raw u16 / 10.0   (raw 7 → 0.7 A — idle electronics)
+     *   - POWER_MEAS raw u32 / 1.0    (raw 92 → 92 W; the producer already
+     *                                  divides by 1000 internally before
+     *                                  storing, so we don't divide again)
+     * The RE doc's nominal scales (V /10, P /1000) were a first-pass guess
+     * from a static dump; bench-measured RMS shows different magnitudes. */
+    cs->voltage_v       = (float)shmem_u16_le(sm, OFF_VRMS_MEAS)  / 100.0f;
+    cs->current_a       = (float)shmem_u16_le(sm, OFF_IRMS_MEAS)  / 10.0f;
+    cs->power_w         = (float)shmem_u32_le(sm, OFF_POWER_MEAS);
 
-    cs->stm32_link = shmem_u8(sm, OFF_STM32_LINK) ? 1 : 0;
-    cs->heartbeat  = shmem_u8(sm, OFF_HEARTBEAT);
-    cs->evse_state = decode_connector(shmem_u8(sm, OFF_CONNECTOR_STATE));
+    cs->pilot_duty_pct  = shmem_u8(sm, OFF_PILOT_DUTY);
+    cs->rated_amps      = shmem_u8(sm, OFF_RATED_AMPS);
 
-    unsigned char alarm[ALARM_BITMAP_LEN];
-    shmem_copy(sm, OFF_ALARM_BITMAP, alarm, ALARM_BITMAP_LEN);
-    cs->fault_bits = 0;
-    static_assert(ALARM_BITMAP_LEN <= 32,
-        "fault_bits must widen if ALARM_BITMAP_LEN grows past 32");
-    for (int i = 0; i < ALARM_BITMAP_LEN; i++)
-        if (alarm[i])
-            cs->fault_bits |= (1u << i);
+    cs->pilot_state     = decode_pilot(shmem_u8(sm, OFF_PILOT_STATE));
+    cs->pri_state       = shmem_u8(sm, OFF_PRI_STATE);
+    cs->user_state      = shmem_u8(sm, OFF_USER_STATE);
+    cs->red_led         = shmem_u8(sm, OFF_RED_LED);
+
+    cs->stm32_fault_raw = shmem_u8(sm, OFF_STM32_FAULT);
+    cs->stm32_link_ok   = (cs->stm32_fault_raw & 0x10) == 0;
+
+    cs->fault_bits      = shmem_u32_le(sm, OFF_ALARM_BITMAP);
 }
 
-const char *evse_state_str(enum evse_state s)
+const char *pilot_state_str(enum pilot_state s)
 {
     switch (s) {
-    case EVSE_STATE_IDLE:      return "idle";
-    case EVSE_STATE_CONNECTED: return "connected";
-    case EVSE_STATE_CHARGING:  return "charging";
-    case EVSE_STATE_FAULT:     return "fault";
-    default:                   return "unknown";
+    case PILOT_A:         return "A";
+    case PILOT_B:         return "B";
+    case PILOT_C:         return "C";
+    case PILOT_D:         return "D";
+    case PILOT_TRANSIENT: return "transient";
+    case PILOT_F:         return "F";
+    default:              return "unknown";
     }
+}
+
+static int float_differs(float a, float b, float eps)
+{
+    return fabsf(a - b) > eps;
 }
 
 unsigned int charger_state_diff(const struct charger_state *prev,
                                 const struct charger_state *cur)
 {
     unsigned int d = 0;
-    if (prev->voltage_v  != cur->voltage_v)  d |= CS_DIRTY_VOLTAGE;
-    if (prev->current_a  != cur->current_a)  d |= CS_DIRTY_CURRENT;
-    if (prev->stm32_link != cur->stm32_link) d |= CS_DIRTY_LINK;
-    if (prev->heartbeat  != cur->heartbeat)  d |= CS_DIRTY_HEARTBEAT;
-    if (prev->evse_state != cur->evse_state) d |= CS_DIRTY_EVSE_STATE;
-    if (prev->fault_bits != cur->fault_bits) d |= CS_DIRTY_FAULTS;
+    if (float_differs(prev->voltage_v, cur->voltage_v, 0.05f))  d |= CS_DIRTY_VOLTAGE;
+    if (float_differs(prev->current_a, cur->current_a, 0.05f))  d |= CS_DIRTY_CURRENT;
+    if (float_differs(prev->power_w,   cur->power_w,   1.0f))   d |= CS_DIRTY_POWER;
+    if (prev->pilot_duty_pct != cur->pilot_duty_pct)            d |= CS_DIRTY_PILOT_DUTY;
+    if (prev->rated_amps     != cur->rated_amps)                d |= CS_DIRTY_RATED_AMPS;
+    if (prev->pilot_state    != cur->pilot_state)               d |= CS_DIRTY_PILOT_STATE;
+    if (prev->pri_state      != cur->pri_state)                 d |= CS_DIRTY_PRI_STATE;
+    if (prev->user_state     != cur->user_state)                d |= CS_DIRTY_USER_STATE;
+    if (prev->red_led        != cur->red_led)                   d |= CS_DIRTY_RED_LED;
+    if (prev->stm32_link_ok  != cur->stm32_link_ok)             d |= CS_DIRTY_STM32_LINK;
+    if (prev->fault_bits     != cur->fault_bits)                d |= CS_DIRTY_FAULTS;
     return d;
 }
 
-/* Alarm-slot names. RE-derived from docs/01 / docs/02 ("31-alarm fault catalog
- * confirmed from Pri_Comm .data"). Slots whose name is not yet confirmed ship
- * as "RESERVED_nn" — a real, shippable value, refined as bench work confirms.
- * BENCH-VERIFY-PENDING: also confirm byte-vs-bit semantics of the bitmap (M0). */
+/* Alarm-bit -> name. Verbatim from AlarmMessage[32] in Pri_Comm
+ * (docs/06-shmem-RE-from-binaries.md §1). Bit 0 = LSB of the LE u32 at
+ * OFF_ALARM_BITMAP. */
 static const char *const FAULT_NAMES[CHARGER_MAX_FAULTS] = {
-    "RCD",          "RCDTRIP",      "GMI",          "OVP",
-    "UVP",          "OCP",          "WELDING",      "PILOTERROR",
-    "AMBIENT_OTP",  "RA_WATCHDOG",  "RA_CPU",       "RA_RAM",
-    "RESERVED_12",  "RESERVED_13",  "RESERVED_14",  "RESERVED_15",
-    "RESERVED_16",  "RESERVED_17",  "RESERVED_18",  "RESERVED_19",
-    "RESERVED_20",  "RESERVED_21",  "RESERVED_22",  "RESERVED_23",
-    "RESERVED_24",  "RESERVED_25",  "RESERVED_26",  "RESERVED_27",
-    "RESERVED_28",  "RESERVED_29",  "RESERVED_30",  "RESERVED_31",
+    /*  0 */ "OVP",
+    /*  1 */ "OCP",
+    /*  2 */ "Ambient_OTP",
+    /*  3 */ "EMGSTOP",
+    /*  4 */ "RCD",
+    /*  5 */ "WELDING",
+    /*  6 */ "UVP",
+    /*  7 */ "RA_CPU",
+    /*  8 */ "RA_WATCHDOG",
+    /*  9 */ "RA_CLOCK",
+    /* 10 */ "RA_DATA",
+    /* 11 */ "RA_FLASH",
+    /* 12 */ "RA_RAM",
+    /* 13 */ "RA_INTERRUPT",
+    /* 14 */ "RA_TIMING",
+    /* 15 */ "RA_IO",
+    /* 16 */ "RA_ADC",
+    /* 17 */ "RCDTRIP",
+    /* 18 */ "GMI",
+    /* 19 */ "PILOTERROR",
+    /* 20 */ "INITIAL",
+    /* 21 */ "Ambient_NTC_fail",
+    /* 22 */ "Plug_OTP",
+    /* 23 */ "Plug_NTC_fail",
+    /* 24 */ "RCDLOCK",
+    /* 25 */ "AC_drop",
+    /* 26 */ "FW_upgrade_fail",
+    /* 27 */ "PILOTERROR_Negative",
+    /* 28 */ "Relay_driver_fault",
+    /* 29 */ "Pri_MCU_Lost",
+    /* 30 */ "WiFi_module_fail",
+    /* 31 */ "RFID_module_fail",
 };
 
 const char *charger_fault_name(int i)
