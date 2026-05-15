@@ -51,9 +51,9 @@ int main(void)
     /* ---------------- case 2: "normal charging" snapshot -----------------
      * Pilot=C, sensible V/I/P, link healthy, no alarms. */
     memset(raw, 0, sizeof(raw));
-    fill_le16(raw, OFF_VRMS_MEAS,  2300);   /* 230.0 V */
-    fill_le16(raw, OFF_IRMS_MEAS,   160);   /*  16.0 A */
-    fill_le32(raw, OFF_POWER_MEAS, 3680000);/* 3680.0 W */
+    fill_le16(raw, OFF_VRMS_MEAS, 23000);   /* 230.0 V  (raw/100) */
+    fill_le16(raw, OFF_IRMS_MEAS,   160);   /*  16.0 A  (raw/10)  */
+    fill_le32(raw, OFF_POWER_MEAS, 3680);   /* 3680  W  (raw/1)   */
     raw[OFF_PILOT_STATE] = 0;               /* A */
     raw[OFF_PRI_STATE]   = 3;
     raw[OFF_USER_STATE]  = 2;
@@ -111,17 +111,23 @@ int main(void)
     struct shmem sm5 = { .base = raw, .size = sizeof(raw), .shmid = -1 };
     charger_state_init(&cs);
     charger_state_read(&cs, &sm5);
-    CHECK(APPROX(cs.voltage_v, 5.0f, 0.001f));         /* 0x0032 = 50 */
+    CHECK(APPROX(cs.voltage_v, 0.5f, 0.001f));         /* 0x0032 = 50, /100 */
 
     raw[OFF_VRMS_MEAS]     = 0xff;
     raw[OFF_VRMS_MEAS + 1] = 0x00;
     charger_state_read(&cs, &sm5);
-    CHECK(APPROX(cs.voltage_v, 25.5f, 0.001f));        /* 0x00ff = 255 */
+    CHECK(APPROX(cs.voltage_v, 2.55f, 0.001f));        /* 0x00ff = 255, /100 */
 
     raw[OFF_VRMS_MEAS]     = 0x00;
     raw[OFF_VRMS_MEAS + 1] = 0x01;
     charger_state_read(&cs, &sm5);
-    CHECK(APPROX(cs.voltage_v, 25.6f, 0.001f));        /* 0x0100 = 256 */
+    CHECK(APPROX(cs.voltage_v, 2.56f, 0.001f));        /* 0x0100 = 256, /100 */
+
+    /* Bench-empirical sanity: the value we actually saw on the unit. */
+    raw[OFF_VRMS_MEAS]     = 0x29;
+    raw[OFF_VRMS_MEAS + 1] = 0x31;
+    charger_state_read(&cs, &sm5);
+    CHECK(APPROX(cs.voltage_v, 125.85f, 0.001f));      /* 0x3129 = 12585, /100 */
 
     /* ---------------- pilot_state_str ----------------------------------- */
     CHECK_STR(pilot_state_str(PILOT_A),         "A");
@@ -200,7 +206,7 @@ int main(void)
     charger_state_read(&cs, &sm_fx);
     CHECK(APPROX(cs.voltage_v, 230.0f, 0.01f));
     CHECK(APPROX(cs.current_a,  16.0f, 0.01f));
-    CHECK(APPROX(cs.power_w,     3.5f, 0.01f));
+    CHECK(APPROX(cs.power_w,  3680.0f, 0.5f));
     CHECK_EQ(cs.pilot_state,    PILOT_C);
     CHECK_EQ(cs.user_state,     2);
     CHECK_EQ(cs.red_led,        2);

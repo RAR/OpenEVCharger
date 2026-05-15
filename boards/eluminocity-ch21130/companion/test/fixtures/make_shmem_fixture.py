@@ -12,16 +12,19 @@ import pathlib
 SIZE = 0x40000
 buf = bytearray(SIZE)
 
-# Metering — little-endian
-# VRMS_MEAS @ 0x0000 = 2300  -> 230.0 V
-buf[0x0000] = 0xFC
-buf[0x0001] = 0x08
+# Metering — little-endian. Scaling is empirical from the bench session of
+# 2026-05-15: VRMS u16 raw/100, IRMS u16 raw/10, POWER u32 raw/1 (the
+# producer divides by 1000 internally before storing — see comment in
+# src/charger_state.c).
+# VRMS_MEAS @ 0x0000 = 23000 -> 230.0 V
+buf[0x0000] = 0xD8
+buf[0x0001] = 0x59
 # IRMS_MEAS @ 0x0004 = 160   -> 16.0 A
 buf[0x0004] = 0xA0
 buf[0x0005] = 0x00
-# POWER_MEAS @ 0x000c = 3500 -> 3.5 W (raw/1000); larger live values are W.
-buf[0x000c] = 0xAC
-buf[0x000d] = 0x0D
+# POWER_MEAS @ 0x000c = 3680 -> 3680.0 W (V*I, sensible for 230 V × 16 A)
+buf[0x000c] = 0x60
+buf[0x000d] = 0x0E
 buf[0x000e] = 0x00
 buf[0x000f] = 0x00
 

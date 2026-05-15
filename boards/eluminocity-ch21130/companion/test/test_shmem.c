@@ -17,9 +17,9 @@ int main(void)
     CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS),  0x1E);
 
     /* LE u16/u32 helpers */
-    CHECK_EQ(shmem_u16_le(&sm, OFF_VRMS_MEAS), 2300);   /* 230.0 V × 10 */
-    CHECK_EQ(shmem_u16_le(&sm, OFF_IRMS_MEAS),  160);   /* 16.0 A × 10  */
-    CHECK_EQ(shmem_u32_le(&sm, OFF_POWER_MEAS), 3500u); /* raw / 1000 = 3.5 */
+    CHECK_EQ(shmem_u16_le(&sm, OFF_VRMS_MEAS), 23000); /* 230.00 V × 100 */
+    CHECK_EQ(shmem_u16_le(&sm, OFF_IRMS_MEAS),   160); /*  16.0  A × 10  */
+    CHECK_EQ(shmem_u32_le(&sm, OFF_POWER_MEAS), 3680u);/* 3680   W × 1   */
     CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP), 0x00000008u);
 
     /* out-of-range offset returns 0 defensively, never crashes */

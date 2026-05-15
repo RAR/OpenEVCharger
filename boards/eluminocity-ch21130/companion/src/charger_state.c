@@ -25,10 +25,20 @@ static enum pilot_state decode_pilot(unsigned char b)
 
 void charger_state_read(struct charger_state *cs, const struct shmem *sm)
 {
-    /* Metering — LE multi-byte; see docs/06 §1. Scaling is RE-derived. */
-    cs->voltage_v       = (float)shmem_u16_le(sm, OFF_VRMS_MEAS)  / 10.0f;
+    /* Metering — LE multi-byte; see docs/06 §1.
+     * Scaling factors are bench-empirical (2026-05-15 on the EVMU30 bench unit,
+     * 120 V mains, undervoltage-faulted; shmem_dump showed raw VRMS = 0x3129
+     * → 12585, real mains = 120 V split-phase → unit is reading L-N ≈ 125 V):
+     *   - VRMS_MEAS  raw u16 / 100.0  (raw 12585 → 125.85 V)
+     *   - IRMS_MEAS  raw u16 / 10.0   (raw 7 → 0.7 A — idle electronics)
+     *   - POWER_MEAS raw u32 / 1.0    (raw 92 → 92 W; the producer already
+     *                                  divides by 1000 internally before
+     *                                  storing, so we don't divide again)
+     * The RE doc's nominal scales (V /10, P /1000) were a first-pass guess
+     * from a static dump; bench-measured RMS shows different magnitudes. */
+    cs->voltage_v       = (float)shmem_u16_le(sm, OFF_VRMS_MEAS)  / 100.0f;
     cs->current_a       = (float)shmem_u16_le(sm, OFF_IRMS_MEAS)  / 10.0f;
-    cs->power_w         = (float)shmem_u32_le(sm, OFF_POWER_MEAS) / 1000.0f;
+    cs->power_w         = (float)shmem_u32_le(sm, OFF_POWER_MEAS);
 
     cs->pilot_duty_pct  = shmem_u8(sm, OFF_PILOT_DUTY);
     cs->rated_amps      = shmem_u8(sm, OFF_RATED_AMPS);
