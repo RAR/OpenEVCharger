@@ -19,7 +19,8 @@ SRC := src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
 # TESTS grows as each module's test lands — every task that adds a test/ link
 # rule also appends its target here, so `make test` always builds only what
 # exists.
-TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_codec
+TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_codec \
+         test/test_mqtt_adapter
 
 .PHONY: all test clean
 all: delta-bridge
@@ -42,6 +43,12 @@ test/test_charger_state: test/test_charger_state.c src/charger_state.c src/shmem
 
 test/test_mqtt_codec: test/test_mqtt_codec.c src/mqtt_codec.c
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_mqtt_codec.c src/mqtt_codec.c
+
+test/test_mqtt_adapter: test/test_mqtt_adapter.c src/mqtt_adapter.c \
+                        src/charger_state.c src/shmem.c src/mqtt_codec.c \
+                        test/fake_mqtt_client.c
+	$(CC) $(CFLAGS) -Itest -o $@ test/test_mqtt_adapter.c src/mqtt_adapter.c \
+	      src/charger_state.c src/shmem.c src/mqtt_codec.c test/fake_mqtt_client.c
 
 clean:
 	rm -f delta-bridge $(TESTS)
