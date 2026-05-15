@@ -138,5 +138,5 @@ For the curious — what porting actually involves:
    spec but threshold tuning is per-board (e.g. PE continuity raw band).
 
 The TLV protocol stays bit-for-bit compatible across boards so the
-FC41D-side ESPHome integration (`fc41d/openevcharger.yaml`) and HA UX
+FC41D-side ESPHome integration (`boards/rippleon-roc001/fc41d/openevcharger.yaml`) and HA UX
 work unchanged.

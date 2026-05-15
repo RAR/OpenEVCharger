@@ -104,18 +104,18 @@ The adaptation to talk our protocol is a swap, not a rewrite:
 
 | Strip out (TuyaMCU world) | Add (OpenEVCharger world) |
 |---|---|
-| `tuya:` component block | `external_components:` pointing at `../OpenEVCharger/fc41d/components/openevcharger_tlv/` (local) + `RAR/esphome-ocpp-server` (git) |
-| Every `on_datapoint_update` lambda + `platform: tuya` sensor / switch / number | `openevcharger_tlv:` block + the same ~30 sensors / 12 buttons / 5 numbers / 5 switches / 3 binary_sensors as `OpenEVCharger/fc41d/openevcharger.yaml` |
+| `tuya:` component block | `external_components:` pointing at `../OpenEVCharger/boards/rippleon-roc001/fc41d/components/openevcharger_tlv/` (local) + `RAR/esphome-ocpp-server` (git) |
+| Every `on_datapoint_update` lambda + `platform: tuya` sensor / switch / number | `openevcharger_tlv:` block + the same ~30 sensors / 12 buttons / 5 numbers / 5 switches / 3 binary_sensors as `OpenEVCharger/boards/rippleon-roc001/fc41d/openevcharger.yaml` |
 | 30 s `uart.write` cron pulling the DATAPOINT_QUERY frame | nothing — MCU push-publishes via TLV STATE_REPORT |
 | `tuya_time` sync block | The TLV protocol's existing time-set command (already wired in the rippleon fc41d YAML) |
 
-End shape mirrors `OpenEVCharger/fc41d/openevcharger.yaml` — same
+End shape mirrors `OpenEVCharger/boards/rippleon-roc001/fc41d/openevcharger.yaml` — same
 HA UX, same OCPP behavior, same TLV component verbatim. The only
 real differences are the LibreTiny platform (`rtl87xx` vs `bk72xx`)
 and the UART pin remap (PA13/PA14 in the WBR2's UART0 pinmux table,
 not the BK7231N's P10/P11). Targets the bench unit at `testcharger`
 on the network; eventual home in the repo will be
-`OpenEVCharger/wbr2/openevcharger.yaml` parallel to `fc41d/`.
+`OpenEVCharger/wbr2/openevcharger.yaml` parallel to `boards/rippleon-roc001/fc41d/`.
 
 Out of scope until then — `testcharger.yaml` stays as the bench-unit
 config against stock firmware so the device remains usable through

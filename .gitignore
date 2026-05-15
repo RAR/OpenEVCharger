@@ -34,6 +34,6 @@ __pycache__/
 .esphome/
 
 # ESPHome FC41D firmware: per-checkout secrets
-fc41d/secrets.yaml
+boards/rippleon-roc001/fc41d/secrets.yaml
 build_host/
 tools/.ntc_peek_baseline.json

@@ -195,7 +195,7 @@ cmake --build build/nexcyber-zbu011k --target openevcharger-nexcyber-bringup
 ```
 
 For the companion-module Wi-Fi side, set `csms_url` and other secrets in
-`fc41d/secrets.yaml` and run:
+`boards/rippleon-roc001/fc41d/secrets.yaml` and run:
 
 ```sh
 cd fc41d && esphome run openevcharger.yaml
@@ -218,7 +218,7 @@ MCU OTA is HA-mediated (no SWD needed once the firmware is on):
    image (CRC-verified, self-rollback on mismatch).
 
 For the Wi-Fi side: standard ESPHome OTA (`esphome upload
-fc41d/openevcharger.yaml --device openevcharger.local`).
+boards/rippleon-roc001/fc41d/openevcharger.yaml --device openevcharger.local`).
 
 ## Documentation
 
@@ -285,7 +285,7 @@ user's own hardware:
   any stock vendor firmware is included or derived.
 - **Wi-Fi/BLE companion module** (BK7231N on Rippleon's FC41D;
   RTL8720CF / AmebaZ2 on Nexcyber's WBR2) — ESPHome + LibreTiny,
-  original integration code (`fc41d/openevcharger.yaml` + the local
+  original integration code (`boards/rippleon-roc001/fc41d/openevcharger.yaml` + the local
   `openevcharger_tlv` component) talking to the MCU over a custom TLV
   protocol on a single shared UART.
 

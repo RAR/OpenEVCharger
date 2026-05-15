@@ -1949,7 +1949,7 @@ A running log of everything that landed after `m9-led-real`. Each
 bullet links to the commit; consult the commit body for full
 context. Bench-validated entries are marked ✅.
 
-### FC41D ESPHome integration (in-tree at `OpenEVCharger/fc41d/`)
+### FC41D ESPHome integration (in-tree at `OpenEVCharger/boards/rippleon-roc001/fc41d/`)
 
 - ESPHome external component `openevcharger_tlv` speaks the binary TLV
   protocol over UART. Surfaces full state to Home Assistant
@@ -2009,7 +2009,7 @@ Three findings from a static analysis pass on stock fw V1.0.066:
    −30..+119 °C in 1 °C steps. Pull-up confirmed 10 kΩ (NOT 4.7 kΩ
    as our pre-bench pinout guess assumed). Stock factory trip = 95 °C
    @ raw=300; max user setpoint 120 °C. FC41D-side conversion now
-   uses this LUT (`fc41d/.../ntc_lut.h`) — the previous β=3380 model
+   uses this LUT (`boards/rippleon-roc001/fc41d/.../ntc_lut.h`) — the previous β=3380 model
    was off by ~10 °C at 85 °C since the OEM thermistor's β is
    closer to 3980. **Phase 2** (MCU-side `over_temp.h` thresholds
    migrating from 532/672 → 396/525) is still pending — defers

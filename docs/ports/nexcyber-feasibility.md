@@ -46,7 +46,7 @@ remaining 9 will be confirmed by mains-on bench wiggle tomorrow.
 | Calibration record handling (v1→v2→v3) | ✅ portable | logic only |
 | Persistence ping-pong + crash log | ✅ portable | depends on flash availability — see risks |
 | Session log | ✅ portable | logic only |
-| ESPHome integration (`fc41d/openevcharger.yaml`) | ⚠️ ~80 % | new YAML targeting `rtl87xx` instead of `bk72xx`; reuse `openevcharger_tlv` component verbatim |
+| ESPHome integration (`boards/rippleon-roc001/fc41d/openevcharger.yaml`) | ⚠️ ~80 % | new YAML targeting `rtl87xx` instead of `bk72xx`; reuse `openevcharger_tlv` component verbatim |
 | **GPIO HAL** | ❌ rewrite | F1 CRL/CRH (4-bit nibble) ≠ F2 MODER/OTYPER/OSPEEDR/PUPDR |
 | **UART HAL** | ❌ rewrite | Similar conceptually; register offsets and clock-enable bits differ |
 | **ADC HAL** | ❌ rewrite | F1 single-mode + scan sequence; channel 8/9 on PB0/PB1 etc. |
