@@ -14,14 +14,18 @@ struct config {
     int  poll_hz;
     char log_level[CONFIG_STR_MAX];
     char log_path[CONFIG_STR_MAX];
+    /* v0.3 write-controls master switch. 0 = read-only (v0.2 behaviour);
+     * 1 = bridge does shmem RW attach + MQTT subscribe + command dispatch. */
+    int  write_enable;
 };
 
 /* Reset `c` to built-in defaults. */
 void config_defaults(struct config *c);
 
 /* Parse `text` (the whole config file) into `c`, overriding defaults for any
- * key present. Unknown keys are ignored. Returns 0 (always succeeds — a missing
- * or partial file just means defaults). Call config_defaults() first. */
+ * key present. Unknown keys log a warning to stderr but are not fatal. Returns
+ * 0 (always succeeds — a missing or partial file just means defaults). Call
+ * config_defaults() first. */
 int  config_parse(struct config *c, const char *text);
 
 /* Read `path` and parse it. Returns 0 on success, -1 if the file cannot be
