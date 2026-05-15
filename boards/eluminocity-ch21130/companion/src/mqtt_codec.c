@@ -3,6 +3,8 @@
 
 int mqtt_encode_remlen(unsigned char *out, size_t value)
 {
+    if (value > 268435455u)        /* MQTT 3.1.1 max remaining length */
+        return -1;
     int n = 0;
     do {
         unsigned char b = value & 0x7F;
@@ -50,6 +52,8 @@ static int finalize(unsigned char *buf, size_t cap,
 {
     unsigned char rl[4];
     int rln = mqtt_encode_remlen(rl, payload_len);
+    if (rln < 0)
+        return -1;
     size_t total = 1 + rln + payload_len;
     if (total > cap)
         return -1;
@@ -84,10 +88,10 @@ int mqtt_encode_connect(unsigned char *buf, size_t cap,
     int have_will = will_topic && will_msg;
     if (have_will) flags |= 0x04;          /* will flag, QoS 0, not retained */
     if (user)      flags |= 0x80;
-    if (pass)      flags |= 0x40;
+    if (pass && user) flags |= 0x40; /* MQTT 3.1.1 §3.1.2.9: password requires username */
     p[n++] = flags;
-    p[n++] = (unsigned char)(keepalive_s >> 8);
-    p[n++] = (unsigned char)(keepalive_s & 0xFF);
+    p[n++] = (unsigned char)((unsigned)keepalive_s >> 8);
+    p[n++] = (unsigned char)((unsigned)keepalive_s & 0xFF);
 
     /* payload: client id, [will topic, will msg], [user], [pass] */
     r = put_str(p + n, room - n, client_id); if (r < 0) return -1; n += r;
@@ -96,7 +100,7 @@ int mqtt_encode_connect(unsigned char *buf, size_t cap,
         r = put_str(p + n, room - n, will_msg);   if (r < 0) return -1; n += r;
     }
     if (user) { r = put_str(p + n, room - n, user); if (r < 0) return -1; n += r; }
-    if (pass) { r = put_str(p + n, room - n, pass); if (r < 0) return -1; n += r; }
+    if (pass && user) { r = put_str(p + n, room - n, pass); if (r < 0) return -1; n += r; }
 
     return finalize(buf, cap, 0x10, n);
 }

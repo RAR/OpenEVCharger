@@ -6,7 +6,7 @@
 
 #include <stddef.h>
 
-/* Encode the "remaining length" varint. Returns 1..4 bytes written. */
+/* Encode the "remaining length" varint. Returns 1..4 bytes written, or -1 if value exceeds the MQTT maximum (268435455). */
 int    mqtt_encode_remlen(unsigned char *out, size_t value);
 
 /* Decode a remaining-length varint from `in` (max `len` bytes available).

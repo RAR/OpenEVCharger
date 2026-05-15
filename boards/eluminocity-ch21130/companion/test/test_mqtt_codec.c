@@ -25,6 +25,7 @@ int main(void)
     size_t consumed = 0;
     CHECK_EQ(mqtt_decode_remlen(rl, rln, &consumed), 321);
     CHECK_EQ(consumed, 2);
+    CHECK(mqtt_encode_remlen(rl, 300000000u) < 0);   /* past MQTT max -> error */
 
     /* --- PUBLISH, QoS 0, retained --- */
     n = mqtt_encode_publish(buf, sizeof(buf), "delta-bridge/x/voltage",
