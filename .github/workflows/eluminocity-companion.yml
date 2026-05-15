@@ -32,25 +32,17 @@ jobs:
         working-directory: boards/eluminocity-ch21130/companion
     steps:
       - uses: actions/checkout@v4
-      # musl.cc has been blocking GitHub Actions wholesale since 2025-05-27
-      # (abuse). Pull the toolchain out of the muslcc/x86_64 Docker Hub image
-      # instead — Docker Hub remains reachable from GHA. The extracted dir is
-      # cached so subsequent runs skip the docker pull.
-      - name: Cache musl armv5te toolchain
-        id: cache-toolchain
-        uses: actions/cache@v4
-        with:
-          path: /tmp/armv5l-linux-musleabi-cross
-          key: muslcc-armv5l-linux-musleabi-v1
-      - name: Extract musl toolchain from Docker Hub
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
+      # musl.cc has been wholesale-blocking GitHub Actions since 2025-05-27
+      # (abuse). Build inside the muslcc/x86_64 Docker Hub image instead —
+      # Docker Hub remains reachable. The image is Alpine 3.14 with an
+      # unprefixed musl cross-toolchain at /bin/cc (so we invoke make with
+      # CROSS="" inside the container).
+      - name: Cross-compile delta-bridge (musl armv5te via Docker)
+        working-directory: boards/eluminocity-ch21130/companion
         run: |
-          docker create --name musl muslcc/x86_64:armv5l-linux-musleabi
-          docker cp musl:/armv5l-linux-musleabi-cross /tmp/
-          docker rm musl
-      - name: Put toolchain on PATH
-        run: echo "/tmp/armv5l-linux-musleabi-cross/bin" >> "$GITHUB_PATH"
-      - name: Cross-compile delta-bridge
-        run: make clean && make
+          docker run --rm -v "$PWD:/work" -w /work \
+            muslcc/x86_64:armv5l-linux-musleabi \
+            sh -c 'apk add --no-cache make >/dev/null && make clean && make CROSS=""'
       - name: Verify it is a static ARM binary
+        working-directory: boards/eluminocity-ch21130/companion
         run: file delta-bridge | grep -E 'ARM.*static(-pie)? linked'
