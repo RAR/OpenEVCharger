@@ -6,12 +6,11 @@ extended to auto-derive log path from `/proc/self/comm`. Both daemons
 wrapped simultaneously via `/Storage/stk/<name>` + thin `/root/<name>` shell
 wrappers; reboot starts both under the shim in their normal supervised slot.
 
-**Raw evidence:**
-- `companion/test/data/meteric-trace-stock-2026-05-16.log` — 285 KB, 3065 paired
-  WRITE→READ cycles plus init (~5 min capture).
-- `companion/test/data/adc-trace-stock-2026-05-16.log.gz` — 1.6 MB → 193 KB
-  gz, 41,737 single-byte reads (~5 min capture, ~128 Hz sample rate).
-  `gunzip -k` to read.
+**Raw evidence:** Captured but not committed (1.6 MB + 280 KB — too bulky
+for tree). Reproduce in ~10 min by redeploying the shim per `docs/12 §7`
+and following the wrapper-deploy / kill-and-relaunch dance documented in
+this doc's §5. Excerpts shown inline below cover what the values look
+like; the protocol decode itself is the durable artifact.
 
 **Companion artefact:** `companion/tools/find_shmem_accesses.py` —  tiny ARM
 symbolic-executor that scans an ELF for `*(g_shm_base) + off` store patterns
