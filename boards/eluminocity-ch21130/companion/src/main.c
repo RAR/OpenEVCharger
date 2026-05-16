@@ -13,6 +13,7 @@
 #include "web.h"
 #include "backoff.h"
 #include "rfid.h"
+#include "meter.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -20,7 +21,10 @@
 #include <unistd.h>
 
 static volatile sig_atomic_t g_stop = 0;
-static void on_signal(int sig) { (void)sig; g_stop = 1; }
+/* meter personality uses a plain int for portability of the volatile
+ * read in its sleep loop — translate from sig_atomic_t on dispatch. */
+static volatile int g_stop_int = 0;
+static void on_signal(int sig) { (void)sig; g_stop = 1; g_stop_int = 1; }
 
 /* Sleep `s` seconds but wake early on a stop signal. */
 static void interruptible_sleep(int s)
@@ -47,13 +51,31 @@ int main(int argc, char **argv)
      * implementation taking argv[1] raw, which made `-c foo.conf` open
      * the literal file "-c" instead. */
     const char *conf_path = "/Storage/delta-bridge.conf";
+    /* Personality dispatch — when set, we skip the normal MQTT/web/RFID
+     * stack and exec a focused replacement for a stock daemon. Default
+     * (empty) keeps v0.6 behavior unchanged.
+     * Recognised: "meter"  (replaces /root/MeterIC_new)
+     * Planned:    "adc"    (replaces /root/Adc)
+     *             "pricomm" (replaces /root/Pri_Comm)
+     * See docs/14 §7 + docs/16 for design. */
+    const char *personality = NULL;
+    const char *meter_port  = "/dev/ttyAMA2";
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-c") && i + 1 < argc) {
             conf_path = argv[++i];
+        } else if (!strncmp(argv[i], "--personality=", 14)) {
+            personality = argv[i] + 14;
+        } else if (!strcmp(argv[i], "--personality") && i + 1 < argc) {
+            personality = argv[++i];
+        } else if (!strncmp(argv[i], "--port=", 7)) {
+            meter_port = argv[i] + 7;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             fprintf(stderr,
-                    "Usage: delta-bridge [-c <config>]\n"
-                    "  default config: /Storage/delta-bridge.conf\n");
+                    "Usage: delta-bridge [-c <config>] [--personality=<role>]\n"
+                    "  default config: /Storage/delta-bridge.conf\n"
+                    "  default role:   (none — runs MQTT bridge + opt-in RFID/web)\n"
+                    "  --personality=meter   replaces stock /root/MeterIC_new\n"
+                    "  --port=<dev>          override UART for personality\n");
             return 0;
         } else if (argv[i][0] != '-') {
             conf_path = argv[i];      /* positional fallback */
@@ -62,19 +84,34 @@ int main(int argc, char **argv)
                     argv[i]);
         }
     }
+
+    /* SIGTERM/INT must reach both bridge and personality loops. Install
+     * handlers early so the personality branch below sees them. */
+    struct sigaction sa_early;
+    memset(&sa_early, 0, sizeof(sa_early));
+    sa_early.sa_handler = on_signal;
+    sigaction(SIGTERM, &sa_early, NULL);
+    sigaction(SIGINT,  &sa_early, NULL);
+    sa_early.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &sa_early, NULL);
+
+    /* Personality dispatch — handed off entirely; no MQTT/web/RFID setup. */
+    if (personality) {
+        if (!strcmp(personality, "meter")) {
+            fprintf(stderr, "delta-bridge: dispatching to meter personality\n");
+            return meter_personality_run(meter_port, &g_stop_int);
+        }
+        fprintf(stderr,
+                "delta-bridge: unknown personality '%s' — exiting\n",
+                personality);
+        return 64;
+    }
+
     struct config cfg;
     if (config_load(&cfg, conf_path) != 0)
         fprintf(stderr,
                 "delta-bridge: no config at '%s', using defaults\n",
                 conf_path);
-
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = on_signal;
-    sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGINT,  &sa, NULL);
-    sa.sa_handler = SIG_IGN;
-    sigaction(SIGPIPE, &sa, NULL);
 
     /* device_id: config value, else a fixed fallback (M0 will wire the real
      * serial source — /Storage/SerialNumber or a shmem offset). */
