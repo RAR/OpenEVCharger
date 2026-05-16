@@ -15,14 +15,14 @@ CFLAGS       = $(CFLAGS_WARN) $(CFLAGS_STD) $(CFLAGS_OPT) -Isrc
 
 SRC := src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
        src/mqtt_adapter.c src/commands.c src/config.c src/web.c src/rfid.c \
-       src/meter.c src/adc.c src/main.c
+       src/meter.c src/adc.c src/led.c src/main.c
 
 # TESTS grows as each module's test lands — every task that adds a test/ link
 # rule also appends its target here, so `make test` always builds only what
 # exists.
 TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_codec \
          test/test_mqtt_adapter test/test_config test/test_backoff test/test_commands \
-         test/test_web test/test_rfid test/test_meter test/test_adc
+         test/test_web test/test_rfid test/test_meter test/test_adc test/test_led
 
 .PHONY: all test clean
 all: delta-bridge
@@ -75,6 +75,9 @@ test/test_meter: test/test_meter.c src/meter.c src/meter.h src/shmem.c src/shmem
 
 test/test_adc: test/test_adc.c src/adc.c src/adc.h src/shmem.c src/shmem.h
 	$(CC) $(CFLAGS) -Itest -o $@ test/test_adc.c src/adc.c src/shmem.c
+
+test/test_led: test/test_led.c src/led.c src/led.h src/shmem.c src/shmem.h
+	$(CC) $(CFLAGS) -Itest -o $@ test/test_led.c src/led.c src/shmem.c
 
 clean:
 	rm -f delta-bridge $(TESTS)

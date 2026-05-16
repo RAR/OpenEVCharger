@@ -15,6 +15,7 @@
 #include "rfid.h"
 #include "meter.h"
 #include "adc.h"
+#include "led.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -77,6 +78,7 @@ int main(int argc, char **argv)
                     "  default role:   (none — runs MQTT bridge + opt-in RFID/web)\n"
                     "  --personality=meter   replaces stock /root/MeterIC_new (/dev/ttyAMA2)\n"
                     "  --personality=adc     replaces stock /root/Adc        (/dev/adc0)\n"
+                    "  --personality=led     replaces stock /root/LED_control (gpio55/56/57)\n"
                     "  --port=<dev>          override the personality's default device\n");
             return 0;
         } else if (argv[i][0] != '-') {
@@ -108,6 +110,10 @@ int main(int argc, char **argv)
             const char *port = port_override ? port_override : "/dev/adc0";
             fprintf(stderr, "delta-bridge: dispatching to adc personality\n");
             return adc_personality_run(port, &g_stop_int);
+        }
+        if (!strcmp(personality, "led")) {
+            fprintf(stderr, "delta-bridge: dispatching to led personality\n");
+            return led_personality_run(&g_stop_int);
         }
         fprintf(stderr,
                 "delta-bridge: unknown personality '%s' — exiting\n",
