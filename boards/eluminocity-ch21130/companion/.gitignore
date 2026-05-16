@@ -1,0 +1,4 @@
+test/test_*
+!test/test_*.c
+!test/test_*.h
+delta-bridge
