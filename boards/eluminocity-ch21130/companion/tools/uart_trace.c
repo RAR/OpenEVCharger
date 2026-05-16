@@ -65,7 +65,13 @@ typedef          long  off_t;
 #define LINE_MAX  512
 #define BYTES_MAX 64        /* max bytes inlined per read/write log line */
 
-#define TRACE_LOG "/tmp/uart-trace.log"
+/* Default log path. Overridden at runtime to "/Storage/trace/<comm>.log" if
+ * /proc/self/comm reads successfully, where <comm> is the kernel-reported
+ * short process name (15 chars max, no path). This lets us shim multiple
+ * daemons in parallel without collisions. The directory must already exist
+ * (we don't mkdir -p; the wrapper script does that). */
+#define TRACE_LOG_DEFAULT "/tmp/uart-trace.log"
+#define TRACE_DIR         "/Storage/trace/"
 
 static int g_log_fd = -1;    /* lazy-opened on first event */
 static int g_log_init = 0;
@@ -154,8 +160,47 @@ static void log_init(void)
 {
     if (g_log_init) return;
     g_log_init = 1;
-    g_log_fd = (int)sys_open(TRACE_LOG, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    /* if open fails (g_log_fd < 0), all subsequent log_emit() are no-ops. */
+
+    /* Build "/Storage/trace/<comm>.log" by reading /proc/self/comm. Fall back
+     * to TRACE_LOG_DEFAULT if /proc/self/comm read fails OR if the resulting
+     * path open fails (e.g., directory doesn't exist). */
+    char path[128];
+    char *p = path;
+    /* Copy prefix. */
+    for (const char *s = TRACE_DIR; *s && (p - path) < (int)sizeof(path) - 1; ) *p++ = *s++;
+    /* Read /proc/self/comm and append (sans trailing \n). */
+    int cfd = (int)sys_open("/proc/self/comm", 0 /* O_RDONLY */, 0);
+    int got_comm = 0;
+    if (cfd >= 0) {
+        char comm[32] = {0};
+        long n = sys_read(cfd, comm, sizeof(comm) - 1);
+        sys_close(cfd);
+        if (n > 0) {
+            for (long i = 0; i < n && (p - path) < (int)sizeof(path) - 5; i++) {
+                char c = comm[i];
+                if (c == '\n' || c == 0) break;
+                /* Sanitize: only printable ASCII alnum + a few safe punctuators. */
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+                    *p++ = c;
+                    got_comm = 1;
+                }
+            }
+        }
+    }
+    if (got_comm) {
+        /* Append ".log". */
+        const char *suf = ".log";
+        while (*suf && (p - path) < (int)sizeof(path) - 1) *p++ = *suf++;
+        *p = 0;
+        g_log_fd = (int)sys_open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    }
+    if (g_log_fd < 0) {
+        /* Fallback to the legacy single-process log path. */
+        g_log_fd = (int)sys_open(TRACE_LOG_DEFAULT,
+                                 O_WRONLY | O_CREAT | O_APPEND, 0644);
+    }
+    /* if open still fails (g_log_fd < 0), all subsequent log_emit() are no-ops. */
 }
 
 static void log_emit(char *line, char *p)
