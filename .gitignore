@@ -1,39 +1,49 @@
-# Build artifacts
-build/
-build_*/
-*.elf
-*.bin
-*.hex
-*.map
-*.lst
 
-# But keep our gitkeeps
 !recovery/.gitkeep
 !third_party/**/.gitkeep
-
+# Build artifacts
+# But keep our gitkeeps
+# ESPHome FC41D firmware: per-checkout secrets
+# ESPHome build cache (any location)
+# Editor
+# OS
+# Python
 # Recovery backups (large binaries, regenerated locally)
+# delta-bridge build artifacts (binaries; .c sources are tracked)
+*.bin
+*.elf
+*.hex
+*.lst
+*.map
+*.pyc
+*.swp
+.DS_Store
+.cache/
+.clangd/
+.esphome/
+.vscode/
+Thumbs.db
+__pycache__/
+boards/eluminocity-ch21130/companion/delta-bridge
+boards/eluminocity-ch21130/companion/delta-bridge.conf
+boards/eluminocity-ch21130/companion/test/test_backoff
+boards/eluminocity-ch21130/companion/test/test_charger_state
+boards/eluminocity-ch21130/companion/test/test_commands
+boards/eluminocity-ch21130/companion/test/test_config
+boards/eluminocity-ch21130/companion/test/test_mqtt_adapter
+boards/eluminocity-ch21130/companion/test/test_mqtt_codec
+boards/eluminocity-ch21130/companion/test/test_rfid
+boards/eluminocity-ch21130/companion/test/test_shmem
+boards/eluminocity-ch21130/companion/test/test_smoke
+boards/eluminocity-ch21130/companion/test/test_web
+boards/eluminocity-ch21130/companion/tools/shmem_dump
+boards/eluminocity-ch21130/companion/tools/shmem_dump.v*
+boards/eluminocity-ch21130/companion/tools/uart_trace.so
+boards/rippleon-roc001/fc41d/secrets.yaml
+build/
+build_*/
+build_host/
+compile_commands.json
 recovery/*.bin
 recovery/*.hex
-
-# Editor
-.vscode/
-.clangd/
-.cache/
-compile_commands.json
-*.swp
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Python
-__pycache__/
-*.pyc
-
-# ESPHome build cache (any location)
-.esphome/
-
-# ESPHome FC41D firmware: per-checkout secrets
-boards/rippleon-roc001/fc41d/secrets.yaml
-build_host/
 tools/.ntc_peek_baseline.json
