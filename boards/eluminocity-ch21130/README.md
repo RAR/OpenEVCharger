@@ -45,6 +45,22 @@ survival for setpoint values is a v1.1 stretch goal (it would need the
 bridge to also rewrite `/dev/mtdblock4` with the right byte-sum checksums
 — see `docs/07-persistence-paths.md` for the recipe).
 
+## On-device web UI (v0.4+)
+
+When `web_enable = true` in `delta-bridge.conf`, the bridge also serves a
+single-page web UI on `web_port` (default 8080). The same status fields
+as the MQTT topics, plus the three writable controls (gated by
+`write_enable`), plus a bound-to-`/Storage/delta-bridge.conf` config
+editor with a "restart bridge now" button. Auth is HTTP Basic against
+`web_user`/`web_pass`; if either is empty, auth is disabled and the
+bridge logs a one-shot warning at startup (useful for first-boot setup
+on an isolated bench network).
+
+**The web UI is HTTP-only and LAN-bound by design.** No TLS, no auth
+cookies, no rate limit. Keep it off any network you don't trust; if you
+need remote access, tunnel it (Wireguard / Tailscale) rather than
+exposing port 8080.
+
 ## Toolchain
 
 `companion/Makefile` cross-compiles with a musl armv5te toolchain. Provision it

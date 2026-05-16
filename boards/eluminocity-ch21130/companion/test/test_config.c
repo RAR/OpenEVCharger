@@ -12,6 +12,10 @@ int main(void)
     CHECK_EQ(c.poll_hz, 1);
     CHECK_STR(c.topic_prefix, "delta-bridge");
     CHECK_EQ(c.write_enable, 0);                  /* v0.3: opt-in default off */
+    CHECK_EQ(c.web_enable, 0);                    /* v0.4: opt-in default off */
+    CHECK_EQ(c.web_port, 8080);
+    CHECK_STR(c.web_user, "");
+    CHECK_STR(c.web_pass, "");
 
     /* parse overrides; comments and blank lines ignored; whitespace trimmed */
     const char *text =
@@ -66,6 +70,82 @@ int main(void)
     c.write_enable = 1;
     CHECK_EQ(config_parse(&c, "write_enable = maybe\n"), 0);
     CHECK_EQ(c.write_enable, 0);
+
+    /* v0.4 web_* keys */
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c,
+        "web_enable = true\n"
+        "web_port   = 9090\n"
+        "web_user   = admin\n"
+        "web_pass   = hunter2\n"), 0);
+    CHECK_EQ(c.web_enable, 1);
+    CHECK_EQ(c.web_port, 9090);
+    CHECK_STR(c.web_user, "admin");
+    CHECK_STR(c.web_pass, "hunter2");
+
+    /* web_enable accepts the same bool spellings */
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "web_enable = on\n"), 0);
+    CHECK_EQ(c.web_enable, 1);
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "web_enable=1\n"), 0);
+    CHECK_EQ(c.web_enable, 1);
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "web_enable = false\n"), 0);
+    CHECK_EQ(c.web_enable, 0);
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "web_enable = no\n"), 0);
+    CHECK_EQ(c.web_enable, 0);
+
+    /* Unrecognised bool for web_enable warns + defaults to off */
+    config_defaults(&c);
+    c.web_enable = 1;
+    CHECK_EQ(config_parse(&c, "web_enable = perhaps\n"), 0);
+    CHECK_EQ(c.web_enable, 0);
+
+    /* Out-of-range web_port clamps to default */
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "web_port = 0\n"), 0);
+    CHECK_EQ(c.web_port, 8080);
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "web_port = 99999\n"), 0);
+    CHECK_EQ(c.web_port, 8080);
+
+    /* v0.6 — RFID keys (kill_stock/poll_hz/mode dropped vs v0.5) */
+    config_defaults(&c);
+    CHECK_EQ(c.rfid_enable, 0);                   /* opt-in, off by default */
+    CHECK_STR(c.rfid_port, "/dev/ttyAMA4");
+
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c,
+        "rfid_enable     = true\n"
+        "rfid_port       = /dev/ttyAMA9\n"), 0);
+    CHECK_EQ(c.rfid_enable, 1);
+    CHECK_STR(c.rfid_port, "/dev/ttyAMA9");
+
+    /* rfid_enable accepts the standard bool spellings. */
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "rfid_enable = on\n"), 0);
+    CHECK_EQ(c.rfid_enable, 1);
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c, "rfid_enable = 0\n"), 0);
+    CHECK_EQ(c.rfid_enable, 0);
+
+    /* Garbage bool for rfid_enable: warns + safe default (off). */
+    config_defaults(&c);
+    c.rfid_enable = 1;
+    CHECK_EQ(config_parse(&c, "rfid_enable = nope\n"), 0);
+    CHECK_EQ(c.rfid_enable, 0);
+
+    /* v0.5 conf files with rfid_kill_stock / rfid_poll_hz / rfid_mode are
+     * accepted with a deprecation warning — non-fatal, ignored. */
+    config_defaults(&c);
+    CHECK_EQ(config_parse(&c,
+        "rfid_enable      = true\n"
+        "rfid_kill_stock  = false\n"
+        "rfid_poll_hz     = 7\n"
+        "rfid_mode        = snoop\n"), 0);
+    CHECK_EQ(c.rfid_enable, 1);                   /* still honoured */
 
     TEST_MAIN_END();
 }

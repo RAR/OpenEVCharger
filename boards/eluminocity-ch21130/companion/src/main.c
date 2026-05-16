@@ -10,7 +10,9 @@
 #include "charger_state.h"
 #include "northbound.h"
 #include "mqtt_adapter.h"
+#include "web.h"
 #include "backoff.h"
+#include "rfid.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -27,13 +29,43 @@ static void interruptible_sleep(int s)
         sleep(1);
 }
 
+/* RFID -> MQTT adapter bridge. The reader callback ABI takes (user, uid)
+ * but our adapter is single-instance and reaches its ctx via static linkage;
+ * `user` is unused. Defined at file scope (not inline) so the build doesn't
+ * depend on GCC's nested-function extension. */
+static void on_rfid_scan(void *user, const char *uid_hex)
+{
+    (void)user;
+    fprintf(stderr, "delta-bridge: rfid: scan UID=%s\n", uid_hex);
+    mqtt_adapter_on_rfid_scan(uid_hex);
+}
+
 int main(int argc, char **argv)
 {
-    const char *conf_path = (argc > 1) ? argv[1]
-                                       : "/Storage/delta-bridge.conf";
+    /* Arg parser: accept either positional `delta-bridge <path>` (legacy)
+     * or `delta-bridge -c <path>`. M0 bench session caught the original
+     * implementation taking argv[1] raw, which made `-c foo.conf` open
+     * the literal file "-c" instead. */
+    const char *conf_path = "/Storage/delta-bridge.conf";
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-c") && i + 1 < argc) {
+            conf_path = argv[++i];
+        } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+            fprintf(stderr,
+                    "Usage: delta-bridge [-c <config>]\n"
+                    "  default config: /Storage/delta-bridge.conf\n");
+            return 0;
+        } else if (argv[i][0] != '-') {
+            conf_path = argv[i];      /* positional fallback */
+        } else {
+            fprintf(stderr, "delta-bridge: unknown flag '%s', ignored\n",
+                    argv[i]);
+        }
+    }
     struct config cfg;
     if (config_load(&cfg, conf_path) != 0)
-        fprintf(stderr, "delta-bridge: no config at %s, using defaults\n",
+        fprintf(stderr,
+                "delta-bridge: no config at '%s', using defaults\n",
                 conf_path);
 
     struct sigaction sa;
@@ -53,9 +85,15 @@ int main(int argc, char **argv)
      * operator can confirm intent at a glance from journalctl. */
     fprintf(stderr,
             "delta-bridge: config loaded — broker=%s:%d topic_prefix=%s "
-            "device_id=%s poll_hz=%d write_enable=%s\n",
+            "device_id=%s poll_hz=%d write_enable=%s web_enable=%s "
+            "web_port=%d rfid_enable=%s rfid_port=%s\n",
             cfg.broker_host, cfg.broker_port, cfg.topic_prefix, device_id,
-            cfg.poll_hz, cfg.write_enable ? "true" : "false");
+            cfg.poll_hz,
+            cfg.write_enable ? "true" : "false",
+            cfg.web_enable   ? "true" : "false",
+            cfg.web_port,
+            cfg.rfid_enable     ? "true" : "false",
+            cfg.rfid_port);
 
     /* 1. attach shmem first (RW vs RO depending on write_enable); the
      * adapter needs the pointer so it can route commands to bounded writes. */
@@ -82,9 +120,47 @@ int main(int argc, char **argv)
         .keepalive_s  = 60,
         .write_enable = cfg.write_enable,
         .shm          = cfg.write_enable ? &sm : NULL,
+        .rfid_enable  = cfg.rfid_enable,
     };
     struct northbound nb;
     mqtt_adapter_create(&nb, &acfg);
+
+    /* RFID reader — opt-in. v0.6 owns /dev/ttyAMA4 + GPIO/PWM init exactly
+     * as stock /root/RFID does (see docs/10 §1). Deploy by replacing
+     * /root/RFID with a wrapper that exec's delta-bridge so /root/main
+     * starts us in stock's place. Do NOT enable this alongside stock — we
+     * would race for the UART and the PWM driver close+reopen kernel bug
+     * (docs/09 §1) would crash whichever loses. */
+    struct rfid_reader *rdr = NULL;
+    if (cfg.rfid_enable) {
+        if (rfid_reader_start(&rdr, cfg.rfid_port,
+                              on_rfid_scan, NULL) != 0) {
+            fprintf(stderr,
+                    "delta-bridge: rfid: start failed — continuing without "
+                    "RFID\n");
+        }
+    }
+
+    /* v0.4 embedded web server — opt-in via web_enable. State reads always
+     * work; control writes only succeed when write_enable=true (the helpers
+     * return -2/503 if shm is NULL). bring_up is best-effort: a port
+     * collision logs and skips the server but does NOT bring down the MQTT
+     * bridge. */
+    struct web_server ws;
+    memset(&ws, 0, sizeof(ws));
+    ws.listen_fd = -1;
+    int web_up = 0;
+    if (cfg.web_enable) {
+        ws.port      = cfg.web_port;
+        ws.web_user  = cfg.web_user;
+        ws.web_pass  = cfg.web_pass;
+        ws.cfg       = &cfg;
+        ws.shm       = cfg.write_enable ? &sm : NULL;
+        ws.orig_argv = argv;
+        ws.conf_path = conf_path;
+        if (web_server_start(&ws) == 0)
+            web_up = 1;
+    }
 
     struct charger_state prev, cur;
     charger_state_init(&prev);
@@ -124,11 +200,24 @@ int main(int argc, char **argv)
         if (nb.tick(&nb) != 0)
             adapter_up = 0;
 
+        /* 5. web tick — drain any pending HTTP requests. Best-effort: a
+         * failure here doesn't impact the MQTT loop. */
+        if (web_up)
+            web_tick(&ws);
+
+        /* 6. rfid tick — non-blocking; cheap when no card is in field. */
+        if (rdr)
+            rfid_reader_tick(rdr);
+
         usleep(period_us);
     }
 
-    /* 5. graceful shutdown */
+    /* 7. graceful shutdown */
     nb.shutdown(&nb);
+    if (web_up)
+        web_server_stop(&ws);
+    if (rdr)
+        rfid_reader_stop(rdr);
     shmem_release(&sm);
     fprintf(stderr, "delta-bridge: stopped\n");
     return 0;

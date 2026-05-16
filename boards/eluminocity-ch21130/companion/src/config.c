@@ -14,6 +14,10 @@ void config_defaults(struct config *c)
     snprintf(c->log_level, sizeof(c->log_level), "info");
     snprintf(c->log_path,  sizeof(c->log_path),  "/Storage/delta-bridge.log");
     c->write_enable = 0;        /* v0.3: opt-in; default preserves v0.2 RO. */
+    c->web_enable   = 0;        /* v0.4: opt-in; off by default. */
+    c->web_port     = 8080;
+    c->rfid_enable     = 0;     /* v0.6: opt-in; on means delta-bridge replaces /root/RFID. */
+    snprintf(c->rfid_port, sizeof(c->rfid_port), "/dev/ttyAMA4");
 }
 
 /* Trim leading/trailing ASCII whitespace in place; returns the new start. */
@@ -93,6 +97,45 @@ int config_parse(struct config *c, const char *text)
                 c->write_enable = b;
             }
         }
+        else if (!strcmp(key, "web_enable")) {
+            int b = parse_bool(val);
+            if (b < 0) {
+                fprintf(stderr,
+                        "delta-bridge: config: invalid bool '%s' for "
+                        "'web_enable' at line %d, defaulting to false\n",
+                        val, lineno);
+                c->web_enable = 0;
+            } else {
+                c->web_enable = b;
+            }
+        }
+        else if (!strcmp(key, "web_port"))  c->web_port = atoi(val);
+        else if (!strcmp(key, "web_user"))  set_str(c->web_user, val);
+        else if (!strcmp(key, "web_pass"))  set_str(c->web_pass, val);
+        else if (!strcmp(key, "rfid_enable")) {
+            int b = parse_bool(val);
+            if (b < 0) {
+                fprintf(stderr,
+                        "delta-bridge: config: invalid bool '%s' for "
+                        "'rfid_enable' at line %d, defaulting to false\n",
+                        val, lineno);
+                c->rfid_enable = 0;
+            } else {
+                c->rfid_enable = b;
+            }
+        }
+        else if (!strcmp(key, "rfid_port"))   set_str(c->rfid_port, val);
+        else if (!strcmp(key, "rfid_kill_stock") ||
+                 !strcmp(key, "rfid_poll_hz")    ||
+                 !strcmp(key, "rfid_mode")) {
+            /* v0.6 removed these. Warn so users notice and clean up their
+             * conf, but don't fail — old conf files should keep working. */
+            fprintf(stderr,
+                    "delta-bridge: config: '%s' is deprecated in v0.6 and "
+                    "ignored (line %d). v0.6 always replaces stock /root/RFID "
+                    "and polls at the reader's natural cadence (~9 Hz).\n",
+                    key, lineno);
+        }
         else {
             /* Unknown keys are non-fatal but surfaced — the M0 bench session
              * called out that silent ignoring made typos hard to spot. */
@@ -103,6 +146,8 @@ int config_parse(struct config *c, const char *text)
     }
     if (c->poll_hz < 1)
         c->poll_hz = 1;
+    if (c->web_port < 1 || c->web_port > 65535)
+        c->web_port = 8080;
     return 0;
 }
 
