@@ -14,6 +14,7 @@
 #include "backoff.h"
 #include "rfid.h"
 #include "meter.h"
+#include "adc.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -58,8 +59,8 @@ int main(int argc, char **argv)
      * Planned:    "adc"    (replaces /root/Adc)
      *             "pricomm" (replaces /root/Pri_Comm)
      * See docs/14 §7 + docs/16 for design. */
-    const char *personality = NULL;
-    const char *meter_port  = "/dev/ttyAMA2";
+    const char *personality   = NULL;
+    const char *port_override  = NULL;       /* --port=DEV; default chosen per-personality */
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-c") && i + 1 < argc) {
             conf_path = argv[++i];
@@ -68,14 +69,15 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--personality") && i + 1 < argc) {
             personality = argv[++i];
         } else if (!strncmp(argv[i], "--port=", 7)) {
-            meter_port = argv[i] + 7;
+            port_override = argv[i] + 7;
         } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             fprintf(stderr,
-                    "Usage: delta-bridge [-c <config>] [--personality=<role>]\n"
+                    "Usage: delta-bridge [-c <config>] [--personality=<role>] [--port=<dev>]\n"
                     "  default config: /Storage/delta-bridge.conf\n"
                     "  default role:   (none — runs MQTT bridge + opt-in RFID/web)\n"
-                    "  --personality=meter   replaces stock /root/MeterIC_new\n"
-                    "  --port=<dev>          override UART for personality\n");
+                    "  --personality=meter   replaces stock /root/MeterIC_new (/dev/ttyAMA2)\n"
+                    "  --personality=adc     replaces stock /root/Adc        (/dev/adc0)\n"
+                    "  --port=<dev>          override the personality's default device\n");
             return 0;
         } else if (argv[i][0] != '-') {
             conf_path = argv[i];      /* positional fallback */
@@ -98,8 +100,14 @@ int main(int argc, char **argv)
     /* Personality dispatch — handed off entirely; no MQTT/web/RFID setup. */
     if (personality) {
         if (!strcmp(personality, "meter")) {
+            const char *port = port_override ? port_override : "/dev/ttyAMA2";
             fprintf(stderr, "delta-bridge: dispatching to meter personality\n");
-            return meter_personality_run(meter_port, &g_stop_int);
+            return meter_personality_run(port, &g_stop_int);
+        }
+        if (!strcmp(personality, "adc")) {
+            const char *port = port_override ? port_override : "/dev/adc0";
+            fprintf(stderr, "delta-bridge: dispatching to adc personality\n");
+            return adc_personality_run(port, &g_stop_int);
         }
         fprintf(stderr,
                 "delta-bridge: unknown personality '%s' — exiting\n",
