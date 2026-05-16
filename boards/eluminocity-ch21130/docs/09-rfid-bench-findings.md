@@ -344,3 +344,71 @@ update PR #14 description.
   `/Storage/IdTagToBeVerify`, but didn't trace whether stock RFID's
   filter prevents that write in the first place.
 
+
+---
+
+## 11. Morning-after — the decisive test, executed
+
+**Date:** 2026-05-16 morning, fresh reboot (uptime ~99 s at first snap).
+**Procedure exactly as §9:** rebooted → stock `/root/RFID` left running →
+non-Delta card held on reader → full 256 KiB shmem snapshots taken before
+card, with card, and after card removed → 3-way diff.
+
+### Snapshots
+
+| Snap | When | shmem source file |
+|------|------|-------------------|
+| s0   | no card, post-boot | `/tmp/s0_nocard.bin` |
+| s1   | card seated        | `/tmp/s1_card.bin`   |
+| s2   | card removed       | `/tmp/s2_nocard.bin` |
+
+### 3-way diff (full output)
+
+```
+offset   [s0] [s1] [s2]
+0x00000  9d   72   73     ADC oscillator (drifting, ignore)
+0x001d4  bc   bf   bf     unknown 1-byte drift (ignore)
+0x00362  00   ff   ff     RSSI s32 LE
+0x00363  00   ff   ff       ┘ −58 in s1, −56 in s2 — matches WiFi
+0x00364  00   ff   ff       ┘ log "RSSI from -72 to -59" timing
+0x00365  00   c6   c8       ┘ confirmed not RFID
+0x00a70  00   01   01     RFID activity latch (sticky 0→1, not cleared
+                          when card removed) — NOT the card-present flag
+```
+
+**Seven bytes changed across the full transition. None of them are a UID.**
+Verified the candidate regions explicitly:
+- `shmem[0x05E0..0x05F3]` (RE-doc-08's candidate) — all zeros in all 3 snaps
+- `shmem[0x0A68..0x0A77]` (alt candidate) — all zeros except the sticky bit at `0x0A70`
+
+### Other negative evidence
+
+- `/Storage/IdTagToBeVerify` — does not exist before or after.
+- `/Storage/EncodeLogMessage` — size 11502, unchanged across card transitions.
+  Tail contains only WiFi RSSI lines, no RFID entries.
+- `ipcs -m` — exactly ONE shmem segment exists (key 0x153E, our target,
+  nattch=11). No alternate IPC channel for stock to use.
+
+### Verdict
+
+**Path A is dead.** Stock `/root/RFID` does not surface card UIDs into shared
+memory (and there is no other shmem to surface them into). The reader
+hardware does detect the card — the sticky bit at `0x0A70` flipped at the
+moment we presented one — but the UID never reaches a place we can read
+without taking over the UART ourselves.
+
+The decisive observation: the bit at `0x0A70` is a one-way activity latch,
+**not** a per-card present/absent flag. So even the trivial "did stock see
+a card just now?" inference isn't reliable on this offset.
+
+**Committing to Path B** (replace stock `/root/RFID`). See §5 for the plan
+and §6 for the broader phased "use our own binaries" direction. The next
+work item is what §5 calls out: confirm where `/root/RFID` gets launched,
+write a drop-in replacement, deploy via the rootfs-write story (mtd write
+or `/Storage`-shadow if the launcher checks both).
+
+### What we still don't know (was §10 #2, now answered)
+
+- ~~**Whether stock writes `shmem[0x05E0]` before or after DETA check.**~~
+  ✅ Resolved: stock never writes it. Either filter-rejects before the
+  shmem write step, or the snoop offset RE doc was wrong.
