@@ -25,15 +25,17 @@ struct config {
     int  web_port;
     char web_user[CONFIG_STR_MAX];
     char web_pass[CONFIG_STR_MAX];
-    /* v0.5 — custom RFID reader replaces the stock /root/RFID daemon. Off
-     * by default; once enabled the bridge kills the stock daemon (so it
-     * doesn't fight us for /dev/ttyAMA4), polls 0x20 (Request_CardSN), and
-     * publishes any debounced UID to MQTT. No allowlist policy here —
-     * HA owns it. See docs/08-rfid-auth-flow.md. */
+    /* v0.6 — custom RFID reader; replaces stock /root/RFID, owns
+     * /dev/ttyAMA4 + the GPIO/PWM init. Off by default. When enabled,
+     * delta-bridge MUST be the only consumer of /dev/ttyAMA4 — deploy
+     * by symlinking/wrapping /root/RFID to exec delta-bridge so /root/main
+     * starts us in place of stock. No allowlist policy here — HA owns
+     * any filter. See docs/10-rfid-protocol-decoded.md.
+     *
+     * Deprecated config keys (parsed for back-compat, logged-warning,
+     * otherwise ignored): rfid_kill_stock, rfid_poll_hz, rfid_mode. */
     int  rfid_enable;
     char rfid_port[CONFIG_STR_MAX];
-    int  rfid_kill_stock;
-    int  rfid_poll_hz;
 };
 
 /* Reset `c` to built-in defaults. */

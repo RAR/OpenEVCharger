@@ -47,3 +47,4 @@ compile_commands.json
 recovery/*.bin
 recovery/*.hex
 tools/.ntc_peek_baseline.json
+boards/eluminocity-ch21130/companion/tools/rfid_probe

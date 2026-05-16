@@ -42,11 +42,30 @@ static void on_rfid_scan(void *user, const char *uid_hex)
 
 int main(int argc, char **argv)
 {
-    const char *conf_path = (argc > 1) ? argv[1]
-                                       : "/Storage/delta-bridge.conf";
+    /* Arg parser: accept either positional `delta-bridge <path>` (legacy)
+     * or `delta-bridge -c <path>`. M0 bench session caught the original
+     * implementation taking argv[1] raw, which made `-c foo.conf` open
+     * the literal file "-c" instead. */
+    const char *conf_path = "/Storage/delta-bridge.conf";
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-c") && i + 1 < argc) {
+            conf_path = argv[++i];
+        } else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+            fprintf(stderr,
+                    "Usage: delta-bridge [-c <config>]\n"
+                    "  default config: /Storage/delta-bridge.conf\n");
+            return 0;
+        } else if (argv[i][0] != '-') {
+            conf_path = argv[i];      /* positional fallback */
+        } else {
+            fprintf(stderr, "delta-bridge: unknown flag '%s', ignored\n",
+                    argv[i]);
+        }
+    }
     struct config cfg;
     if (config_load(&cfg, conf_path) != 0)
-        fprintf(stderr, "delta-bridge: no config at %s, using defaults\n",
+        fprintf(stderr,
+                "delta-bridge: no config at '%s', using defaults\n",
                 conf_path);
 
     struct sigaction sa;
@@ -67,17 +86,14 @@ int main(int argc, char **argv)
     fprintf(stderr,
             "delta-bridge: config loaded — broker=%s:%d topic_prefix=%s "
             "device_id=%s poll_hz=%d write_enable=%s web_enable=%s "
-            "web_port=%d rfid_enable=%s rfid_port=%s rfid_kill_stock=%s "
-            "rfid_poll_hz=%d\n",
+            "web_port=%d rfid_enable=%s rfid_port=%s\n",
             cfg.broker_host, cfg.broker_port, cfg.topic_prefix, device_id,
             cfg.poll_hz,
             cfg.write_enable ? "true" : "false",
             cfg.web_enable   ? "true" : "false",
             cfg.web_port,
             cfg.rfid_enable     ? "true" : "false",
-            cfg.rfid_port,
-            cfg.rfid_kill_stock ? "true" : "false",
-            cfg.rfid_poll_hz);
+            cfg.rfid_port);
 
     /* 1. attach shmem first (RW vs RO depending on write_enable); the
      * adapter needs the pointer so it can route commands to bounded writes. */
@@ -109,15 +125,16 @@ int main(int argc, char **argv)
     struct northbound nb;
     mqtt_adapter_create(&nb, &acfg);
 
-    /* RFID reader — opt-in, can run independent of write_enable. The reader
-     * needs the stock /root/RFID daemon out of the way, so it pulls the
-     * trigger on kill (configurable) before opening /dev/ttyAMA4. */
+    /* RFID reader — opt-in. v0.6 owns /dev/ttyAMA4 + GPIO/PWM init exactly
+     * as stock /root/RFID does (see docs/10 §1). Deploy by replacing
+     * /root/RFID with a wrapper that exec's delta-bridge so /root/main
+     * starts us in stock's place. Do NOT enable this alongside stock — we
+     * would race for the UART and the PWM driver close+reopen kernel bug
+     * (docs/09 §1) would crash whichever loses. */
     struct rfid_reader *rdr = NULL;
     if (cfg.rfid_enable) {
-        if (rfid_reader_start(&rdr, cfg.rfid_port, cfg.rfid_kill_stock,
-                              on_rfid_scan, NULL) == 0) {
-            rfid_reader_set_poll_hz(rdr, cfg.rfid_poll_hz);
-        } else {
+        if (rfid_reader_start(&rdr, cfg.rfid_port,
+                              on_rfid_scan, NULL) != 0) {
             fprintf(stderr,
                     "delta-bridge: rfid: start failed — continuing without "
                     "RFID\n");

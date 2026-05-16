@@ -111,23 +111,17 @@ int main(void)
     CHECK_EQ(config_parse(&c, "web_port = 99999\n"), 0);
     CHECK_EQ(c.web_port, 8080);
 
-    /* v0.5 — RFID keys */
+    /* v0.6 — RFID keys (kill_stock/poll_hz/mode dropped vs v0.5) */
     config_defaults(&c);
     CHECK_EQ(c.rfid_enable, 0);                   /* opt-in, off by default */
     CHECK_STR(c.rfid_port, "/dev/ttyAMA4");
-    CHECK_EQ(c.rfid_kill_stock, 1);
-    CHECK_EQ(c.rfid_poll_hz, 5);
 
     config_defaults(&c);
     CHECK_EQ(config_parse(&c,
         "rfid_enable     = true\n"
-        "rfid_port       = /dev/ttyAMA9\n"
-        "rfid_kill_stock = false\n"
-        "rfid_poll_hz    = 10\n"), 0);
+        "rfid_port       = /dev/ttyAMA9\n"), 0);
     CHECK_EQ(c.rfid_enable, 1);
     CHECK_STR(c.rfid_port, "/dev/ttyAMA9");
-    CHECK_EQ(c.rfid_kill_stock, 0);
-    CHECK_EQ(c.rfid_poll_hz, 10);
 
     /* rfid_enable accepts the standard bool spellings. */
     config_defaults(&c);
@@ -143,21 +137,15 @@ int main(void)
     CHECK_EQ(config_parse(&c, "rfid_enable = nope\n"), 0);
     CHECK_EQ(c.rfid_enable, 0);
 
-    /* Garbage bool for rfid_kill_stock: warns + safe default (on — we
-     * default-take the UART once rfid_enable lit up, otherwise stock
-     * fights us for it). */
+    /* v0.5 conf files with rfid_kill_stock / rfid_poll_hz / rfid_mode are
+     * accepted with a deprecation warning — non-fatal, ignored. */
     config_defaults(&c);
-    c.rfid_kill_stock = 0;
-    CHECK_EQ(config_parse(&c, "rfid_kill_stock = perhaps\n"), 0);
-    CHECK_EQ(c.rfid_kill_stock, 1);
-
-    /* Poll Hz clamping. */
-    config_defaults(&c);
-    CHECK_EQ(config_parse(&c, "rfid_poll_hz = 0\n"), 0);
-    CHECK_EQ(c.rfid_poll_hz, 1);
-    config_defaults(&c);
-    CHECK_EQ(config_parse(&c, "rfid_poll_hz = 9999\n"), 0);
-    CHECK_EQ(c.rfid_poll_hz, 50);
+    CHECK_EQ(config_parse(&c,
+        "rfid_enable      = true\n"
+        "rfid_kill_stock  = false\n"
+        "rfid_poll_hz     = 7\n"
+        "rfid_mode        = snoop\n"), 0);
+    CHECK_EQ(c.rfid_enable, 1);                   /* still honoured */
 
     TEST_MAIN_END();
 }

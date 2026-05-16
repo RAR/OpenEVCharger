@@ -295,13 +295,26 @@ int ioctl(int fd, unsigned long request, ...)
     char line[LINE_MAX]; char *end = line + LINE_MAX - 32;
     char *p = log_hdr(line, end, "IOCTL", fd, ret);
     p = fmt_str(p, end, "req=0x");
-    /* up to 8 hex chars, little→big order. */
     for (int sh = 28; sh >= 0; sh -= 4) {
         unsigned d = (request >> sh) & 0xf;
         *p++ = "0123456789abcdef"[d];
     }
+    /* Always log arg value as a hex pointer, plus deref for TCGETS/TCSETS. */
+    p = fmt_str(p, end, " arg=0x");
+    for (int sh = 28; sh >= 0; sh -= 4) {
+        unsigned d = (((unsigned long)arg) >> sh) & 0xf;
+        *p++ = "0123456789abcdef"[d];
+    }
+    if (request == 0x5401 || request == 0x5402 ||
+        request == 0x5403 || request == 0x5404) {
+        const unsigned char *b = (const unsigned char *)arg;
+        p = fmt_str(p, end, " termios=");
+        for (int i = 0; i < 60 && p + 3 < end; i++) {
+            *p++ = ' ';
+            p = fmt_hex2(p, b[i]);
+        }
+    }
     log_emit(line, p);
-    /* Silence "unused" warning when -Wunused is on. */
     (void)my_strncmp; (void)my_strlen;
     return (int)ret;
 }

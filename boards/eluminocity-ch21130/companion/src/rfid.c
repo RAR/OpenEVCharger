@@ -1,22 +1,21 @@
 /* delta-bridge — custom RFID reader (replaces /root/RFID).
  *
- * Design notes:
- *  - Single static instance (the bridge has exactly one reader). No heap.
- *  - Non-blocking: tick() reads what's available, parses what's buffered,
- *    sends the next request when the inter-poll interval has elapsed.
- *  - State machine: IDLE -> WAITING_RESP -> IDLE (on parsed frame or 300 ms
- *    timeout). The timeout reset is the no-card-present recovery path —
- *    when no tag is in field the reader returns either a "no-card" length
- *    byte (handled as "valid frame, no UID") or simply nothing.
- *  - Debounce rules:
- *      a) UID differs from last_uid          -> fire callback.
- *      b) Same UID but >= 2000 ms since last
- *         observation of ANY card            -> fire callback.
- *      c) Otherwise (same UID, no gap)       -> suppress.
- *    `last_seen_ms` is updated on every valid UID frame, so a continuously-
- *    held card keeps the timer warm and stays suppressed.
- *  - The stock daemon's UltraLight page-8 "DETA" check is deliberately
- *    skipped (docs/08 §1) — we want any ISO14443A tag to work.
+ * v0.6: real /root/RFID replacement based on the wire-decoded protocol from
+ * docs/10. Performs the full GPIO+PWM init that the reader chip needs, then
+ * polls Request_CardSN (0x20) and parses the actual on-the-wire frame format
+ * (which is [LEN][CMD][PAYLOAD][XOR] — NO trailing 0, contrary to docs/08).
+ *
+ * Design:
+ *  - Single static instance (one reader per process).
+ *  - Non-blocking tick(): drain available RX, parse, send next poll when
+ *    previous response has been consumed.
+ *  - State machine: IDLE -> WAITING -> IDLE on parsed frame or timeout.
+ *    Timeout exists only to recover from a hypothetical lost response;
+ *    in normal operation the reader always replies.
+ *  - Debounce: a fresh UID fires immediately; the same UID re-presented
+ *    within 2 s of any sighting is suppressed; >= 2 s gap re-fires.
+ *  - PWM fd held open for process lifetime — see the close+reopen kernel
+ *    bug discussion in docs/09 §1 and docs/10 §3.
  */
 
 #define _POSIX_C_SOURCE 200112L
@@ -29,17 +28,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
-#define RX_BUF_CAP     128
-#define UID_MAX        10            /* longest UID we accept (UltraLight C) */
-#define UID_HEX_MAX    (UID_MAX * 2 + 1)
-#define DEBOUNCE_MS    2000
+#define RX_BUF_CAP      128
+#define UID_MAX         10            /* longest UID we accept (UltraLight C) */
+#define UID_HEX_MAX     (UID_MAX * 2 + 1)
+#define DEBOUNCE_MS     2000
 #define RESP_TIMEOUT_MS 300
+
+/* PWM init bytes — period=duty=0x00065B9A, little-endian. Matches the exact
+ * 8 bytes stock /root/RFID writes after the 12 GPIO setup system() calls.
+ * Don't tweak — the reader chip needs this clock to detect cards. */
+static const unsigned char PWM_INIT[8] = {
+    0x9a, 0x5b, 0x06, 0x00,    /* period_ticks  = 0x00065B9A LE */
+    0x9a, 0x5b, 0x06, 0x00,    /* duty_ticks    = 0x00065B9A LE (100 %) */
+};
 
 enum rfid_state {
     RFID_IDLE = 0,
@@ -47,12 +55,12 @@ enum rfid_state {
 };
 
 struct rfid_reader {
-    int   fd;
-    int   poll_hz;                   /* tunable; default 5 */
-    int   active;                    /* zeroed by stop, set by start */
+    int   fd;                        /* UART fd; -1 in test mode */
+    int   pwm_fd;                    /* PWM fd; -1 in test mode or pre-init */
+    int   active;
 
     enum rfid_state state;
-    long  last_tx_ms;                /* monotonic ms when last 0x20 sent */
+    long  last_tx_ms;                /* monotonic ms of last poll request */
     long  last_rx_attempt_ms;        /* timeout reference for WAITING_RESP */
 
     unsigned char rx[RX_BUF_CAP];
@@ -84,42 +92,46 @@ int rfid_parse_frame(const unsigned char *buf, size_t len,
                      unsigned char *uid_out, size_t *uid_len_out)
 {
     if (uid_len_out) *uid_len_out = 0;
-    if (len < 1)     return 0;
+    if (len < 1)                     return 0;
+
     unsigned int total = buf[0];     /* LEN byte */
-    /* Frame structure on the wire: [LEN][CMD][PAYLOAD...][XOR][0x00].
-     * LEN counts bytes 0..LEN-1 (i.e. through end of payload). Total frame
-     * size on the wire is LEN+2 (XOR + trailing zero). */
-    if (total < 2)                   return -1;     /* must have CMD at min */
-    if (total + 2 > RX_BUF_CAP)      return -1;     /* never our frame size */
-    if (len < total + 2)             return 0;      /* incomplete */
+    /* Frame on the wire: [LEN][CMD][PAYLOAD...][XOR]. LEN counts bytes
+     * 0..LEN-1 (LEN, CMD, payload). XOR sits at offset LEN. Total wire
+     * size = LEN + 1. NO trailing zero (corrects docs/08's guess).
+     *
+     * Minimum sensible frame is LEN=2 (e.g. "no card" = 02 df dd), where
+     * total=2, payload=0, XOR at byte 2. */
+    if (total < 2)                   return -1;     /* nonsense LEN */
+    if (total + 1 > RX_BUF_CAP)      return -1;     /* never our frame */
+    if (len < total + 1)             return 0;      /* need XOR byte too */
 
     /* XOR check across bytes 0..total-1. */
     unsigned char x = 0;
     for (unsigned int i = 0; i < total; i++)
         x ^= buf[i];
     if (x != buf[total])             return -1;
-    if (buf[total + 1] != 0)         return -1;
 
-    /* Per docs/08: UID replies use the LEN byte itself as the discriminant.
-     * The CMD byte for a Request_CardSN reply is the same 0x20 we sent.
-     * Valid UID frame lengths: 0x09 (4-byte UID), 0x0C (7-byte), 0x0F (10-byte).
-     * Any other length is treated as a non-UID frame (no callback). */
+    /* UID extraction. Per docs/08 / docs/10 §4: for a Request_CardSN
+     * reply (CMD=0x20) the LEN byte itself encodes the UID length —
+     * 0x09 -> 4 bytes, 0x0C -> 7 bytes, 0x0F -> 10 bytes. UID payload
+     * begins immediately after LEN+CMD (offset 2). Any other LEN with
+     * CMD=0x20 (e.g. the "no card" replies 02 df / 02 be) is a valid
+     * frame that just doesn't carry a UID. */
     if (buf[1] == 0x20 && uid_out && uid_len_out) {
         size_t uid_n = 0;
         switch (total) {
         case 0x09: uid_n = 4;  break;
         case 0x0C: uid_n = 7;  break;
         case 0x0F: uid_n = 10; break;
-        default:   uid_n = 0;  break;     /* valid frame, just no UID */
+        default:   uid_n = 0;  break;
         }
         if (uid_n) {
-            /* UID payload starts after LEN+CMD = 2 bytes in. */
             for (size_t i = 0; i < uid_n; i++)
                 uid_out[i] = buf[2 + i];
             *uid_len_out = uid_n;
         }
     }
-    return (int)(total + 2);
+    return (int)(total + 1);
 }
 
 int rfid_uid_to_hex(const unsigned char *uid, size_t uid_len,
@@ -136,15 +148,14 @@ int rfid_uid_to_hex(const unsigned char *uid, size_t uid_len,
 }
 
 /* --- request frame builder --------------------------------------------- *
- * Build a [LEN][CMD][ARGS...][XOR][0] frame into `out`. Returns bytes
- * written. The on-the-wire 0x20 (Request_CardSN) command takes one zero
- * argument byte (per docs/08 §1, "cmd[0]=3, cmd[1]=0x20, cmd[2]=0"). */
+ * Build a [LEN][CMD][ARGS...][XOR] frame into `out`. Returns bytes written.
+ * On-wire: NO trailing 0; LEN counts bytes through end of args. */
 static size_t build_cmd(unsigned char *out, size_t cap,
                         unsigned char cmd, const unsigned char *args,
                         size_t arglen)
 {
-    size_t total = 2 + arglen;   /* LEN + CMD + ARGS */
-    if (cap < total + 2)  return 0;
+    size_t total = 2 + arglen;       /* LEN + CMD + ARGS */
+    if (cap < total + 1)  return 0;
     if (total > 0xFF)     return 0;
     out[0] = (unsigned char)total;
     out[1] = cmd;
@@ -153,46 +164,123 @@ static size_t build_cmd(unsigned char *out, size_t cap,
     unsigned char x = 0;
     for (size_t i = 0; i < total; i++)
         x ^= out[i];
-    out[total]     = x;
-    out[total + 1] = 0;
-    return total + 2;
+    out[total] = x;
+    return total + 1;
+}
+
+/* --- GPIO + PWM init --------------------------------------------------- *
+ * Replicates stock /root/RFID's startup exactly. The shell out via system()
+ * matches the static-RE finding (4 GPIOs × 3 shell calls = 12 system()
+ * invocations, matching the 12 paired CLOSE fd events the LD_PRELOAD shim
+ * captured). The PWM is a direct open+write, not a system() shell call. */
+
+/* Returns 0 always — failures here are logged but non-fatal. If the GPIO
+ * is already exported (which is the case if stock /root/RFID was killed
+ * earlier in this boot) `echo > export` returns EBUSY, exit nonzero, and
+ * we proceed: the GPIO is configured the way we want either way. */
+static int reader_gpio_init(void)
+{
+    struct { int gpio; int value; } pins[] = {
+        { 48, 1 }, { 57, 1 }, { 56, 0 }, { 55, 0 },
+    };
+    char cmd[128];
+    for (size_t i = 0; i < sizeof(pins) / sizeof(pins[0]); i++) {
+        snprintf(cmd, sizeof(cmd),
+                 "echo %d > /sys/class/gpio/export 2>/dev/null",
+                 pins[i].gpio);
+        (void)system(cmd);
+        snprintf(cmd, sizeof(cmd),
+                 "echo out > /sys/class/gpio/gpio%d/direction 2>/dev/null",
+                 pins[i].gpio);
+        (void)system(cmd);
+        snprintf(cmd, sizeof(cmd),
+                 "echo %d > /sys/class/gpio/gpio%d/value 2>/dev/null",
+                 pins[i].value, pins[i].gpio);
+        (void)system(cmd);
+    }
+    return 0;
+}
+
+/* Open the PWM device and write the 8 magic init bytes. Returns the fd on
+ * success (caller must NEVER close it), -1 on failure. */
+static int reader_pwm_init(void)
+{
+    int fd = open("/dev/spr320_pwm1", O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "delta-bridge: rfid: open(/dev/spr320_pwm1): %s\n",
+                strerror(errno));
+        return -1;
+    }
+    ssize_t w = write(fd, PWM_INIT, sizeof(PWM_INIT));
+    if (w != (ssize_t)sizeof(PWM_INIT)) {
+        fprintf(stderr,
+                "delta-bridge: rfid: PWM init write returned %zd, expected %zu\n",
+                w, sizeof(PWM_INIT));
+        /* Don't close fd — closing breaks the driver per the bug. Leak
+         * the fd and let the process keep running; reader may still work
+         * if the previous owner had it primed. */
+    }
+    return fd;
 }
 
 /* --- serial ------------------------------------------------------------- */
 
+/* Stock /root/RFID's exact termios bytes — captured 2026-05-16 via the
+ * uart_trace.so shim's TCSETS arg-deref (see docs/12). The kernel UART
+ * driver ignores the CBAUD bits and clocks at 115200 regardless; the
+ * platform binding is fixed at 115200 by the SPEAr3xx UART driver.
+ * Mirroring stock's bytes verbatim is the only way our daemon's UART
+ * behaves identically to stock's — every other deviation (IGNPAR,
+ * VTIME=0, different VREPRINT) might subtly change RX delivery.
+ *
+ * Layout (glibc 2.10 ARM, NCCS=19, struct size 44 with c_ispeed/ospeed
+ * at offsets 36/40):
+ *   c_iflag=0, c_oflag=0, c_cflag=0x000008BE, c_lflag=0, c_line=0,
+ *   c_cc[VTIME(5)]=0x0a, c_cc[VMIN(6)]=0, c_cc[VREPRINT(12)]=0x03,
+ *   c_cc[17]=0x80, c_cc[18]=0x27, c_ispeed=0x40, c_ospeed=0.
+ * (The c_ispeed value 0x40 / 64 baud is meaningless per the driver
+ * override; we keep it for verbatim parity with stock.)
+ *
+ * sizeof(struct termios) under musl is 60 bytes (NCCS=32), not 44 like
+ * glibc 2.10 — so we can't simply assign to a `struct termios`. We pack
+ * the bytes into a fixed-size buffer and pass to raw ioctl(TCSETS). */
+static const unsigned char STOCK_TERMIOS[60] = {
+    /* c_iflag */ 0x00, 0x00, 0x00, 0x00,
+    /* c_oflag */ 0x00, 0x00, 0x00, 0x00,
+    /* c_cflag */ 0xbe, 0x08, 0x00, 0x00,
+    /* c_lflag */ 0x00, 0x00, 0x00, 0x00,
+    /* c_line  */ 0x00,
+    /* c_cc[19]:                                                     */
+    /*  0  1  2  3  4 5(VTIME) 6(VMIN)  7  8  9 10 11 12(VREPRINT) 13..18 */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x80, 0x27,
+    /* c_ispeed */ 0x40, 0x00, 0x00, 0x00,
+    /* c_ospeed */ 0x00, 0x00, 0x00, 0x00,
+    /* trailing pad (kernel reads only 44 bytes; pad for safety) */
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
 static int open_serial(const char *port)
 {
-    int fd = open(port, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    /* Mirror stock /root/RFID's open exactly: flags=O_RDWR only. Then
+     * push stock's verbatim termios via raw TCSETS ioctl — this bypasses
+     * the libc tcsetattr() helper which on musl would pack a 60-byte
+     * struct against the kernel's expected 44-byte layout. */
+    int fd = open(port, O_RDWR);
     if (fd < 0) return -1;
-    struct termios t;
-    if (tcgetattr(fd, &t) != 0) {
-        close(fd);
-        return -1;
-    }
-    cfmakeraw(&t);
-    cfsetispeed(&t, B115200);
-    cfsetospeed(&t, B115200);
-    t.c_cflag |= CLOCAL | CREAD;
-    t.c_cflag &= ~CRTSCTS;
-    t.c_cc[VMIN]  = 0;   /* non-blocking reads */
-    t.c_cc[VTIME] = 0;
-    if (tcsetattr(fd, TCSANOW, &t) != 0) {
+    if (ioctl(fd, TCSETS, STOCK_TERMIOS) != 0) {
+        fprintf(stderr, "delta-bridge: rfid: TCSETS: %s\n", strerror(errno));
         close(fd);
         return -1;
     }
     tcflush(fd, TCIOFLUSH);
+    /* Flip the fd to non-blocking AFTER the termios is applied so the
+     * tick loop's read() returns immediately when the RX buffer is
+     * empty. Stock uses VTIME=10 (1 s blocking) but our tick lives in
+     * the bigger delta-bridge main loop and can't afford to block. */
+    int fl = fcntl(fd, F_GETFL, 0);
+    if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
     return fd;
-}
-
-/* Best-effort kill of the stock /root/RFID daemon. We don't care about
- * the exit code — if it wasn't running, killall returns nonzero and that's
- * fine. We do want the log line so an operator can see we tried. */
-static void kill_stock_daemon(void)
-{
-    int rc = system("killall RFID 2>/dev/null");
-    fprintf(stderr, "delta-bridge: rfid: killall RFID rc=%d (0=killed, "
-                    "1=not running — either is fine)\n",
-            WIFEXITED(rc) ? WEXITSTATUS(rc) : -1);
 }
 
 /* --- debounce + dispatch ------------------------------------------------ */
@@ -213,8 +301,6 @@ static void handle_uid(struct rfid_reader *r,
     } else if (now_ms - r->last_seen_ms >= DEBOUNCE_MS) {
         fire = 1;                      /* same card, but card-left-field gap */
     }
-    /* Always update the last-seen timestamp so a continuously-held card
-     * keeps refreshing the debounce window. */
     r->last_seen_ms = now_ms;
     if (fire) {
         snprintf(r->last_uid, sizeof(r->last_uid), "%s", hex);
@@ -232,7 +318,7 @@ static int drain_frames(struct rfid_reader *r, long now_ms)
         size_t uid_len = 0;
         int n = rfid_parse_frame(r->rx, r->rx_len, uid, &uid_len);
         if (n == 0)
-            break;                    /* need more bytes */
+            break;                    /* partial frame */
         if (n < 0) {
             /* Bad frame — drop one byte and re-sync. */
             memmove(r->rx, r->rx + 1, r->rx_len - 1);
@@ -243,11 +329,9 @@ static int drain_frames(struct rfid_reader *r, long now_ms)
             handle_uid(r, uid, uid_len, now_ms);
             delivered++;
         }
-        /* Consume `n` bytes from the buffer. */
         memmove(r->rx, r->rx + n, r->rx_len - (size_t)n);
         r->rx_len -= (size_t)n;
-        /* Leaving WAITING_RESP after any complete frame — even non-UID
-         * (e.g. "no card") frames close the request/response window. */
+        /* Any complete frame closes the request/response window. */
         r->state = RFID_IDLE;
     }
     return delivered;
@@ -257,56 +341,39 @@ static int drain_frames(struct rfid_reader *r, long now_ms)
 
 int rfid_reader_start(struct rfid_reader **out,
                       const char *port,
-                      int kill_stock,
                       rfid_scan_cb on_scan,
                       void *user)
 {
     if (!out) return -1;
     memset(&g_reader, 0, sizeof(g_reader));
     g_reader.fd      = -1;
-    g_reader.poll_hz = 5;
+    g_reader.pwm_fd  = -1;
     g_reader.cb      = on_scan;
     g_reader.user    = user;
     g_reader.state   = RFID_IDLE;
 
-    if (kill_stock)
-        kill_stock_daemon();
-
-    g_reader.fd = open_serial(port ? port : "/dev/ttyAMA4");
+    const char *p = port ? port : "/dev/ttyAMA4";
+    g_reader.fd = open_serial(p);
     if (g_reader.fd < 0) {
-        fprintf(stderr, "delta-bridge: rfid: open(%s) failed: %s\n",
-                port ? port : "/dev/ttyAMA4", strerror(errno));
+        fprintf(stderr, "delta-bridge: rfid: open(%s): %s\n",
+                p, strerror(errno));
         return -1;
     }
 
-    /* Notes on init:
-     *
-     * The reader's antenna IS NOT enabled by a UART command. The stock
-     * /root/RFID binary contains a `Set_Antana(on)` function that would
-     * emit `[03][11][03][XOR][00]`, but that function is dead code — never
-     * called from main(). What does enable the antenna is the GPIO+PWM
-     * init that stock's `main()` does once at startup (11 echo-to-sysfs
-     * system() calls + PWM_Init on /dev/spr320_pwm1). Those run on the
-     * unit's boot init, before the reader chip wakes up.
-     *
-     * That means killing /root/RFID and running our daemon will only work
-     * if (a) the GPIO state has survived the stock-daemon death — likely,
-     * since sysfs GPIO values are persistent — and (b) the reader chip
-     * doesn't require the PWM signal as a live clock — open question,
-     * the bench-RE agent's hypothesis was "PWM is buzzer only".
-     *
-     * If you hit the "card sits on reader, nothing happens" symptom and
-     * stock RFID worked at boot, it's most likely option (b): the reader
-     * needs the PWM keepalive. The fix would be to open /dev/spr320_pwm1
-     * and call PWM_Init ourselves on startup. Be aware: the SPEAr3xx
-     * kernel PWM driver has a NULL-deref bug on close+reopen, so once
-     * we open it we shouldn't close until the process exits. */
+    /* GPIO + PWM init — runs once, identical to stock's startup. */
+    reader_gpio_init();
+    g_reader.pwm_fd = reader_pwm_init();
+    if (g_reader.pwm_fd < 0) {
+        fprintf(stderr,
+                "delta-bridge: rfid: PWM init failed — card detection may "
+                "not work. Continuing anyway.\n");
+    }
 
     g_reader.active = 1;
     *out = &g_reader;
-    fprintf(stderr, "delta-bridge: rfid: started on %s @ 115200 8N1, "
-                    "poll=%d Hz\n",
-            port ? port : "/dev/ttyAMA4", g_reader.poll_hz);
+    fprintf(stderr,
+            "delta-bridge: rfid: started on %s @ 115200 8N1, "
+            "GPIO + PWM initialized\n", p);
     return 0;
 }
 
@@ -316,7 +383,7 @@ int rfid_reader_test_init(struct rfid_reader **out,
     if (!out) return -1;
     memset(&g_reader, 0, sizeof(g_reader));
     g_reader.fd      = -1;
-    g_reader.poll_hz = 5;
+    g_reader.pwm_fd  = -1;
     g_reader.cb      = on_scan;
     g_reader.user    = user;
     g_reader.state   = RFID_IDLE;
@@ -325,22 +392,11 @@ int rfid_reader_test_init(struct rfid_reader **out,
     return 0;
 }
 
-void rfid_reader_set_poll_hz(struct rfid_reader *r, int hz)
-{
-    if (!r) return;
-    if (hz < 1)  hz = 1;
-    if (hz > 50) hz = 50;
-    r->poll_hz = hz;
-}
-
 int rfid_reader_test_inject(struct rfid_reader *r,
                             const unsigned char *uid, size_t uid_len,
                             long now_ms)
 {
     if (!r || !uid || uid_len == 0 || uid_len > UID_MAX) return -1;
-    /* Tests assert callback firing through their own counter (the cb is
-     * wired via rfid_reader_test_init). We just feed handle_uid() the
-     * caller's clock so the 2 s gap rule is exercised deterministically. */
     handle_uid(r, uid, uid_len, now_ms);
     return 0;
 }
@@ -352,11 +408,11 @@ int rfid_reader_tick(struct rfid_reader *r)
 
     long now = mono_ms();
 
-    /* 1) Drain whatever the reader has already pushed at us. */
+    /* 1. Drain whatever the reader has already pushed at us. */
     for (;;) {
         if (r->rx_len >= sizeof(r->rx)) {
-            /* Buffer full — drop one byte to make room. The parser will
-             * re-sync on the next iteration. */
+            /* Buffer full — drop one byte to make room. Parser re-syncs
+             * on the next iteration. */
             memmove(r->rx, r->rx + 1, r->rx_len - 1);
             r->rx_len--;
         }
@@ -367,39 +423,34 @@ int rfid_reader_tick(struct rfid_reader *r)
 
     int delivered = drain_frames(r, now);
 
-    /* 2) Recover from a stuck WAITING_RESP. The reader is silent when no
-     *    tag is present so we never actually receive a "no card" frame;
-     *    just time the request out and go IDLE so we can re-issue. */
+    /* 2. Recover from a stuck WAITING_RESP — the reader should always
+     *    reply, but if anything stalls, drop back to IDLE so we can poll
+     *    again. */
     if (r->state == RFID_WAITING_RESP &&
         (now - r->last_rx_attempt_ms) >= RESP_TIMEOUT_MS) {
         r->state = RFID_IDLE;
     }
 
-    /* 3) Issue the next poll if the inter-poll cadence has elapsed. */
+    /* 3. Issue the next poll. No throttle: the reader naturally paces
+     *    us at ~110 ms per cycle (see docs/10 §3). */
     if (r->state == RFID_IDLE) {
-        long period_ms = 1000 / (r->poll_hz > 0 ? r->poll_hz : 5);
-        if (period_ms < 1) period_ms = 1;
-        if (r->last_tx_ms == 0 || (now - r->last_tx_ms) >= period_ms) {
-            unsigned char frame[8];
-            unsigned char args[1] = { 0 };
-            size_t n = build_cmd(frame, sizeof(frame), 0x20, args, 1);
-            if (n > 0) {
-                ssize_t w = write(r->fd, frame, n);
-                if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                    /* I/O hiccup — log once per minute at most. The reader
-                     * sometimes resets briefly on plug-in noise; not fatal. */
-                    static long last_warn = 0;
-                    if (now - last_warn > 60000) {
-                        fprintf(stderr,
-                                "delta-bridge: rfid: write() failed: %s\n",
-                                strerror(errno));
-                        last_warn = now;
-                    }
+        unsigned char frame[8];
+        unsigned char args[1] = { 0 };
+        size_t n = build_cmd(frame, sizeof(frame), 0x20, args, 1);
+        if (n > 0) {
+            ssize_t w = write(r->fd, frame, n);
+            if (w < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                static long last_warn = 0;
+                if (now - last_warn > 60000) {
+                    fprintf(stderr,
+                            "delta-bridge: rfid: write() failed: %s\n",
+                            strerror(errno));
+                    last_warn = now;
                 }
-                r->last_tx_ms = now;
-                r->last_rx_attempt_ms = now;
-                r->state = RFID_WAITING_RESP;
             }
+            r->last_tx_ms = now;
+            r->last_rx_attempt_ms = now;
+            r->state = RFID_WAITING_RESP;
         }
     }
     return delivered;
@@ -412,6 +463,9 @@ void rfid_reader_stop(struct rfid_reader *r)
         close(r->fd);
         r->fd = -1;
     }
+    /* Do NOT close pwm_fd. See docs/09 §1 — closing /dev/spr320_pwm1
+     * triggers a kernel NULL-deref on the next open. The OS reaps it on
+     * process exit, which is the only safe time to close it. */
     r->active = 0;
     fprintf(stderr, "delta-bridge: rfid: stopped\n");
 }
