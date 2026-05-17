@@ -24,15 +24,19 @@ TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_
          test/test_mqtt_adapter test/test_config test/test_backoff test/test_commands \
          test/test_web test/test_rfid test/test_meter test/test_adc test/test_led
 
-.PHONY: all test clean dcofimage
+.PHONY: all test test-image clean dcofimage
 
 all: delta-bridge
 
 delta-bridge: $(SRC)
 	$(CROSS)gcc $(CFLAGS) -static -o $@ $(SRC)
 
-test: $(TESTS)
+test: $(TESTS) test-image
 	@fail=0; for t in $(TESTS); do ./$$t || fail=1; done; exit $$fail
+
+# wrap_dco round-trip tests (run as part of `make test`); see image/.
+test-image:
+	@cd image && python3 test_wrap_dco.py
 
 # --- DcoFImage build (M12, see docs/22) ---
 # Inputs:
