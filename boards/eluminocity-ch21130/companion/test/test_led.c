@@ -82,11 +82,24 @@ static void test_override_precedence(void)
     CHECK_EQ(g2, LED_SOLID);
 }
 
+static void test_active_low_polarity(void)
+{
+    /* LEDs are wired active-low: logical "on" sends sysfs byte 0,
+     * logical "off" sends sysfs byte 1. Pin this so a future cleanup
+     * doesn't silently re-invert it. */
+    CHECK_EQ(led_sysfs_byte_for(1), 0);
+    CHECK_EQ(led_sysfs_byte_for(0), 1);
+    /* Any nonzero is "on". */
+    CHECK_EQ(led_sysfs_byte_for(42), 0);
+    CHECK_EQ(led_sysfs_byte_for(-1), 0);
+}
+
 int main(void)
 {
     test_normal_mapping();
     test_override_firmware_update();
     test_override_fault();
     test_override_precedence();
+    test_active_low_polarity();
     TEST_MAIN_END();
 }
