@@ -24,14 +24,38 @@ TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_
          test/test_mqtt_adapter test/test_config test/test_backoff test/test_commands \
          test/test_web test/test_rfid test/test_meter test/test_adc test/test_led
 
-.PHONY: all test clean
+.PHONY: all test test-image clean dcofimage
+
 all: delta-bridge
 
 delta-bridge: $(SRC)
 	$(CROSS)gcc $(CFLAGS) -static -o $@ $(SRC)
 
-test: $(TESTS)
+test: $(TESTS) test-image
 	@fail=0; for t in $(TESTS); do ./$$t || fail=1; done; exit $$fail
+
+# wrap_dco round-trip tests (run as part of `make test`); see image/.
+test-image:
+	@cd image && python3 test_wrap_dco.py
+
+# --- DcoFImage build (M12, see docs/22) ---
+# Inputs:
+#   STOCK_ROOTFS — path to extracted stock rootfs
+#   BRIDGE_BIN   — cross-compiled delta-bridge binary
+#   OUT_DIR      — where to write DcoFImage / DcoFImage-stock-restore
+# Defaults match this repo's layout; override on the command line.
+STOCK_ROOTFS ?= ../../../../../testcharger/delta/dump/rootfs-unpacked
+BRIDGE_BIN   ?= delta-bridge.m12
+OUT_DIR      ?= ../../../../../../build/m12
+
+dcofimage:
+	@if [ ! -f "$(BRIDGE_BIN)" ]; then \
+		echo "error: $(BRIDGE_BIN) missing — see docs/22 for the docker-cc invocation"; \
+		exit 1; \
+	fi
+	image/build-dcofimage.sh "$(STOCK_ROOTFS)" "$(BRIDGE_BIN)" "$(OUT_DIR)"
+	SHA=$$(sha256sum "$(BRIDGE_BIN)" | cut -d' ' -f1); \
+	image/verify_dcofimage.py --expected-sha256 "$$SHA" "$(OUT_DIR)/DcoFImage"
 
 # --- host test link rules (added as modules land) ---
 test/test_smoke: test/test_smoke.c test/test_harness.h

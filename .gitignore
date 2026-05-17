@@ -26,6 +26,7 @@ Thumbs.db
 __pycache__/
 boards/eluminocity-ch21130/companion/delta-bridge
 boards/eluminocity-ch21130/companion/delta-bridge.v*
+boards/eluminocity-ch21130/companion/delta-bridge.m*
 boards/eluminocity-ch21130/companion/delta-bridge.conf
 boards/eluminocity-ch21130/companion/test/test_backoff
 boards/eluminocity-ch21130/companion/test/test_charger_state
