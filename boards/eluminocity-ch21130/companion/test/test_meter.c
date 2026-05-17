@@ -185,11 +185,32 @@ static void test_publish_shmem(void)
     for (size_t off = 0x016b; off < 0x017f; off++)
         CHECK_EQ(sm.owned[off], 0x00);
 
+    /* kWh ASCII at shmem[0x05c0..]: energy_raw=2705, Wgain=3199.
+     * Formula: 2705 / 3199 / 100.0 = 0.0084557... → "0.01"
+     * (snprintf %.2f rounds 0.0084 → 0.01) */
+    CHECK_EQ(sm.owned[0x05c0], '0');
+    CHECK_EQ(sm.owned[0x05c1], '.');
+    CHECK_EQ(sm.owned[0x05c2], '0');
+    CHECK_EQ(sm.owned[0x05c3], '1');
+    CHECK_EQ(sm.owned[0x05c4], 0);          /* NUL terminator */
+
+    /* Try a bigger energy value to verify formatting scales. */
+    r.energy_raw = 31990000;                /* / 3199 / 100 = 100.00 */
+    meter_publish_shmem(&sm, &r, &cal);
+    CHECK_EQ(sm.owned[0x05c0], '1');
+    CHECK_EQ(sm.owned[0x05c1], '0');
+    CHECK_EQ(sm.owned[0x05c2], '0');
+    CHECK_EQ(sm.owned[0x05c3], '.');
+    CHECK_EQ(sm.owned[0x05c4], '0');
+    CHECK_EQ(sm.owned[0x05c5], '0');
+    CHECK_EQ(sm.owned[0x05c6], 0);          /* NUL */
+
     /* Defensive: r.valid=0 → no-op. */
     memset(sm.owned, 0xaa, sm.size);
     r.valid = 0;
     meter_publish_shmem(&sm, &r, &cal);
     CHECK_EQ(sm.owned[0x015b], 0xaa);     /* unchanged */
+    CHECK_EQ(sm.owned[0x05c0], 0xaa);     /* kWh ASCII unchanged too */
 
     /* Defensive: !sm.writable → no-op. */
     r.valid = 1;
@@ -197,6 +218,7 @@ static void test_publish_shmem(void)
     memset(sm.owned, 0x55, sm.size);
     meter_publish_shmem(&sm, &r, &cal);
     CHECK_EQ(sm.owned[0x015b], 0x55);
+    CHECK_EQ(sm.owned[0x05c0], 0x55);     /* kWh ASCII protected by writable check */
 
     free(sm.owned);
 }

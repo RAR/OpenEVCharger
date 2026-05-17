@@ -277,7 +277,42 @@ static void publish_telemetry_block(struct shmem *sm,
     shmem_write_u32_le(sm, 0x015f, r->irms_raw);
     shmem_write_u32_le(sm, 0x0163, r->power_raw);
     shmem_write_u32_le(sm, 0x0167, r->energy_raw);
-    /* slots 4..9 (0x016b..0x017b) unaltered — see header comment. */
+    /* slots 4..9 (0x016b..0x017b) deliberately left untouched. */
+}
+
+/* ASCII kWh accumulator at shmem[0x05c0..0x05df]. Stock FlashLog (per
+ * docs/19 §FlashLog) reads this 32-B ASCII buffer every ~60 sec and
+ * shells out `echo X.XX > /root/Energy`. That file is what our
+ * meter personality reads at boot for the initial kWh value.
+ *
+ * Without populating shmem[0x05c0..], FlashLog reads whatever is
+ * there (zeros on cold boot, or stale stock value) and persists THAT
+ * — meaning our running kWh counter never survives reboot.
+ *
+ * Conversion: meter chip's energy_raw is in chip-specific units that
+ * stock's MeterIC_new converts to kWh using Wgain (see docs/13 §2.2).
+ * Stock's exact formula isn't fully decoded; we use a pragmatic
+ * proxy that matches what's persisted in /root/Energy on a
+ * factory-virgin bench unit ("100.06\n" with Wgain=3199 produces a
+ * value in the right ballpark when scaled). Refine when we have
+ * 240 V ground-truth.
+ *
+ * Formula (provisional): kWh = energy_raw / Wgain / 100. */
+static void publish_kwh_ascii(struct shmem *sm,
+                              const struct meter_readings *r,
+                              const struct meter_cal *cal)
+{
+    uint32_t wgain = cal->wgain > 0 ? (uint32_t)cal->wgain : 1;
+    /* Use double for the division so we get fractional kWh. */
+    double kwh = (double)r->energy_raw / (double)wgain / 100.0;
+    char buf[32];
+    int n = snprintf(buf, sizeof buf, "%.2f", kwh);
+    if (n < 0) return;
+    if (n > 30) n = 30;
+    for (int i = 0; i < n; i++)
+        shmem_write_u8(sm, 0x05c0 + (unsigned)i, (uint8_t)buf[i]);
+    /* NUL-terminate so FlashLog's `echo %s` doesn't pull garbage. */
+    shmem_write_u8(sm, 0x05c0 + (unsigned)n, 0);
 }
 
 void meter_publish_shmem(struct shmem *sm, const struct meter_readings *r,
@@ -287,6 +322,7 @@ void meter_publish_shmem(struct shmem *sm, const struct meter_readings *r,
         return;
     publish_compact(sm, r, cal);
     publish_telemetry_block(sm, r);
+    publish_kwh_ascii(sm, r, cal);
 }
 
 /* ============================================================
