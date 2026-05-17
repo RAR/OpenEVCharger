@@ -12,12 +12,18 @@ void config_defaults(struct config *c)
     snprintf(c->topic_prefix, sizeof(c->topic_prefix), "delta-bridge");
     c->poll_hz = 1;
     snprintf(c->log_level, sizeof(c->log_level), "info");
-    snprintf(c->log_path,  sizeof(c->log_path),  "/Storage/delta-bridge.log");
+    /* Matches the /root/RFID wrapper's `>> .../bridge-boot.log 2>&1`
+     * redirect — that's where stderr actually lands on the bench, so
+     * /api/log reads it by default. Override in delta-bridge.conf if
+     * your deployment redirects elsewhere. */
+    snprintf(c->log_path,  sizeof(c->log_path),
+             "/Storage/delta-bridge/bridge-boot.log");
     c->write_enable = 0;        /* v0.3: opt-in; default preserves v0.2 RO. */
     c->web_enable   = 0;        /* v0.4: opt-in; off by default. */
     c->web_port     = 8080;
     c->rfid_enable     = 0;     /* v0.6: opt-in; on means delta-bridge replaces /root/RFID. */
     snprintf(c->rfid_port, sizeof(c->rfid_port), "/dev/ttyAMA4");
+    c->meter_v_scale   = 60.0;  /* see config.h comment */
 }
 
 /* Trim leading/trailing ASCII whitespace in place; returns the new start. */
@@ -125,6 +131,16 @@ int config_parse(struct config *c, const char *text)
             }
         }
         else if (!strcmp(key, "rfid_port"))   set_str(c->rfid_port, val);
+        else if (!strcmp(key, "meter_v_scale")) {
+            double d = strtod(val, NULL);
+            if (d > 0.0 && d < 10000.0)
+                c->meter_v_scale = d;
+            else
+                fprintf(stderr,
+                        "delta-bridge: config: 'meter_v_scale' value '%s' out "
+                        "of range (must be > 0 and < 10000) at line %d, "
+                        "keeping current %.3f\n", val, lineno, c->meter_v_scale);
+        }
         else if (!strcmp(key, "rfid_kill_stock") ||
                  !strcmp(key, "rfid_poll_hz")    ||
                  !strcmp(key, "rfid_mode")) {
@@ -148,6 +164,8 @@ int config_parse(struct config *c, const char *text)
         c->poll_hz = 1;
     if (c->web_port < 1 || c->web_port > 65535)
         c->web_port = 8080;
+    if (!(c->meter_v_scale > 0.0 && c->meter_v_scale < 10000.0))
+        c->meter_v_scale = 60.0;
     return 0;
 }
 

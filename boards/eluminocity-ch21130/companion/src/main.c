@@ -99,12 +99,23 @@ int main(int argc, char **argv)
     sa_early.sa_handler = SIG_IGN;
     sigaction(SIGPIPE, &sa_early, NULL);
 
+    /* Load cfg BEFORE personality dispatch — personalities like meter
+     * need cfg.meter_v_scale, and a missing file shouldn't gate them
+     * (config_load fills defaults on its own). */
+    struct config cfg;
+    if (config_load(&cfg, conf_path) != 0)
+        fprintf(stderr,
+                "delta-bridge: no config at '%s', using defaults\n",
+                conf_path);
+
     /* Personality dispatch — handed off entirely; no MQTT/web/RFID setup. */
     if (personality) {
         if (!strcmp(personality, "meter")) {
             const char *port = port_override ? port_override : "/dev/ttyAMA2";
-            fprintf(stderr, "delta-bridge: dispatching to meter personality\n");
-            return meter_personality_run(port, &g_stop_int);
+            fprintf(stderr,
+                    "delta-bridge: dispatching to meter personality "
+                    "(v_scale=%.3f)\n", cfg.meter_v_scale);
+            return meter_personality_run(port, cfg.meter_v_scale, &g_stop_int);
         }
         if (!strcmp(personality, "adc")) {
             const char *port = port_override ? port_override : "/dev/adc0";
@@ -120,12 +131,6 @@ int main(int argc, char **argv)
                 personality);
         return 64;
     }
-
-    struct config cfg;
-    if (config_load(&cfg, conf_path) != 0)
-        fprintf(stderr,
-                "delta-bridge: no config at '%s', using defaults\n",
-                conf_path);
 
     /* device_id: config value, else a fixed fallback (M0 will wire the real
      * serial source — /Storage/SerialNumber or a shmem offset). */

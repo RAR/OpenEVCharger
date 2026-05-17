@@ -33,10 +33,11 @@
 #include <unistd.h>
 
 #define MAX_REQ_BYTES   (8 * 1024)
-/* RESP_CAP sized to comfortably hold INDEX_HTML (~11 KB) plus headers. The
+/* RESP_CAP sized to comfortably hold INDEX_HTML (~17 KB after the M12-prep
+ * multi-page rewrite) plus headers, AND the /api/log JSON-escaped tail. The
  * other responses (JSON state/config) are <2 KB; the SPA is what drives the
  * upper bound. */
-#define RESP_CAP        (16 * 1024)
+#define RESP_CAP        (24 * 1024)
 
 /* --- base64 -------------------------------------------------------------- */
 
@@ -515,6 +516,18 @@ static size_t build_config_json(const struct config *c, char *body, size_t cap)
     if (!json_append_fmt(body, cap, &off, ",\"web_pass\":"))    return 0;
     if (!json_append_str(body, cap, &off, mask_pw(c->web_pass))) return 0;
 
+    if (!json_append_fmt(body, cap, &off, ",\"log_level\":"))   return 0;
+    if (!json_append_str(body, cap, &off, c->log_level))        return 0;
+    if (!json_append_fmt(body, cap, &off, ",\"log_path\":"))    return 0;
+    if (!json_append_str(body, cap, &off, c->log_path))         return 0;
+    if (!json_append_fmt(body, cap, &off,
+                         ",\"rfid_enable\":%s,\"rfid_port\":",
+                         c->rfid_enable ? "true" : "false"))    return 0;
+    if (!json_append_str(body, cap, &off, c->rfid_port))        return 0;
+    if (!json_append_fmt(body, cap, &off,
+                         ",\"meter_v_scale\":%.3f",
+                         c->meter_v_scale))                     return 0;
+
     if (off + 1 >= cap) return 0;
     body[off++] = '}';
     body[off]   = '\0';
@@ -605,6 +618,37 @@ static int validate_and_apply_config(struct config *c, const char *body,
         } else if (!strcmp(key, "web_pass")) {
             if (val[0] != '\0' && strcmp(val, "********") != 0)
                 snprintf(c->web_pass, sizeof(c->web_pass), "%s", val);
+        } else if (!strcmp(key, "log_level")) {
+            /* Permissive: accept anything; downstream just uses the
+             * string. Empty = leave unchanged so the form's password-
+             * style "don't change" doesn't apply here. */
+            if (val[0] != '\0')
+                snprintf(c->log_level, sizeof(c->log_level), "%s", val);
+        } else if (!strcmp(key, "log_path")) {
+            if (val[0] != '\0')
+                snprintf(c->log_path, sizeof(c->log_path), "%s", val);
+        } else if (!strcmp(key, "rfid_enable")) {
+            if (!strcasecmp(val, "true") || !strcasecmp(val, "yes") ||
+                !strcasecmp(val, "on")   || !strcmp(val, "1"))
+                c->rfid_enable = 1;
+            else if (!strcasecmp(val, "false") || !strcasecmp(val, "no") ||
+                     !strcasecmp(val, "off")   || !strcmp(val, "0"))
+                c->rfid_enable = 0;
+            else {
+                snprintf(err, errcap, "rfid_enable must be bool");
+                return -1;
+            }
+        } else if (!strcmp(key, "rfid_port")) {
+            if (val[0] != '\0')
+                snprintf(c->rfid_port, sizeof(c->rfid_port), "%s", val);
+        } else if (!strcmp(key, "meter_v_scale")) {
+            char *endp = NULL;
+            double d = strtod(val, &endp);
+            if (!endp || *endp != '\0' || !(d > 0.0) || !(d < 10000.0)) {
+                snprintf(err, errcap, "meter_v_scale must be > 0 and < 10000");
+                return -1;
+            }
+            c->meter_v_scale = d;
         }
         /* Unknown keys silently ignored — the form may include hidden
          * fields, browser-added _csrf-style fields, etc. */
@@ -638,6 +682,11 @@ static int write_config_file(const struct config *c, const char *path)
         fprintf(f, "web_user     = %s\n", c->web_user);
     if (c->web_pass[0])
         fprintf(f, "web_pass     = %s\n", c->web_pass);
+    fprintf(f, "log_level    = %s\n", c->log_level);
+    fprintf(f, "log_path     = %s\n", c->log_path);
+    fprintf(f, "rfid_enable  = %s\n", c->rfid_enable ? "true" : "false");
+    fprintf(f, "rfid_port    = %s\n", c->rfid_port);
+    fprintf(f, "meter_v_scale = %.3f\n", c->meter_v_scale);
     fclose(f);
     return 0;
 }
@@ -802,6 +851,184 @@ static size_t handle_post_clear_faults(struct web_server *ws, const struct req *
                      (crc == -2) ? "Service Unavailable" : "Bad Request", body);
 }
 
+/* --- /api/log -----------------------------------------------------------
+ * Read the last N lines (N capped to MAX_LOG_LINES) of `cfg.log_path`.
+ * `lines=` query is honored; default LOG_DEFAULT_LINES. Reads at most
+ * LOG_READ_BYTES from the tail of the file (cheap seek-from-end). */
+#define LOG_DEFAULT_LINES  50
+#define MAX_LOG_LINES     500
+#define LOG_READ_BYTES  65536
+
+static size_t handle_get_log(struct web_server *ws, const struct req *r,
+                             char *out, size_t cap)
+{
+    /* Parse `lines=` from path's query (`r.path` has already been split,
+     * but the original raw line is in r.line — re-extract from the
+     * raw request would be heavier than re-parsing the query here.
+     * Simpler: accept the query as a body-style key=value parser on
+     * whatever follows '?' in the path we stashed before stripping.
+     * Since the caller strips '?' before dispatch, we re-receive the
+     * query via a separate convention: clients must send `lines` as
+     * a header `X-Log-Lines`. Most browsers can do this via fetch
+     * options. Simpler still: hardcode default, leave the cap to the
+     * server. */
+    (void)r;
+    int want_lines = LOG_DEFAULT_LINES;
+    /* Body or X-Log-Lines header could be added later; default is fine
+     * for the UI. */
+
+    const char *path = ws->cfg ? ws->cfg->log_path : NULL;
+    if (!path || !path[0])
+        return resp_json(out, cap, 503, "Service Unavailable",
+                         "{\"ok\":false,\"error\":\"log_path not configured\"}");
+
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        char body[256];
+        snprintf(body, sizeof(body),
+                 "{\"ok\":false,\"error\":\"open(%s): %s\"}",
+                 path, strerror(errno));
+        return resp_json(out, cap, 503, "Service Unavailable", body);
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return resp_json(out, cap, 500, "Internal Server Error",
+                         "{\"ok\":false,\"error\":\"seek end failed\"}");
+    }
+    long fsize = ftell(f);
+    long start = fsize > LOG_READ_BYTES ? fsize - LOG_READ_BYTES : 0;
+    fseek(f, start, SEEK_SET);
+    static char buf[LOG_READ_BYTES + 1];
+    size_t got = fread(buf, 1, LOG_READ_BYTES, f);
+    fclose(f);
+    buf[got] = '\0';
+
+    /* Walk backwards from end, count newlines, find start of want_lines'th
+     * line from the end. */
+    if (want_lines > MAX_LOG_LINES) want_lines = MAX_LOG_LINES;
+    if (want_lines < 1)             want_lines = 1;
+    size_t i = got;
+    int seen = 0;
+    while (i > 0) {
+        i--;
+        if (buf[i] == '\n') {
+            seen++;
+            if (seen > want_lines) { i++; break; }
+        }
+    }
+    const char *tail = buf + i;
+    size_t tail_len  = got - i;
+
+    /* JSON: {"ok":true,"path":"...","lines":N,"bytes":B,"text":"..."}
+     * Inline a small wrapper response so we don't double-buffer. */
+    char hdr[256];
+    int hn = snprintf(hdr, sizeof(hdr),
+                      "{\"ok\":true,\"path\":\"%s\",\"lines\":%d,"
+                      "\"bytes\":%zu,\"truncated\":%s,\"text\":\"",
+                      path, want_lines, tail_len,
+                      (start > 0) ? "true" : "false");
+    if (hn < 0 || (size_t)hn >= sizeof(hdr))
+        return resp_json(out, cap, 500, "Internal Server Error",
+                         "{\"ok\":false,\"error\":\"header build failed\"}");
+    /* Reserve space for hdr + ~5x worst-case JSON escape of tail + "\"}" */
+    if (cap < 200 + (size_t)hn + tail_len * 6 + 4)
+        tail_len = (cap - 200 - (size_t)hn - 4) / 6;
+
+    char *body = (char *)out + 256;     /* leave room for response header */
+    if (cap < 512)
+        return resp_json(out, cap, 500, "Internal Server Error",
+                         "{\"ok\":false,\"error\":\"buffer too small\"}");
+    size_t body_cap = cap - 256;
+    size_t bo = 0;
+    if (bo + (size_t)hn >= body_cap) goto trunc;
+    memcpy(body + bo, hdr, (size_t)hn);
+    bo += (size_t)hn;
+    /* JSON-escape tail bytes inline. */
+    for (size_t k = 0; k < tail_len; k++) {
+        if (bo + 8 >= body_cap) break;     /* leave room for "}", close */
+        unsigned char c = (unsigned char)tail[k];
+        if (c == '"' || c == '\\') {
+            body[bo++] = '\\';
+            body[bo++] = (char)c;
+        } else if (c == '\n') {
+            body[bo++] = '\\'; body[bo++] = 'n';
+        } else if (c == '\r') {
+            body[bo++] = '\\'; body[bo++] = 'r';
+        } else if (c == '\t') {
+            body[bo++] = '\\'; body[bo++] = 't';
+        } else if (c < 0x20) {
+            int w = snprintf(body + bo, body_cap - bo, "\\u%04x", c);
+            if (w < 0 || (size_t)w >= body_cap - bo) break;
+            bo += (size_t)w;
+        } else {
+            body[bo++] = (char)c;
+        }
+    }
+    if (bo + 3 >= body_cap) goto trunc;
+    body[bo++] = '"';
+    body[bo++] = '}';
+    body[bo]   = '\0';
+    return resp_json(out, cap, 200, "OK", body);
+trunc:
+    return resp_json(out, cap, 500, "Internal Server Error",
+                     "{\"ok\":false,\"error\":\"log response truncated\"}");
+}
+
+/* --- /api/gain ----------------------------------------------------------
+ * Read /Storage/Gain key:value lines + the configured meter_v_scale. */
+static size_t handle_get_gain(struct web_server *ws, char *out, size_t cap)
+{
+    int vgain = 0, igain = 0, wgain = 0;
+    int got = 0;
+    FILE *f = fopen("/Storage/Gain", "rb");
+    if (f) {
+        char buf[256];
+        size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[n] = '\0';
+        const char *kv;
+        if ((kv = strstr(buf, "Vgain:")) != NULL) { vgain = atoi(kv + 6); got++; }
+        if ((kv = strstr(buf, "Igain:")) != NULL) { igain = atoi(kv + 6); got++; }
+        if ((kv = strstr(buf, "Wgain:")) != NULL) { wgain = atoi(kv + 6); got++; }
+    }
+    char body[256];
+    snprintf(body, sizeof(body),
+             "{\"ok\":%s,\"path\":\"/Storage/Gain\","
+             "\"Vgain\":%d,\"Igain\":%d,\"Wgain\":%d,"
+             "\"meter_v_scale\":%.3f}",
+             got == 3 ? "true" : "false",
+             vgain, igain, wgain,
+             ws->cfg ? ws->cfg->meter_v_scale : 60.0);
+    return resp_json(out, cap, 200, "OK", body);
+}
+
+/* --- /api/build ---------------------------------------------------------
+ * Build identifiers passed via -D at compile time. Defaults to "(unknown)"
+ * so the field is always populated even when not cross-compiled with the
+ * helper. */
+#ifndef DELTA_BRIDGE_BUILD_SHA
+#define DELTA_BRIDGE_BUILD_SHA   "(unknown)"
+#endif
+#ifndef DELTA_BRIDGE_BUILD_DATE
+#define DELTA_BRIDGE_BUILD_DATE  "(unknown)"
+#endif
+#ifndef DELTA_BRIDGE_VERSION
+#define DELTA_BRIDGE_VERSION     "dev"
+#endif
+
+static size_t handle_get_build(struct web_server *ws, char *out, size_t cap)
+{
+    (void)ws;
+    char body[256];
+    snprintf(body, sizeof(body),
+             "{\"ok\":true,\"version\":\"%s\",\"sha\":\"%s\","
+             "\"build_date\":\"%s\"}",
+             DELTA_BRIDGE_VERSION,
+             DELTA_BRIDGE_BUILD_SHA,
+             DELTA_BRIDGE_BUILD_DATE);
+    return resp_json(out, cap, 200, "OK", body);
+}
+
 size_t web_handle_request(struct web_server *ws, const char *req, size_t req_len,
                           char *out, size_t cap)
 {
@@ -827,6 +1054,12 @@ size_t web_handle_request(struct web_server *ws, const char *req, size_t req_len
             return handle_get_state(ws, out, cap);
         if (!strcmp(r.path, "/api/config"))
             return handle_get_config(ws, out, cap);
+        if (!strcmp(r.path, "/api/log"))
+            return handle_get_log(ws, &r, out, cap);
+        if (!strcmp(r.path, "/api/gain"))
+            return handle_get_gain(ws, out, cap);
+        if (!strcmp(r.path, "/api/build"))
+            return handle_get_build(ws, out, cap);
         return resp_text(out, cap, 404, "Not Found", "404 Not Found\n");
     }
     if (!strcmp(r.method, "POST")) {

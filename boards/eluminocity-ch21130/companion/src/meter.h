@@ -42,11 +42,17 @@ struct meter_readings {
 
 /* Per-unit calibration loaded from /Storage/Gain. Stock format is:
  *   Vgain:342\nIgain:557\nWgain:3199\n
- * Values are factory-set; bridge reads at boot, never re-writes. */
+ * Values are factory-set; bridge reads at boot, never re-writes.
+ *
+ * `v_scale` is the empirical divisor applied AFTER vrms_raw/Vgain to
+ * derive volts. Not stored in /Storage/Gain — comes from
+ * delta-bridge.conf's `meter_v_scale` (default 60.0). Lives in this
+ * struct because it's logically part of the meter calibration. */
 struct meter_cal {
     int vgain;
     int igain;
     int wgain;
+    double v_scale;
 };
 
 /* Run the meter personality forever (until SIGTERM/SIGINT sets *stop).
@@ -54,12 +60,13 @@ struct meter_cal {
  * then loops: poll-cycle every ~600 ms; publish each cycle's
  * readings to the shmem offsets stock writes.
  *
- * `port`: UART device path (default /dev/ttyAMA2)
- * `stop`: shared volatile flag; loop exits when set non-zero
+ * `port`:    UART device path (default /dev/ttyAMA2)
+ * `v_scale`: voltage-scale divisor from delta-bridge.conf (default 60.0)
+ * `stop`:    shared volatile flag; loop exits when set non-zero
  *
  * Returns 0 on clean shutdown, non-zero on unrecoverable error
  * (e.g. shmem attach failed). */
-int meter_personality_run(const char *port, volatile int *stop);
+int meter_personality_run(const char *port, double v_scale, volatile int *stop);
 
 /* --- Lower-level helpers, exposed for host tests ----------------- */
 
