@@ -2,7 +2,31 @@
 
 **Date:** 2026-05-16
 **Status:** SHIPPED + bench-validated where possible.
-- led personality: ✅ live; gpio55/56/57 read back at sysfs level match what `led_decide()` chose. **M11.1 follow-up (same day):** user-observed LED inversion on the physical bench → board is wired ACTIVE-LOW through a buffer. Fixed in `led_sysfs_byte_for()` (invert at the actuation boundary, not the semantics). docs/19 updated with the polarity correction + a TODO to re-examine the USER_STATE→`led_action` mapping against stock's behavior under live charge cycles. New host test `test_active_low_polarity` pins the byte translation.
+- led personality: ✅ live and matching stock byte-for-byte. The
+  trip getting here had three iterations (M11.1 → M11.2 → M11.3) all
+  on 2026-05-16, captured in docs/19 §"Polarity history":
+    - **M11.1** (PR #22): operator said "LEDs are inverted" → I
+      guessed active-low and inverted at `led_sysfs_byte_for()`. Wrong
+      — actually broke stock-equivalent behavior.
+    - **M11.2** (interim, never deployed cleanly): controlled
+      per-GPIO toggle proved hardware is **active-HIGH**. M11.1
+      invert reverted. Misdiagnosed the disassembly's `*_IOCtrl`
+      function names as "wrong color guesses" — they're real debug
+      symbols.
+    - **M11.3** (this PR): pulled stock LED_control binary from the
+      bench (not stripped, 13 KB) and read `.rodata` directly. Found
+      the actual GPIO bindings: `Green_IOCtrl`→gpio56 (MIDDLE),
+      `Red_IOCtrl`→gpio55 (BOTTOM), `Green2_IOCtrl`→gpio57 (TOP).
+      Swapped our `led_apply()` GPIO routing for green↔red. Re-decoded
+      main() end-to-end: discovered missing third state byte
+      `shmem[0x0a17]` (GREEN2_STATE) driving the TOP LED; corrected
+      the firmware-update gate to read only `shmem[0x0a71]` (not
+      `shmem[0x0a72]`, which is stock-self-managed); dropped the
+      bogus `PRI_STATE==5 → red flash` branch (stock no-op). New
+      `led_decide()` signature takes 4 inputs (USER_STATE, RED_LED,
+      GREEN2_STATE, fw_update). 33/33 led tests pass; verified on
+      bench by running both stock and our v12 against the same shmem
+      and confirming identical `gpio55/56/57 = 1 0 1` output.
 - meter kWh write: ✅ live; `shmem[0x05c0..]` = `"0.01\0"` (matches our snprintf("%.2f", energy_raw/Wgain/100.0) formula). Stock FlashLog (PID 774) is alive but its 60-sec tick is **gated** on `shmem[0x0a5f] == 1` (charging session active); bench is idle (`0x0a5f = 0x02`), so /root/Energy hasn't been re-written. End-to-end persistence verification deferred to a real-load session.
 
 Two small additions atop the M7/M8 personality framework:

@@ -29,44 +29,47 @@
  * Decision logic — pure function of shmem inputs.
  * ============================================================ */
 
+/* Map a stock 0/1/2 state byte to an led_action. Codes 3+ are stock-
+ * specific (Green2_State==3 invokes Green2_Wifi() which writes a custom
+ * blink pattern); for our purposes we treat anything >=3 as solid so a
+ * mistaken value doesn't go dark. */
+static enum led_action action_for_state(unsigned char s)
+{
+    switch (s) {
+    case 0:  return LED_OFF;
+    case 1:  return LED_SOLID;
+    case 2:  return LED_FLASH;
+    default: return LED_SOLID;
+    }
+}
+
 int led_decide(unsigned char user_state,
                unsigned char red_led,
-               unsigned char pri_state,
-               unsigned char ovr_0a71,
-               unsigned char ovr_0a72,
+               unsigned char green2_state,
+               unsigned char fw_update,
                enum led_action *green_out,
                enum led_action *red_out,
                enum led_action *green2_out)
 {
-    /* Override paths from stock (docs/19 §LED_control "main loop"):
-     *   shmem[0x0a72] || shmem[0x0a71]   → firmware-update path
-     *   shmem[0x0a07] == 5               → fault pattern */
-    if (ovr_0a71 != 0 || ovr_0a72 != 0) {
-        /* "firmware-update": both green LEDs solid, red off. */
+    /* Firmware-update override. Stock (docs/19 §LED_control "firmware
+     * path") runs a 5-sec debounce + sleep pattern on shmem[0x0a71]
+     * and uses shmem[0x0a72] as a self-managed internal flag. We
+     * replicate only the visual: TOP green2 + MIDDLE green solid,
+     * BOTTOM red off — which is what stock's `Green2_IOCtrl(1)` +
+     * `Green_IOCtrl(1)` calls produce inside the path. */
+    if (fw_update != 0) {
         *green_out  = LED_SOLID;
         *red_out    = LED_OFF;
         *green2_out = LED_SOLID;
         return 1;
     }
-    if (pri_state == 5) {
-        /* "fault": red flashing, green off. */
-        *green_out  = LED_OFF;
-        *red_out    = LED_FLASH;
-        *green2_out = LED_OFF;
-        return 1;
-    }
-    /* Normal mapping. Stock encoding (docs/14 + decode_sharemem.py):
-     *   USER_STATE: 0=idle (green off), 1=auth/ready (green solid),
-     *               2=charging (green flash)
-     *   RED_LED:    0=off, 1=solid (alarm), 2=flash (alarm w/ attention) */
-    *green_out  = (user_state == 2) ? LED_FLASH :
-                  (user_state == 1) ? LED_SOLID : LED_OFF;
-    *red_out    = (red_led == 2) ? LED_FLASH :
-                  (red_led == 1) ? LED_SOLID : LED_OFF;
-    /* Green2 — we don't replicate stock's Wi-Fi indicator yet (docs/19
-     * §"What we DON'T know" §Green2_Wifi). Hold steady-off; can wire
-     * to a delta-bridge state (MQTT-connected, etc.) later. */
-    *green2_out = LED_OFF;
+    /* Normal mapping — each shmem state byte drives one LED:
+     *   shmem[0x0a00] USER_STATE   → green_out  → MIDDLE green
+     *   shmem[0x0a01] RED_LED      → red_out    → BOTTOM red
+     *   shmem[0x0a17] GREEN2_STATE → green2_out → TOP green2 */
+    *green_out  = action_for_state(user_state);
+    *red_out    = action_for_state(red_led);
+    *green2_out = action_for_state(green2_state);
     return 0;
 }
 
@@ -92,17 +95,20 @@ static void gpio_setup_one(int gpio_num, const char *dir)
     (void)!system(buf);     /* return value ignored intentionally */
 }
 
-/* LEDs on this PCB are wired ACTIVE-LOW through a buffer: writing 0 to
- * /sys/class/gpio/gpioNN/value drives the LED ON, writing 1 drives it
- * OFF. Bench-confirmed 2026-05-16. The stock LED_control RE in docs/19
- * shows literal `echo '1'` / `echo '0'` byte writes; the disassembly
- * captioning of "1=on, 0=off" was inferred semantics — the inversion
- * happens in hardware. We expose a logical "on/off" API and invert at
- * the actuation boundary; the sysfs-byte translation is its own pure
- * helper so tests can pin the polarity. */
+/* LED polarity — ACTIVE-HIGH on this PCB.
+ *
+ * Bench experiment 2026-05-16 (controlled per-GPIO toggle with the led
+ * personality stopped, user reporting which physical LED lit): writing
+ * '1' to /sys/class/gpio/gpioNN/value drives the corresponding LED ON,
+ * '0' drives it OFF. All three are wired the same way. This matches
+ * stock's bytes — stock's `Green_IOCtrl(1)` writes byte 1 which lights
+ * its LED. M11.1's "active-low fix" was based on a misread of the
+ * symptom (see docs/19 §"polarity history") and is reverted here.
+ *
+ * The pure helper is kept so the polarity stays test-pinned. */
 int led_sysfs_byte_for(int logical_on)
 {
-    return logical_on ? 0 : 1;
+    return logical_on ? 1 : 0;
 }
 
 static void gpio_write(int gpio_num, int logical_on)
@@ -226,19 +232,24 @@ int led_personality_run(volatile int *stop)
     gpio_write(57, 0);
 
     while (!(*stop)) {
-        unsigned char user_state = shmem_u8(&sm, 0x0a00);
-        unsigned char red_led    = shmem_u8(&sm, 0x0a01);
-        unsigned char pri_state  = shmem_u8(&sm, 0x0a07);
-        unsigned char ovr_71     = shmem_u8(&sm, 0x0a71);
-        unsigned char ovr_72     = shmem_u8(&sm, 0x0a72);
+        unsigned char user_state   = shmem_u8(&sm, 0x0a00);
+        unsigned char red_led      = shmem_u8(&sm, 0x0a01);
+        unsigned char green2_state = shmem_u8(&sm, 0x0a17);
+        /* Only sm[0x0a71] is the producer-driven "firmware update"
+         * flag; sm[0x0a72] is stock's self-managed debounce flag and
+         * shouldn't be read by us. */
+        unsigned char fw_update    = shmem_u8(&sm, 0x0a71);
 
         enum led_action a_g, a_r, a_g2;
-        led_decide(user_state, red_led, pri_state, ovr_71, ovr_72,
+        led_decide(user_state, red_led, green2_state, fw_update,
                    &a_g, &a_r, &a_g2);
 
         long now = monotonic_ms();
-        led_apply(55, &st_g,  a_g,  now);
-        led_apply(56, &st_r,  a_r,  now);
+        /* GPIO mapping (verified against stock disassembly + bench
+         * per-GPIO toggle): green→gpio56 (middle), red→gpio55
+         * (bottom), green2→gpio57 (top). */
+        led_apply(56, &st_g,  a_g,  now);
+        led_apply(55, &st_r,  a_r,  now);
         led_apply(57, &st_g2, a_g2, now);
 
         sleep_ms_stop(POLL_MS, stop);

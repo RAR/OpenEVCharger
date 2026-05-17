@@ -34,91 +34,156 @@ void Green_IOCtrl(uint8_t on) {
 }
 ```
 
-GPIO mapping (from per-function disassembly):
+GPIO mapping. **Re-verified 2026-05-16** from `objdump -s -j .rodata`
+on stock `/Storage/stk/LED_control` (the binary ships with debug
+symbols, so `Green_IOCtrl`/`Red_IOCtrl`/`Green2_IOCtrl` are real
+symbol names — not guesses):
 
-| Function          | GPIO | Color/role               |
-|-------------------|------|--------------------------|
-| `Green_IOCtrl`    | 55   | Green LED (main)         |
-| `Red_IOCtrl`      | 56   | Red LED                  |
-| `Green2_IOCtrl`   | 57   | Green LED #2 (Wi-Fi/sec) |
-| `Powerdtect`      | 82   | INPUT — read state, used as USB/aux-power detect |
+| GPIO | Stock function    | Physical LED          | Polarity     |
+|------|-------------------|-----------------------|--------------|
+| 55   | `Red_IOCtrl`      | **BOTTOM** red (fault) | active-HIGH |
+| 56   | `Green_IOCtrl`    | **MIDDLE** green (charge) | active-HIGH |
+| 57   | `Green2_IOCtrl`   | **TOP** green2 (power/Wi-Fi) | active-HIGH |
+| 82   | `Powerdtect`      | INPUT (USB/aux-power detect) | input |
 
-`*_Flash` variants toggle the corresponding output once per second (1 sec on / 1 sec off = **0.5 Hz**, 50% duty), gated by a per-LED `last_toggle_time` timer + `current_state` cache (so multiple calls in the same second don't re-fire system()).
+The function names match the physical colors. This project's earlier
+docs claimed Green_IOCtrl was on gpio55 and Red_IOCtrl on gpio56 —
+that was a misread of the pc-relative loads in disassembly. The
+format-string base addresses in `.rodata` make it unambiguous:
 
-#### Polarity — ACTIVE-LOW (bench-confirmed 2026-05-16)
+```
+9294: "echo %c > /sys/class/gpio/gpio56/value"  ← Green_IOCtrl
+92bc: "echo %c > /sys/class/gpio/gpio55/value"  ← Red_IOCtrl
+92e4: "echo %c > /sys/class/gpio/gpio57/value"  ← Green2_IOCtrl
+```
 
-The disassembly above shows literal `on ? '1' : '0'` byte writes. The
-"1 = on" caption is **inferred** semantics from the parameter name; the
-actual hardware path is **active-low** through a buffer between the SoC
-GPIO and the LED. So `Green_IOCtrl(1)` ends up writing `echo 1`, which
-drives the GPIO high, which **turns the LED OFF** physically.
+A bench experiment (controlled per-GPIO toggle, operator reporting
+which LED lit) confirmed both the gpio→position mapping above and
+that all three outputs are active-HIGH.
 
-What this means for the state-machine reading on this page: the
-USER_STATE / RED_LED tables in docs/14 (and in the `case 0/1/2` block
-below) are correct as **internal stock encodings**, but the rendered
-LED behavior is the inverse of what the comments suggest. Stock's
-`case 0: Green_IOCtrl(0)` writes `0` → GPIO low → LED **on**. So:
+`*_Flash` variants toggle the corresponding output once per second
+(1 sec on / 1 sec off = **0.5 Hz**, 50% duty), gated by a per-LED
+`last_toggle_time` timer + `current_state` cache (so multiple calls in
+the same second don't re-fire system()).
 
-| Stock encoding (USER_STATE) | Stock writes  | Physical LED |
-|-----------------------------|---------------|--------------|
-| 0                           | `Green_IOCtrl(0)` → echo 0 | **green ON**  |
-| 1                           | `Green_IOCtrl(1)` → echo 1 | **green OFF** |
-| 2                           | `Green_Flash()`            | toggling     |
+#### Polarity history (M11 → M11.1 → M11.2)
 
-That matches a sensible product behavior (USER_STATE=0 = idle/ready =
-green lit). Our M11 led personality treated `LED_OFF/SOLID/FLASH` as
-logical states and then wrote literal `1`/`0` bytes, which gave the
-inverse on real hardware. Fixed in M11.1 by inverting at
-`led_sysfs_byte_for()` (`logical_on ? 0 : 1`) — see `src/led.c` and
-`test/test_led.c::test_active_low_polarity`.
+This subsection is preserved so future debugging recognises the
+failure mode if it recurs.
 
-The USER_STATE → `led_action` mapping in `led_decide()` is **also**
-affected: with the hardware-inversion fix in place we still need to
-re-examine whether `USER_STATE=0 → LED_OFF` is the right semantic, or
-whether stock's behavior implies it should be `USER_STATE=0 → LED_SOLID`.
-That's a separate decode pass (requires stock running through a real
-plug/auth/charge cycle while we log shmem); for now the active-low fix
-gets us to "what we command matches what we light", which was the
-M11.1 bug report.
+1. **M11** (initial led personality): `gpio_write` wrote `value ? 1 : 0`,
+   matching stock's literal bytes. Behavior on bench matched stock.
+
+2. **M11.1** (PR #22): operator reported "LEDs are inverted" sitting at
+   the bench. Best-guess hypothesis was active-low hardware through a
+   buffer. Inverted at the actuation boundary
+   (`led_sysfs_byte_for(logical_on) = logical_on ? 0 : 1`). This
+   actually broke things — stock-equivalent state stopped matching.
+
+3. **M11.2** (interim, never deployed cleanly): drove each GPIO in
+   isolation while operator reported what lit. Confirmed
+   **active-HIGH** and confirmed gpio55→bottom, gpio56→middle,
+   gpio57→top. Concluded the disassembly function names were "wrong" —
+   which turned out to be wrong itself; the names were right, the
+   docs were misreading the rodata layout.
+
+4. **M11.3** (this commit): pulled stock LED_control from the bench
+   (it's 13 KB, not stripped — debug symbols present), inspected
+   `.rodata` directly: `Green_IOCtrl`'s format string is
+   `.../gpio56/value`, `Red_IOCtrl`'s is `.../gpio55/value`,
+   `Green2_IOCtrl`'s is `.../gpio57/value`. The function names match
+   the physical colors after all; M11.2's "real binding" table is
+   superseded by the corrected mapping at the top of this page.
+   Re-decoded `main()` end-to-end while we were in there: the GREEN2
+   LED has its own state byte at `shmem[0x0a17]` which our earlier
+   docs missed, the `firmware_update_path` is more subtle than we
+   described, and the `PRI_STATE == 5` branch is a GPIO no-op.
+
+The led personality (`src/led.{c,h}`) now matches stock's GPIO
+writes byte-for-byte under the same shmem state — verified by running
+both stock and our v12 binary against the bench's current state
+(USER=0, RED=1, GREEN2=1) and confirming identical `gpio55/56/57`
+output: `1 0 1` (BOTTOM red on, MIDDLE green off, TOP green2 on).
 
 ### State machine (the main loop)
 
-### State machine (the main loop)
-
-Decoded from `main()` at 0x8b74:
+Decoded from `main()` at 0x8b74 (full re-decode 2026-05-16; earlier
+docs got the Green2 trigger wrong):
 
 ```c
 loop:
-    ftime() update timers
-    if shmem[0x0a72] || shmem[0x0a71]:    # override flags set
+    if shmem[0x0a72] != 0 || shmem[0x0a71] != 0:
         goto firmware_update_path
-    if shmem[0x0a07] == 5:                # PRI_STATE = fault
-        goto fault_pattern
-    
-    switch (shmem[0x0a00]):               # USER_STATE
-        case 0: Green_IOCtrl(0)           # off
-        case 1: Green_IOCtrl(1)           # solid
-        case 2: Green_Flash()             # blinking
-    
-    switch (shmem[0x0a01]):               # RED_LED
-        case 0: Red_IOCtrl(0)
-        case 1: Red_IOCtrl(1)
-        case 2: Red_Flash()
-    
-    every 5 sec:
-        if shmem[0x0a71] in (0, 0xff):    # "firmware update mode" 
-            Green2_IOCtrl(1) + Green_IOCtrl(1)
-            sleep 2
-            wait for shmem[0x0a71] != 0
-        else:
-            USB_Flash()
-    loop_back
+    if shmem[0x0a07] == 5:               # PRI_STATE == 5 (fault)
+        # reset internal "is currently solid/off" trackers; no LED writes
+        goto loop_tail
+
+    switch (shmem[0x0a00]):              # USER_STATE
+        case 0: Green_IOCtrl(0)          # MIDDLE green OFF
+        case 1: Green_IOCtrl(1)          # MIDDLE green SOLID
+        case 2: Green_Flash()            # MIDDLE green blinks
+
+    switch (shmem[0x0a01]):              # RED_LED
+        case 0: Red_IOCtrl(0)            # BOTTOM red OFF
+        case 1: Red_IOCtrl(1)            # BOTTOM red SOLID
+        case 2: Red_Flash()              # BOTTOM red blinks
+
+    switch (shmem[0x0a17]):              # GREEN2_STATE
+        case 0: Green2_IOCtrl(0)         # TOP green2 OFF
+        case 1: Green2_IOCtrl(1)         # TOP green2 SOLID
+        case 2: Green2_Flash()           # TOP green2 blinks
+        case 3: Green2_Wifi()            # custom Wi-Fi pattern
+
+  loop_tail:
+    USB_Flash()
+    goto loop
+
+firmware_update_path:
+    # Reset all six internal trackers
+    if shmem[0x0a72] == 0:
+        shmem[0x0a72] = 1                # SELF-managed debounce flag
+        Red_IOCtrl(0)                    # turn BOTTOM red OFF
+        ftime(&t_start)
+    ftime(&t_now)
+    if DiffTimeb(t_now, t_start) <= 5000:    # 5 sec debounce
+        USB_Flash(); goto loop_back
+    if shmem[0x0a71] not in (0, 0xff):       # not a fw-update marker we recognise
+        USB_Flash(); goto loop_back
+    shmem[0x0a72] = 0
+    Green2_IOCtrl(1)                     # TOP green2 SOLID
+    Green_IOCtrl(1)                      # MIDDLE green SOLID
+    sleep(2)
+    if shmem[0x0a71] == 0:
+        Green_IOCtrl(0)
+    elif shmem[0x0a71] == 0xff:
+        while shmem[0x0a71] != 0: sleep(1)
+        Green_IOCtrl(0)
+    goto loop_back
 ```
 
-**Override paths (the `goto`s above):** firmware-update or fault state.
-When firmware update is in progress, both green LEDs go solid and the
-state machine is paused. Fault paths use a similar approach (alternate
-blink pattern).
+**Key corrections vs. earlier docs:**
+
+1. There is a third state-machine input `shmem[0x0a17]` (GREEN2_STATE)
+   that drives the TOP green2 LED with the same 0/1/2 codes as
+   USER_STATE and RED_LED (plus a code 3 → `Green2_Wifi()` pattern).
+   The "every 5 sec firmware update" block in our earlier write-up was
+   actually the `firmware_update_path` proper — there is no separate
+   5-sec block in the normal loop.
+
+2. The `firmware_update_path` is entered when `shmem[0x0a71]` (real
+   producer flag) **or** `shmem[0x0a72]` (a flag stock writes to itself
+   to debounce the path) is non-zero. **Our replacement should read
+   `shmem[0x0a71]` only** — `shmem[0x0a72]` is stock-internal state.
+
+3. The `PRI_STATE == 5` ("fault") branch is a no-op for the GPIOs —
+   stock only resets its internal `is currently on/off` trackers and
+   lets the next loop iteration re-issue normal state. Our earlier
+   "red flash on fault" was wrong.
+
+4. Per-LED state-change tracking: stock keeps a u16 "is currently in
+   this action" flag per (LED × action) and only re-issues
+   `Green_IOCtrl`/`Red_IOCtrl`/`Green2_IOCtrl` on transitions. Mirrored
+   in our `led_apply()`.
 
 ### What we DON'T know
 
