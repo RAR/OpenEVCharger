@@ -12,7 +12,12 @@ void config_defaults(struct config *c)
     snprintf(c->topic_prefix, sizeof(c->topic_prefix), "delta-bridge");
     c->poll_hz = 1;
     snprintf(c->log_level, sizeof(c->log_level), "info");
-    snprintf(c->log_path,  sizeof(c->log_path),  "/Storage/delta-bridge.log");
+    /* Matches the /root/RFID wrapper's `>> .../bridge-boot.log 2>&1`
+     * redirect — that's where stderr actually lands on the bench, so
+     * /api/log reads it by default. Override in delta-bridge.conf if
+     * your deployment redirects elsewhere. */
+    snprintf(c->log_path,  sizeof(c->log_path),
+             "/Storage/delta-bridge/bridge-boot.log");
     c->write_enable = 0;        /* v0.3: opt-in; default preserves v0.2 RO. */
     c->web_enable   = 0;        /* v0.4: opt-in; off by default. */
     c->web_port     = 8080;
