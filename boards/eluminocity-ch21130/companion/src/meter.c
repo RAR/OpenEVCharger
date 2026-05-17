@@ -315,6 +315,51 @@ static void publish_kwh_ascii(struct shmem *sm,
     shmem_write_u8(sm, 0x05c0 + (unsigned)n, 0);
 }
 
+/* Empirical voltage-scale factor (bench-fit 2026-05-16 against 120 V
+ * US mains on a Vgain=342 unit: vrms_raw/Vgain = 7141, /60 = 119.0 V).
+ * Constant appears to be cal-independent on this hardware family — same
+ * value should hold for any Vgain that's correctly per-unit calibrated
+ * (different mains voltage just yields a different vrms_raw → same /60
+ * lands on the right V). If a future unit disagrees, lift this into the
+ * cal file as a 4th field. */
+#define METER_V_SCALE   60.0
+
+/* Compute + write cooked V/I/P/E integers for the web at 0x0500..0x050f.
+ * See `OFF_BRIDGE_*` in shmem_offsets.h for unit definitions. */
+static void publish_cooked_for_web(struct shmem *sm,
+                                   const struct meter_readings *r,
+                                   const struct meter_cal *cal)
+{
+    double vgain = cal->vgain > 0 ? (double)cal->vgain : 1.0;
+    double wgain = cal->wgain > 0 ? (double)cal->wgain : 1.0;
+
+    double voltage_v = ((double)r->vrms_raw  / vgain) / METER_V_SCALE;
+    double power_w   =  (double)r->power_raw / wgain;
+    /* Resistive-load valid (EV charging is essentially resistive). The
+     * chip's irms reading has a fixed bias we haven't characterized and
+     * Igain alone doesn't zero it; deriving I from P/V dodges that and
+     * gives the right answer under any real load. */
+    double current_a = (voltage_v > 1.0) ? (power_w / voltage_v) : 0.0;
+    /* Watt-hours = kWh × 1000. energy_raw/Wgain is in chip-units that
+     * stock's /100 → kWh; ×10 gives Wh. */
+    double energy_wh = ((double)r->energy_raw / wgain) * 10.0;
+
+    /* Clamp to u32 range so silly raws can't wrap. */
+    uint32_t v_cv = (voltage_v > 0 && voltage_v < 42949672.0)
+                      ? (uint32_t)(voltage_v * 100.0 + 0.5) : 0;
+    uint32_t i_ma = (current_a > 0 && current_a < 4294967.0)
+                      ? (uint32_t)(current_a * 1000.0 + 0.5) : 0;
+    uint32_t p_w  = (power_w > 0 && power_w < 4.29e9)
+                      ? (uint32_t)(power_w + 0.5) : 0;
+    uint32_t e_wh = (energy_wh > 0 && energy_wh < 4.29e9)
+                      ? (uint32_t)(energy_wh + 0.5) : 0;
+
+    shmem_write_u32_le(sm, 0x0500, v_cv);
+    shmem_write_u32_le(sm, 0x0504, i_ma);
+    shmem_write_u32_le(sm, 0x0508, p_w);
+    shmem_write_u32_le(sm, 0x050c, e_wh);
+}
+
 void meter_publish_shmem(struct shmem *sm, const struct meter_readings *r,
                          const struct meter_cal *cal)
 {
@@ -323,6 +368,7 @@ void meter_publish_shmem(struct shmem *sm, const struct meter_readings *r,
     publish_compact(sm, r, cal);
     publish_telemetry_block(sm, r);
     publish_kwh_ascii(sm, r, cal);
+    publish_cooked_for_web(sm, r, cal);
 }
 
 /* ============================================================

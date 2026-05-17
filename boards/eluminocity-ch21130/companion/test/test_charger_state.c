@@ -49,11 +49,13 @@ int main(void)
     CHECK_EQ(cs.fault_bits, 0u);
 
     /* ---------------- case 2: "normal charging" snapshot -----------------
-     * Pilot=C, sensible V/I/P, link healthy, no alarms. */
+     * Pilot=C, sensible V/I/P, link healthy, no alarms. Bridge-cooked
+     * values are integer fixed-point: V in centi-volts, I in milli-
+     * amps, P in watts. */
     memset(raw, 0, sizeof(raw));
-    fill_le16(raw, OFF_VRMS_MEAS, 23000);   /* 230.0 V  (raw/100) */
-    fill_le16(raw, OFF_IRMS_MEAS,   160);   /*  16.0 A  (raw/10)  */
-    fill_le32(raw, OFF_POWER_MEAS, 3680);   /* 3680  W  (raw/1)   */
+    fill_le32(raw, OFF_BRIDGE_VOLTAGE_CV, 23000); /* 230.00 V */
+    fill_le32(raw, OFF_BRIDGE_CURRENT_MA, 16000); /*  16.000 A */
+    fill_le32(raw, OFF_BRIDGE_POWER_W,    3680);  /* 3680 W */
     raw[OFF_PILOT_STATE] = 0;               /* A */
     raw[OFF_PRI_STATE]   = 3;
     raw[OFF_USER_STATE]  = 2;
@@ -103,31 +105,35 @@ int main(void)
     CHECK_EQ(cs.pilot_state, PILOT_UNKNOWN);
 
     /* ---------------- explicit little-endian byte order check ------------
-     * Hard-codes the byte pattern at OFF_VRMS_MEAS to catch any future
-     * accidental swap to big-endian. */
+     * Hard-codes the byte pattern at OFF_BRIDGE_VOLTAGE_CV (u32 LE,
+     * centi-volts) to catch any future accidental swap to big-endian. */
     memset(raw, 0, sizeof(raw));
-    raw[OFF_VRMS_MEAS]     = 0x32;
-    raw[OFF_VRMS_MEAS + 1] = 0x00;
+    raw[OFF_BRIDGE_VOLTAGE_CV    ] = 0x32;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 1] = 0x00;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 2] = 0x00;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 3] = 0x00;
     struct shmem sm5 = { .base = raw, .size = sizeof(raw), .shmid = -1 };
     charger_state_init(&cs);
     charger_state_read(&cs, &sm5);
     CHECK(APPROX(cs.voltage_v, 0.5f, 0.001f));         /* 0x0032 = 50, /100 */
 
-    raw[OFF_VRMS_MEAS]     = 0xff;
-    raw[OFF_VRMS_MEAS + 1] = 0x00;
+    raw[OFF_BRIDGE_VOLTAGE_CV    ] = 0xff;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 1] = 0x00;
     charger_state_read(&cs, &sm5);
     CHECK(APPROX(cs.voltage_v, 2.55f, 0.001f));        /* 0x00ff = 255, /100 */
 
-    raw[OFF_VRMS_MEAS]     = 0x00;
-    raw[OFF_VRMS_MEAS + 1] = 0x01;
+    raw[OFF_BRIDGE_VOLTAGE_CV    ] = 0x00;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 1] = 0x01;
     charger_state_read(&cs, &sm5);
     CHECK(APPROX(cs.voltage_v, 2.56f, 0.001f));        /* 0x0100 = 256, /100 */
 
-    /* Bench-empirical sanity: the value we actually saw on the unit. */
-    raw[OFF_VRMS_MEAS]     = 0x29;
-    raw[OFF_VRMS_MEAS + 1] = 0x31;
+    /* Bench-empirical sanity: live cooked value matching ~120 V mains. */
+    raw[OFF_BRIDGE_VOLTAGE_CV    ] = 0xc8;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 1] = 0x2e;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 2] = 0x00;
+    raw[OFF_BRIDGE_VOLTAGE_CV + 3] = 0x00;
     charger_state_read(&cs, &sm5);
-    CHECK(APPROX(cs.voltage_v, 125.85f, 0.001f));      /* 0x3129 = 12585, /100 */
+    CHECK(APPROX(cs.voltage_v, 119.76f, 0.01f));       /* 0x2ec8 = 11976, /100 */
 
     /* ---------------- pilot_state_str ----------------------------------- */
     CHECK_STR(pilot_state_str(PILOT_A),         "A");
