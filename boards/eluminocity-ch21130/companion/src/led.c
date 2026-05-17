@@ -92,12 +92,25 @@ static void gpio_setup_one(int gpio_num, const char *dir)
     (void)!system(buf);     /* return value ignored intentionally */
 }
 
-static void gpio_write(int gpio_num, int value)
+/* LEDs on this PCB are wired ACTIVE-LOW through a buffer: writing 0 to
+ * /sys/class/gpio/gpioNN/value drives the LED ON, writing 1 drives it
+ * OFF. Bench-confirmed 2026-05-16. The stock LED_control RE in docs/19
+ * shows literal `echo '1'` / `echo '0'` byte writes; the disassembly
+ * captioning of "1=on, 0=off" was inferred semantics — the inversion
+ * happens in hardware. We expose a logical "on/off" API and invert at
+ * the actuation boundary; the sysfs-byte translation is its own pure
+ * helper so tests can pin the polarity. */
+int led_sysfs_byte_for(int logical_on)
+{
+    return logical_on ? 0 : 1;
+}
+
+static void gpio_write(int gpio_num, int logical_on)
 {
     char buf[128];
     snprintf(buf, sizeof buf,
              "echo %d > /sys/class/gpio/gpio%d/value 2>/dev/null",
-             value ? 1 : 0, gpio_num);
+             led_sysfs_byte_for(logical_on), gpio_num);
     (void)!system(buf);     /* return value ignored intentionally */
 }
 

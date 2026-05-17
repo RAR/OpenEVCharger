@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-16
 **Status:** SHIPPED + bench-validated where possible.
-- led personality: ✅ live; gpio55/56/57 read back correctly given current shmem state (Green=off, Red=solid, Green2=off matches USER_STATE=0, RED_LED=1)
+- led personality: ✅ live; gpio55/56/57 read back at sysfs level match what `led_decide()` chose. **M11.1 follow-up (same day):** user-observed LED inversion on the physical bench → board is wired ACTIVE-LOW through a buffer. Fixed in `led_sysfs_byte_for()` (invert at the actuation boundary, not the semantics). docs/19 updated with the polarity correction + a TODO to re-examine the USER_STATE→`led_action` mapping against stock's behavior under live charge cycles. New host test `test_active_low_polarity` pins the byte translation.
 - meter kWh write: ✅ live; `shmem[0x05c0..]` = `"0.01\0"` (matches our snprintf("%.2f", energy_raw/Wgain/100.0) formula). Stock FlashLog (PID 774) is alive but its 60-sec tick is **gated** on `shmem[0x0a5f] == 1` (charging session active); bench is idle (`0x0a5f = 0x02`), so /root/Energy hasn't been re-written. End-to-end persistence verification deferred to a real-load session.
 
 Two small additions atop the M7/M8 personality framework:

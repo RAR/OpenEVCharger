@@ -45,6 +45,44 @@ GPIO mapping (from per-function disassembly):
 
 `*_Flash` variants toggle the corresponding output once per second (1 sec on / 1 sec off = **0.5 Hz**, 50% duty), gated by a per-LED `last_toggle_time` timer + `current_state` cache (so multiple calls in the same second don't re-fire system()).
 
+#### Polarity — ACTIVE-LOW (bench-confirmed 2026-05-16)
+
+The disassembly above shows literal `on ? '1' : '0'` byte writes. The
+"1 = on" caption is **inferred** semantics from the parameter name; the
+actual hardware path is **active-low** through a buffer between the SoC
+GPIO and the LED. So `Green_IOCtrl(1)` ends up writing `echo 1`, which
+drives the GPIO high, which **turns the LED OFF** physically.
+
+What this means for the state-machine reading on this page: the
+USER_STATE / RED_LED tables in docs/14 (and in the `case 0/1/2` block
+below) are correct as **internal stock encodings**, but the rendered
+LED behavior is the inverse of what the comments suggest. Stock's
+`case 0: Green_IOCtrl(0)` writes `0` → GPIO low → LED **on**. So:
+
+| Stock encoding (USER_STATE) | Stock writes  | Physical LED |
+|-----------------------------|---------------|--------------|
+| 0                           | `Green_IOCtrl(0)` → echo 0 | **green ON**  |
+| 1                           | `Green_IOCtrl(1)` → echo 1 | **green OFF** |
+| 2                           | `Green_Flash()`            | toggling     |
+
+That matches a sensible product behavior (USER_STATE=0 = idle/ready =
+green lit). Our M11 led personality treated `LED_OFF/SOLID/FLASH` as
+logical states and then wrote literal `1`/`0` bytes, which gave the
+inverse on real hardware. Fixed in M11.1 by inverting at
+`led_sysfs_byte_for()` (`logical_on ? 0 : 1`) — see `src/led.c` and
+`test/test_led.c::test_active_low_polarity`.
+
+The USER_STATE → `led_action` mapping in `led_decide()` is **also**
+affected: with the hardware-inversion fix in place we still need to
+re-examine whether `USER_STATE=0 → LED_OFF` is the right semantic, or
+whether stock's behavior implies it should be `USER_STATE=0 → LED_SOLID`.
+That's a separate decode pass (requires stock running through a real
+plug/auth/charge cycle while we log shmem); for now the active-low fix
+gets us to "what we command matches what we light", which was the
+M11.1 bug report.
+
+### State machine (the main loop)
+
 ### State machine (the main loop)
 
 Decoded from `main()` at 0x8b74:

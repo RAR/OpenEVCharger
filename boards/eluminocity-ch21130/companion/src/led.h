@@ -56,4 +56,11 @@ int led_decide(unsigned char user_state,
                enum led_action *red_out,
                enum led_action *green2_out);
 
+/* Translate a logical LED state ("on"/"off") to the sysfs byte we write
+ * to /sys/class/gpio/gpioNN/value. LEDs on this board are wired
+ * ACTIVE-LOW through a buffer (bench-confirmed 2026-05-16, see
+ * docs/19 §"polarity"): logical_on=1 → byte 0, logical_on=0 → byte 1.
+ * Exposed for host tests; production gpio_write() goes through this. */
+int led_sysfs_byte_for(int logical_on);
+
 #endif /* LED_H */
