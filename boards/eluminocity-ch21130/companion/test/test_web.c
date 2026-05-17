@@ -130,10 +130,10 @@ static void test_parser_basic(void)
     struct web_server ws;
     mk_ws_noauth(&ws, &cfg, &sm);
 
-    /* GET / returns the full SPA (~11 KB). Give the response buffer 16 KB
-     * so the test mirrors the server's actual RESP_CAP. */
+    /* GET / returns the full SPA (~17 KB after the multi-page rewrite).
+     * Give the response buffer 24 KB to mirror the server's RESP_CAP. */
     char req[1024];
-    static char resp[16 * 1024];
+    static char resp[24 * 1024];
     size_t rn = mkreq(req, sizeof(req), "GET", "/", NULL, NULL);
     size_t wn = web_handle_request(&ws, req, rn, resp, sizeof(resp));
     CHECK(wn > 0);
@@ -681,6 +681,103 @@ static void test_control_clear_faults(void)
     (void)wn;
 }
 
+static void test_config_new_fields_roundtrip(void)
+{
+    const char *path = "/tmp/delta-bridge-test-cfg-new.conf";
+    unlink(path);
+
+    struct config cfg;
+    struct shmem sm; make_shm(&sm);
+    struct web_server ws;
+    mk_ws_noauth(&ws, &cfg, &sm);
+    ws.conf_path = path;
+    /* Defaults reflect config_defaults; verify the new ones surface in GET. */
+    char req[1024], resp[8192];
+    size_t rn = mkreq(req, sizeof(req), "GET", "/api/config", NULL, NULL);
+    web_handle_request(&ws, req, rn, resp, sizeof(resp));
+    const char *body = body_of(resp);
+    CHECK(strstr(body, "\"log_level\":\"info\"")      != NULL);
+    CHECK(strstr(body, "\"log_path\":\"/Storage/")    != NULL);
+    CHECK(strstr(body, "\"rfid_enable\":false")        != NULL);
+    CHECK(strstr(body, "\"rfid_port\":\"/dev/ttyAMA4\"") != NULL);
+    CHECK(strstr(body, "\"meter_v_scale\":60.000")     != NULL);
+
+    /* POST overrides + persists. */
+    rn = mkreq(req, sizeof(req),
+               "POST", "/api/config",
+               "Content-Type: application/x-www-form-urlencoded\r\n",
+               "log_level=debug&log_path=/tmp/dbg.log"
+               "&rfid_enable=true&rfid_port=/dev/ttyAMA5"
+               "&meter_v_scale=30.5");
+    web_handle_request(&ws, req, rn, resp, sizeof(resp));
+    CHECK_EQ(status_of(resp), 200);
+    CHECK_STR(cfg.log_level, "debug");
+    CHECK_STR(cfg.log_path, "/tmp/dbg.log");
+    CHECK_EQ(cfg.rfid_enable, 1);
+    CHECK_STR(cfg.rfid_port, "/dev/ttyAMA5");
+    CHECK(cfg.meter_v_scale > 30.4 && cfg.meter_v_scale < 30.6);
+
+    /* meter_v_scale rejects out-of-range. */
+    rn = mkreq(req, sizeof(req),
+               "POST", "/api/config",
+               "Content-Type: application/x-www-form-urlencoded\r\n",
+               "meter_v_scale=0");
+    web_handle_request(&ws, req, rn, resp, sizeof(resp));
+    CHECK_EQ(status_of(resp), 400);
+    /* Existing value untouched after rejected POST. */
+    CHECK(cfg.meter_v_scale > 30.4 && cfg.meter_v_scale < 30.6);
+
+    /* File on disk contains the new keys (proves write_config_file path). */
+    FILE *f = fopen(path, "r");
+    CHECK(f != NULL);
+    if (f) {
+        char buf[2048] = {0};
+        (void)!fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        CHECK(strstr(buf, "log_level    = debug")    != NULL);
+        CHECK(strstr(buf, "log_path     = /tmp/dbg.log") != NULL);
+        CHECK(strstr(buf, "rfid_enable  = true")     != NULL);
+        CHECK(strstr(buf, "rfid_port    = /dev/ttyAMA5") != NULL);
+        CHECK(strstr(buf, "meter_v_scale = 30.500")  != NULL);
+    }
+    unlink(path);
+}
+
+static void test_gain_endpoint(void)
+{
+    struct config cfg;
+    struct shmem sm; make_shm(&sm);
+    struct web_server ws;
+    mk_ws_noauth(&ws, &cfg, &sm);
+    /* No /Storage/Gain on the host running tests — endpoint must still
+     * respond with ok=false (file missing) and surface meter_v_scale. */
+    char req[256], resp[4096];
+    size_t rn = mkreq(req, sizeof(req), "GET", "/api/gain", NULL, NULL);
+    web_handle_request(&ws, req, rn, resp, sizeof(resp));
+    CHECK_EQ(status_of(resp), 200);
+    const char *body = body_of(resp);
+    CHECK(strstr(body, "\"path\":\"/Storage/Gain\"") != NULL);
+    CHECK(strstr(body, "\"meter_v_scale\":60.000")  != NULL);
+}
+
+static void test_build_endpoint(void)
+{
+    struct config cfg;
+    struct shmem sm; make_shm(&sm);
+    struct web_server ws;
+    mk_ws_noauth(&ws, &cfg, &sm);
+    char req[256], resp[4096];
+    size_t rn = mkreq(req, sizeof(req), "GET", "/api/build", NULL, NULL);
+    web_handle_request(&ws, req, rn, resp, sizeof(resp));
+    CHECK_EQ(status_of(resp), 200);
+    const char *body = body_of(resp);
+    /* version / sha / build_date present (values are -D defaults during
+     * host-test build). */
+    CHECK(strstr(body, "\"version\":")    != NULL);
+    CHECK(strstr(body, "\"sha\":")        != NULL);
+    CHECK(strstr(body, "\"build_date\":") != NULL);
+}
+
 int main(void)
 {
     test_parser_basic();
@@ -696,6 +793,9 @@ int main(void)
     test_config_get_masks_passwords();
     test_config_post_partial_keeps_pass();
     test_config_post_validation();
+    test_config_new_fields_roundtrip();
+    test_gain_endpoint();
+    test_build_endpoint();
     test_control_rated_amps();
     test_control_authorize();
     test_control_clear_faults();

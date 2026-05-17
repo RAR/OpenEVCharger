@@ -315,25 +315,17 @@ static void publish_kwh_ascii(struct shmem *sm,
     shmem_write_u8(sm, 0x05c0 + (unsigned)n, 0);
 }
 
-/* Empirical voltage-scale factor (bench-fit 2026-05-16 against 120 V
- * US mains on a Vgain=342 unit: vrms_raw/Vgain = 7141, /60 = 119.0 V).
- * Constant appears to be cal-independent on this hardware family — same
- * value should hold for any Vgain that's correctly per-unit calibrated
- * (different mains voltage just yields a different vrms_raw → same /60
- * lands on the right V). If a future unit disagrees, lift this into the
- * cal file as a 4th field. */
-#define METER_V_SCALE   60.0
-
 /* Compute + write cooked V/I/P/E integers for the web at 0x0500..0x050f.
  * See `OFF_BRIDGE_*` in shmem_offsets.h for unit definitions. */
 static void publish_cooked_for_web(struct shmem *sm,
                                    const struct meter_readings *r,
                                    const struct meter_cal *cal)
 {
-    double vgain = cal->vgain > 0 ? (double)cal->vgain : 1.0;
-    double wgain = cal->wgain > 0 ? (double)cal->wgain : 1.0;
+    double vgain   = cal->vgain   > 0   ? (double)cal->vgain   : 1.0;
+    double wgain   = cal->wgain   > 0   ? (double)cal->wgain   : 1.0;
+    double v_scale = cal->v_scale > 0.0 ?         cal->v_scale : 60.0;
 
-    double voltage_v = ((double)r->vrms_raw  / vgain) / METER_V_SCALE;
+    double voltage_v = ((double)r->vrms_raw  / vgain) / v_scale;
     double power_w   =  (double)r->power_raw / wgain;
     /* Resistive-load valid (EV charging is essentially resistive). The
      * chip's irms reading has a fixed bias we haven't characterized and
@@ -379,9 +371,10 @@ int meter_load_cal(const char *path, struct meter_cal *cal)
 {
     if (!cal)
         return -1;
-    cal->vgain = 1;
-    cal->igain = 1;
-    cal->wgain = 1;
+    cal->vgain   = 1;
+    cal->igain   = 1;
+    cal->wgain   = 1;
+    cal->v_scale = 60.0;       /* default; overlaid from delta-bridge.conf */
     FILE *f = fopen(path, "rb");
     if (!f)
         return -1;
@@ -427,9 +420,9 @@ static void sleep_ms_stop(int ms, volatile int *stop)
     }
 }
 
-int meter_personality_run(const char *port, volatile int *stop)
+int meter_personality_run(const char *port, double v_scale, volatile int *stop)
 {
-    fprintf(stderr, "meter: starting (port=%s)\n", port);
+    fprintf(stderr, "meter: starting (port=%s, v_scale=%.3f)\n", port, v_scale);
 
     /* 1. shmem RW attach — retry until present (stock waits forever
      *    on the segment IIUC; we use a bounded backoff). */
@@ -447,14 +440,16 @@ int meter_personality_run(const char *port, volatile int *stop)
     if (*stop)
         return 0;
 
-    /* 2. Calibration from /Storage/Gain — best-effort. */
+    /* 2. Calibration from /Storage/Gain — best-effort. Then overlay
+     *    v_scale from delta-bridge.conf (the Gain file doesn't carry it). */
     struct meter_cal cal;
     if (meter_load_cal("/Storage/Gain", &cal) != 0)
         fprintf(stderr,
                 "meter: /Storage/Gain unparseable; defaulting Vgain/Igain/Wgain to 1\n");
+    cal.v_scale = v_scale > 0.0 ? v_scale : 60.0;
     fprintf(stderr,
-            "meter: cal Vgain=%d Igain=%d Wgain=%d\n",
-            cal.vgain, cal.igain, cal.wgain);
+            "meter: cal Vgain=%d Igain=%d Wgain=%d v_scale=%.3f\n",
+            cal.vgain, cal.igain, cal.wgain, cal.v_scale);
 
     /* 3. UART open + chip init. UART failure is fatal — if we can't
      *    talk to the meter, our reason for existence is gone. */

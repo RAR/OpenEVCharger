@@ -36,6 +36,13 @@ struct config {
      * otherwise ignored): rfid_kill_stock, rfid_poll_hz, rfid_mode. */
     int  rfid_enable;
     char rfid_port[CONFIG_STR_MAX];
+    /* Meter chip voltage-scale divisor (default 60.0). Applied after
+     * vrms_raw / Vgain to derive volts. Bench-fit 2026-05-16 against
+     * 120 V mains; same constant should hold across mains voltages
+     * because per-unit Vgain in /Storage/Gain absorbs the rest of the
+     * chip-to-volts mapping. Surface here so a future bench that
+     * disagrees can be tuned without recompile. */
+    double meter_v_scale;
 };
 
 /* Reset `c` to built-in defaults. */

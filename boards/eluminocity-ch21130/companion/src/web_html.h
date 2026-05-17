@@ -3,22 +3,24 @@
  * Inlined as a plain C string (rather than xxd-generated) so the source tree
  * has one fewer build-time dependency. The file IS the SPA — edit here.
  *
- * Stays under ~6 KB so the whole response fits comfortably inside the
- * server's 8 KB response buffer. Vanilla JS, no framework, no third-party
- * assets, no icon set — everything renders from the inlined CSS.
+ * Tab model (client-side, hash-routed):
+ *   /#status  — live readout + controls + last RFID scan + log tail
+ *   /#config  — full bridge config form, grouped by subsystem, plus
+ *               read-only /Storage/Gain + build/about footer
+ *   /         — defaults to #status
  *
- * Sections:
- *   - <header>   device name + big availability indicator
- *   - <section.status>   1 Hz auto-refreshing readout of /api/state
- *   - <section.controls> slider + ON/OFF + clear-faults; POSTs to /api/control endpoints
- *   - <section.config>   form bound to /api/config; passwords masked
+ * One HTML response covers both tabs; JS toggles `.active` on the tab
+ * panels and persists the choice via `location.hash`. Refresh keeps you
+ * on the same tab.
+ *
+ * Stays under ~14 KB so the whole response fits inside RESP_CAP. Vanilla
+ * JS only — no framework, no third-party assets, no icon set.
  *
  * Maintenance:
- *   - C string concat across lines is fine; trailing comma/space is fine.
- *   - Don't put a literal '%' anywhere (this isn't a printf string but it's
- *     easy to forget; some editors choke on long single-line concatenations).
- *   - Don't introduce a build-time minifier — the response is plenty small
- *     as-is and a minifier would add a toolchain dep we don't want.
+ *   - C string concat across lines is fine.
+ *   - Don't put a literal '%' anywhere (not a printf string but easy
+ *     to forget; some editors choke on long single-line concats).
+ *   - Don't introduce a build-time minifier — adds toolchain dep.
  */
 #ifndef WEB_HTML_H
 #define WEB_HTML_H
@@ -34,7 +36,7 @@ static const char INDEX_HTML[] =
 "<title>delta-bridge</title>"
 "<style>"
 ":root{--bg:#101418;--fg:#e6e8eb;--mut:#8a929a;--ok:#3ec46d;--bad:#e25555;"
-"--card:#181d22;--border:#262d34;--accent:#7ab8ff;}"
+"--card:#181d22;--border:#262d34;--accent:#7ab8ff;--warn:#e0a040;}"
 "*{box-sizing:border-box}"
 "body{margin:0;padding:0;background:var(--bg);color:var(--fg);"
 "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;"
@@ -42,16 +44,24 @@ static const char INDEX_HTML[] =
 "header{padding:14px 18px;border-bottom:1px solid var(--border);"
 "display:flex;align-items:center;gap:12px;flex-wrap:wrap}"
 "header h1{font-size:18px;margin:0;font-weight:600;letter-spacing:.01em}"
+"nav{display:flex;gap:6px;margin-left:auto}"
+"nav a{padding:6px 14px;border-radius:5px;color:var(--mut);"
+"text-decoration:none;font-weight:600;font-size:13px;letter-spacing:.04em;"
+"text-transform:uppercase;border:1px solid transparent}"
+"nav a:hover{color:var(--fg);background:#1c2228}"
+"nav a.active{color:var(--fg);background:#1c2228;border-color:var(--border)}"
 ".pill{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;"
 "text-transform:uppercase;letter-spacing:.05em}"
 ".pill.ok{background:rgba(62,196,109,.15);color:var(--ok);"
 "border:1px solid rgba(62,196,109,.4)}"
 ".pill.bad{background:rgba(226,85,85,.15);color:var(--bad);"
 "border:1px solid rgba(226,85,85,.4)}"
-"main{max-width:840px;margin:0 auto;padding:18px;display:grid;gap:18px}"
+"main{max-width:880px;margin:0 auto;padding:18px;display:grid;gap:18px}"
 "section{background:var(--card);border:1px solid var(--border);"
 "border-radius:8px;padding:14px 16px}"
 "section h2{margin:0 0 10px;font-size:14px;font-weight:600;"
+"color:var(--mut);text-transform:uppercase;letter-spacing:.08em}"
+"section h3{margin:14px 0 8px;font-size:12px;font-weight:600;"
 "color:var(--mut);text-transform:uppercase;letter-spacing:.08em}"
 ".grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));"
 "gap:8px 18px}"
@@ -60,10 +70,10 @@ static const char INDEX_HTML[] =
 ".v.faults{color:var(--bad)}"
 ".v.faults.none{color:var(--ok)}"
 "form{display:grid;gap:10px}"
-".row{display:grid;grid-template-columns:140px 1fr;gap:10px;align-items:center}"
-"@media(max-width:520px){.row{grid-template-columns:1fr}.row label{font-size:11px}}"
+".row{display:grid;grid-template-columns:160px 1fr;gap:10px;align-items:center}"
+"@media(max-width:560px){.row{grid-template-columns:1fr}.row label{font-size:11px}}"
 "label{color:var(--mut);font-size:12px;letter-spacing:.04em}"
-"input[type=text],input[type=number],input[type=password]{"
+"input[type=text],input[type=number],input[type=password],select{"
 "width:100%;padding:7px 9px;background:#0c0f12;color:var(--fg);"
 "border:1px solid var(--border);border-radius:5px;font:inherit}"
 "input[type=range]{width:100%}"
@@ -78,17 +88,38 @@ static const char INDEX_HTML[] =
 ".msg.show{display:block}"
 ".msg.ok{background:rgba(62,196,109,.15);color:var(--ok)}"
 ".msg.err{background:rgba(226,85,85,.15);color:var(--bad)}"
+".msg.warn{background:rgba(224,160,64,.15);color:var(--warn)}"
 ".savebar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}"
 ".note{color:var(--mut);font-size:12px}"
+"pre.log{margin:0;padding:10px 12px;background:#0c0f12;border:1px solid var(--border);"
+"border-radius:5px;max-height:340px;overflow:auto;font-size:12px;"
+"line-height:1.4;white-space:pre-wrap;word-break:break-all;color:var(--fg)}"
+".log-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px}"
+".tab{display:none}"
+".tab.active{display:grid;gap:18px}"
+"footer{max-width:880px;margin:0 auto;padding:10px 18px 26px;color:var(--mut);"
+"font-size:11px;display:flex;gap:12px;flex-wrap:wrap}"
+"footer span{white-space:nowrap}"
 "</style>"
 "</head>"
 "<body>"
+
 "<header>"
 "<h1>delta-bridge</h1>"
 "<span id=\"device\" class=\"note\"></span>"
 "<span id=\"avail\" class=\"pill bad\">offline</span>"
+"<nav>"
+"<a href=\"#status\" id=\"tab-status\" class=\"active\">Status</a>"
+"<a href=\"#config\" id=\"tab-config\">Config</a>"
+"</nav>"
 "</header>"
+
 "<main>"
+
+/* ============================================================
+ * STATUS TAB
+ * ============================================================ */
+"<div id=\"pane-status\" class=\"tab active\">"
 
 "<section><h2>Status</h2>"
 "<div class=\"grid\">"
@@ -145,8 +176,28 @@ static const char INDEX_HTML[] =
 "<div id=\"msg-clr\" class=\"msg\"></div>"
 "</section>"
 
+"<section><h2>Log tail</h2>"
+"<div class=\"log-toolbar\">"
+"<button type=\"button\" class=\"alt\" onclick=\"loadLog()\">Refresh</button>"
+"<label class=\"note\">"
+"<input type=\"checkbox\" id=\"log-auto\" onchange=\"toggleLogAuto()\"> auto-refresh"
+"</label>"
+"<span class=\"note\" id=\"log-meta\"></span>"
+"</div>"
+"<pre class=\"log\" id=\"log-pre\">(not loaded)</pre>"
+"</section>"
+
+"</div>"   /* end #pane-status */
+
+/* ============================================================
+ * CONFIG TAB
+ * ============================================================ */
+"<div id=\"pane-config\" class=\"tab\">"
+
 "<section><h2>Bridge config</h2>"
 "<form id=\"f-cfg\" onsubmit=\"return saveCfg(event)\">"
+
+"<h3>MQTT</h3>"
 "<div class=\"row\"><label for=\"broker_host\">broker_host</label>"
 "<input type=\"text\" id=\"broker_host\" name=\"broker_host\"></div>"
 "<div class=\"row\"><label for=\"broker_port\">broker_port</label>"
@@ -158,13 +209,18 @@ static const char INDEX_HTML[] =
 " placeholder=\"(unchanged)\"></div>"
 "<div class=\"row\"><label for=\"topic_prefix\">topic_prefix</label>"
 "<input type=\"text\" id=\"topic_prefix\" name=\"topic_prefix\"></div>"
+
+"<h3>Bridge</h3>"
 "<div class=\"row\"><label for=\"device_id\">device_id</label>"
-"<input type=\"text\" id=\"device_id\" name=\"device_id\"></div>"
+"<input type=\"text\" id=\"device_id\" name=\"device_id\""
+" placeholder=\"(auto)\"></div>"
 "<div class=\"row\"><label for=\"poll_hz\">poll_hz</label>"
 "<input type=\"number\" id=\"poll_hz\" name=\"poll_hz\" min=\"1\"></div>"
 "<div class=\"row\"><label for=\"write_enable\">write_enable</label>"
 "<select id=\"write_enable\" name=\"write_enable\">"
 "<option value=\"false\">false</option><option value=\"true\">true</option></select></div>"
+
+"<h3>Web UI</h3>"
 "<div class=\"row\"><label for=\"web_enable\">web_enable</label>"
 "<select id=\"web_enable\" name=\"web_enable\">"
 "<option value=\"false\">false</option><option value=\"true\">true</option></select></div>"
@@ -175,7 +231,34 @@ static const char INDEX_HTML[] =
 "<div class=\"row\"><label for=\"web_pass\">web_pass</label>"
 "<input type=\"password\" id=\"web_pass\" name=\"web_pass\""
 " placeholder=\"(unchanged)\"></div>"
-"<div class=\"savebar\">"
+
+"<h3>RFID reader</h3>"
+"<div class=\"row\"><label for=\"rfid_enable\">rfid_enable</label>"
+"<select id=\"rfid_enable\" name=\"rfid_enable\">"
+"<option value=\"false\">false</option><option value=\"true\">true</option></select></div>"
+"<div class=\"row\"><label for=\"rfid_port\">rfid_port</label>"
+"<input type=\"text\" id=\"rfid_port\" name=\"rfid_port\""
+" placeholder=\"/dev/ttyAMA4\"></div>"
+
+"<h3>Logging</h3>"
+"<div class=\"row\"><label for=\"log_level\">log_level</label>"
+"<select id=\"log_level\" name=\"log_level\">"
+"<option>error</option><option>warn</option><option>info</option><option>debug</option>"
+"</select></div>"
+"<div class=\"row\"><label for=\"log_path\">log_path</label>"
+"<input type=\"text\" id=\"log_path\" name=\"log_path\""
+" placeholder=\"/Storage/delta-bridge.log\"></div>"
+
+"<h3>Metering</h3>"
+"<div class=\"row\"><label for=\"meter_v_scale\">meter_v_scale</label>"
+"<input type=\"number\" id=\"meter_v_scale\" name=\"meter_v_scale\""
+" min=\"0.001\" max=\"9999\" step=\"0.001\"></div>"
+"<div class=\"note\">"
+"Empirical voltage divisor (default 60). V = vrms_raw / Vgain / meter_v_scale. "
+"Adjust if a unit reads off-mains: V_now × (current_meter_v_scale ÷ V_actual)."
+"</div>"
+
+"<div class=\"savebar\" style=\"margin-top:14px\">"
 "<button type=\"submit\">Save</button>"
 "<button type=\"button\" class=\"warn\" id=\"btn-restart\" onclick=\"restart()\""
 " style=\"display:none\">Restart bridge now</button>"
@@ -184,15 +267,54 @@ static const char INDEX_HTML[] =
 "<div id=\"msg-cfg\" class=\"msg\"></div>"
 "</section>"
 
+"<section><h2>Meter calibration (read-only)</h2>"
+"<div class=\"grid\">"
+"<div><div class=\"k\">Vgain</div><div class=\"v\" id=\"g-vgain\">--</div></div>"
+"<div><div class=\"k\">Igain</div><div class=\"v\" id=\"g-igain\">--</div></div>"
+"<div><div class=\"k\">Wgain</div><div class=\"v\" id=\"g-wgain\">--</div></div>"
+"<div><div class=\"k\">meter_v_scale</div><div class=\"v\" id=\"g-vscale\">--</div></div>"
+"</div>"
+"<div class=\"note\" style=\"margin-top:8px\">"
+"Vgain/Igain/Wgain come from <code>/Storage/Gain</code> and are per-unit factory cal. "
+"meter_v_scale is the bridge-side empirical divisor (editable above)."
+"</div></section>"
+
+"</div>"   /* end #pane-config */
+
 "</main>"
+
+"<footer>"
+"<span id=\"about-version\">version: --</span>"
+"<span id=\"about-sha\">sha: --</span>"
+"<span id=\"about-date\">built: --</span>"
+"</footer>"
+
 "<script>"
+
 "function show(id,kind,text){var e=document.getElementById(id);"
 "e.className='msg show '+kind;e.textContent=text;"
 "setTimeout(function(){e.classList.remove('show')},4500)}"
+
 "function postForm(url,obj){var body=Object.keys(obj).map(function(k){"
 "return encodeURIComponent(k)+'='+encodeURIComponent(obj[k])}).join('&');"
 "return fetch(url,{method:'POST',headers:{"
 "'Content-Type':'application/x-www-form-urlencoded'},body:body})}"
+
+/* --- tab routing --- */
+"function setTab(name){"
+"var validTabs=['status','config'];"
+"if(validTabs.indexOf(name)<0)name='status';"
+"document.querySelectorAll('nav a').forEach(function(a){"
+"a.classList.toggle('active',a.id==='tab-'+name)});"
+"document.querySelectorAll('main .tab').forEach(function(d){"
+"d.classList.toggle('active',d.id==='pane-'+name)});"
+"if(name==='config'){loadCfg();loadGain()}"
+"if(name==='status'){loadLog()}"
+"}"
+"window.addEventListener('hashchange',function(){"
+"setTab((location.hash||'#status').slice(1))});"
+
+/* --- controls (status tab) --- */
 "function setAmps(e){e.preventDefault();var a=document.getElementById('amps').value;"
 "postForm('/api/control/rated_amps',{amps:a}).then(function(r){"
 "return r.json().then(function(j){"
@@ -207,6 +329,24 @@ static const char INDEX_HTML[] =
 "return r.json().then(function(j){"
 "show('msg-clr',j.ok?'ok':'err',j.ok?'Faults cleared':j.error)})});"
 "return false}"
+
+/* --- log tail (status tab) --- */
+"var logTimer=null;"
+"function loadLog(){fetch('/api/log').then(function(r){return r.json()})"
+".then(function(j){"
+"var pre=document.getElementById('log-pre');"
+"var meta=document.getElementById('log-meta');"
+"if(j.ok){pre.textContent=j.text||'(empty)';"
+"meta.textContent=(j.lines||'?')+' lines, '+(j.bytes||0)+' B'+(j.truncated?', truncated':'');"
+"pre.scrollTop=pre.scrollHeight}"
+"else{pre.textContent='[error] '+(j.error||'unknown');meta.textContent=''}})"
+".catch(function(){"
+"document.getElementById('log-pre').textContent='[fetch failed]'})}"
+"function toggleLogAuto(){var c=document.getElementById('log-auto');"
+"if(c.checked){loadLog();logTimer=setInterval(loadLog,3000)}"
+"else if(logTimer){clearInterval(logTimer);logTimer=null}}"
+
+/* --- config (config tab) --- */
 "function saveCfg(e){e.preventDefault();var f=document.getElementById('f-cfg');"
 "var obj={};Array.from(f.elements).forEach(function(el){"
 "if(!el.name)return;"
@@ -215,11 +355,11 @@ static const char INDEX_HTML[] =
 "postForm('/api/config',obj).then(function(r){return r.json().then(function(j){"
 "if(j.ok){show('msg-cfg','ok','Saved. Restart bridge for changes to take effect.');"
 "document.getElementById('btn-restart').style.display='inline-block';"
-"loadCfg()}else{show('msg-cfg','err',j.error||'save failed')}})});"
+"loadCfg();loadGain()}else{show('msg-cfg','err',j.error||'save failed')}})});"
 "return false}"
 "function restart(){if(!confirm('Restart delta-bridge now?'))return;"
 "fetch('/api/restart',{method:'POST'}).then(function(){"
-"show('msg-cfg','ok','Restarting...');"
+"show('msg-cfg','warn','Restarting...');"
 "setTimeout(function(){location.reload()},3000)})}"
 "function loadCfg(){fetch('/api/config').then(function(r){return r.json()})"
 ".then(function(c){"
@@ -235,7 +375,30 @@ static const char INDEX_HTML[] =
 "document.getElementById('web_port').value=c.web_port||'';"
 "document.getElementById('web_user').value=c.web_user||'';"
 "document.getElementById('web_pass').value='';"
+"document.getElementById('rfid_enable').value=c.rfid_enable?'true':'false';"
+"document.getElementById('rfid_port').value=c.rfid_port||'';"
+"document.getElementById('log_level').value=c.log_level||'info';"
+"document.getElementById('log_path').value=c.log_path||'';"
+"if(c.meter_v_scale!==undefined)"
+"document.getElementById('meter_v_scale').value=c.meter_v_scale;"
 "})}"
+"function loadGain(){fetch('/api/gain').then(function(r){return r.json()})"
+".then(function(g){"
+"document.getElementById('g-vgain').textContent=g.Vgain||'--';"
+"document.getElementById('g-igain').textContent=g.Igain||'--';"
+"document.getElementById('g-wgain').textContent=g.Wgain||'--';"
+"document.getElementById('g-vscale').textContent=g.meter_v_scale!==undefined?g.meter_v_scale:'--';"
+"})}"
+
+/* --- about footer --- */
+"function loadAbout(){fetch('/api/build').then(function(r){return r.json()})"
+".then(function(b){"
+"document.getElementById('about-version').textContent='version: '+(b.version||'?');"
+"document.getElementById('about-sha').textContent='sha: '+(b.sha||'?');"
+"document.getElementById('about-date').textContent='built: '+(b.build_date||'?');"
+"}).catch(function(){})}"
+
+/* --- status refresh (always running) --- */
 "function refresh(){fetch('/api/state').then(function(r){return r.json()})"
 ".then(function(s){"
 "var av=document.getElementById('avail');"
@@ -267,7 +430,11 @@ static const char INDEX_HTML[] =
 "document.getElementById('avail').className='pill bad';"
 "document.getElementById('avail').textContent='offline';"
 "})}"
-"loadCfg();refresh();setInterval(refresh,1000);"
+
+/* --- init --- */
+"setTab((location.hash||'#status').slice(1));"
+"loadAbout();refresh();setInterval(refresh,1000);"
+
 "</script>"
 "</body></html>";
 
