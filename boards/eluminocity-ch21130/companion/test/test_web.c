@@ -362,10 +362,19 @@ static void test_state_json(void)
 {
     struct config cfg;
     struct shmem sm; make_shm(&sm);
-    /* Seed some recognizable values. */
-    g_shm_buf[OFF_VRMS_MEAS]   = 0x29; g_shm_buf[OFF_VRMS_MEAS + 1] = 0x31; /* 125.85 */
-    g_shm_buf[OFF_IRMS_MEAS]   = 0xa0; g_shm_buf[OFF_IRMS_MEAS + 1] = 0x00; /* 16.0 */
-    g_shm_buf[OFF_POWER_MEAS]  = 0x5c; g_shm_buf[OFF_POWER_MEAS + 1] = 0x00; /* 92 */
+    /* Seed bridge-cooked V/I/P (u32 LE, centi-V / milli-A / W). */
+    g_shm_buf[OFF_BRIDGE_VOLTAGE_CV    ] = 0x29; /* 0x00003129 = 12585 = 125.85 V */
+    g_shm_buf[OFF_BRIDGE_VOLTAGE_CV + 1] = 0x31;
+    g_shm_buf[OFF_BRIDGE_VOLTAGE_CV + 2] = 0x00;
+    g_shm_buf[OFF_BRIDGE_VOLTAGE_CV + 3] = 0x00;
+    g_shm_buf[OFF_BRIDGE_CURRENT_MA    ] = 0x80; /* 0x00003E80 = 16000 = 16.000 A */
+    g_shm_buf[OFF_BRIDGE_CURRENT_MA + 1] = 0x3e;
+    g_shm_buf[OFF_BRIDGE_CURRENT_MA + 2] = 0x00;
+    g_shm_buf[OFF_BRIDGE_CURRENT_MA + 3] = 0x00;
+    g_shm_buf[OFF_BRIDGE_POWER_W       ] = 0x5c; /* 92 W */
+    g_shm_buf[OFF_BRIDGE_POWER_W    + 1] = 0x00;
+    g_shm_buf[OFF_BRIDGE_POWER_W    + 2] = 0x00;
+    g_shm_buf[OFF_BRIDGE_POWER_W    + 3] = 0x00;
     g_shm_buf[OFF_PILOT_STATE] = 2;    /* C */
     g_shm_buf[OFF_PRI_STATE]   = 3;
     g_shm_buf[OFF_USER_STATE]  = 2;
@@ -389,7 +398,7 @@ static void test_state_json(void)
     CHECK(strstr(body, "\"device_id\":\"testunit\"") != NULL);
     CHECK(strstr(body, "\"voltage\":125.85") != NULL);
     CHECK(strstr(body, "\"current\":16.00") != NULL);
-    CHECK(strstr(body, "\"power\":92") != NULL);
+    CHECK(strstr(body, "\"power\":92") != NULL);     /* watts integer */
     CHECK(strstr(body, "\"pilot_duty\":25") != NULL);
     CHECK(strstr(body, "\"rated_amps\":18") != NULL);
     CHECK(strstr(body, "\"pilot_state\":\"C\"") != NULL);

@@ -12,21 +12,28 @@ import pathlib
 SIZE = 0x40000
 buf = bytearray(SIZE)
 
-# Metering — little-endian. Scaling is empirical from the bench session of
-# 2026-05-15: VRMS u16 raw/100, IRMS u16 raw/10, POWER u32 raw/1 (the
-# producer divides by 1000 internally before storing — see comment in
-# src/charger_state.c).
-# VRMS_MEAS @ 0x0000 = 23000 -> 230.0 V
-buf[0x0000] = 0xD8
-buf[0x0001] = 0x59
-# IRMS_MEAS @ 0x0004 = 160   -> 16.0 A
-buf[0x0004] = 0xA0
-buf[0x0005] = 0x00
-# POWER_MEAS @ 0x000c = 3680 -> 3680.0 W (V*I, sensible for 230 V × 16 A)
-buf[0x000c] = 0x60
-buf[0x000d] = 0x0E
-buf[0x000e] = 0x00
-buf[0x000f] = 0x00
+# --- Stock chip→shmem triple (Pri_Comm input; not human V/I/P) ----------
+# Existence only so test_shmem.c can round-trip the LE helpers against
+# the OFF_STOCK_* offsets. Values are arbitrary but kept the same as
+# the older fixture so test_shmem expectations don't need to change.
+# OFF_STOCK_VRMS_CHIP @ 0x0000 = 23000
+buf[0x0000] = 0xD8; buf[0x0001] = 0x59
+# OFF_STOCK_VRMS_DECI @ 0x0004 = 160
+buf[0x0004] = 0xA0; buf[0x0005] = 0x00
+# OFF_STOCK_POWER_CHIP @ 0x000c = 3680
+buf[0x000c] = 0x60; buf[0x000d] = 0x0E; buf[0x000e] = 0x00; buf[0x000f] = 0x00
+
+# --- Bridge-cooked V/I/P/E (what web reads). u32 LE fixed-point. -------
+# Meter personality writes these. Seeded here so charger_state's
+# fixture-path verifies the end-to-end read.
+# OFF_BRIDGE_VOLTAGE_CV @ 0x0500 = 23000 cV -> 230.00 V
+buf[0x0500] = 0xD8; buf[0x0501] = 0x59; buf[0x0502] = 0x00; buf[0x0503] = 0x00
+# OFF_BRIDGE_CURRENT_MA @ 0x0504 = 16000 mA -> 16.000 A
+buf[0x0504] = 0x80; buf[0x0505] = 0x3E; buf[0x0506] = 0x00; buf[0x0507] = 0x00
+# OFF_BRIDGE_POWER_W    @ 0x0508 = 3680 W
+buf[0x0508] = 0x60; buf[0x0509] = 0x0E; buf[0x050a] = 0x00; buf[0x050b] = 0x00
+# OFF_BRIDGE_ENERGY_WH  @ 0x050c = 12345 Wh
+buf[0x050c] = 0x39; buf[0x050d] = 0x30; buf[0x050e] = 0x00; buf[0x050f] = 0x00
 
 # State cluster
 buf[0x0a00] = 0x02   # USER_STATE = charging

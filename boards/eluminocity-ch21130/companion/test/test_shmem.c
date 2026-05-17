@@ -16,11 +16,13 @@ int main(void)
     CHECK_EQ(shmem_u8(&sm, OFF_PILOT_DUTY),  0x32);
     CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS),  0x1E);
 
-    /* LE u16/u32 helpers */
-    CHECK_EQ(shmem_u16_le(&sm, OFF_VRMS_MEAS), 23000); /* 230.00 V × 100 */
-    CHECK_EQ(shmem_u16_le(&sm, OFF_IRMS_MEAS),   160); /*  16.0  A × 10  */
-    CHECK_EQ(shmem_u32_le(&sm, OFF_POWER_MEAS), 3680u);/* 3680   W × 1   */
-    CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP), 0x00000008u);
+    /* LE u16/u32 helpers — fixture's stock chip-output triple. These
+     * are Pri_Comm-input values, not human V/I/P; web reads cooked
+     * BRIDGE fields at 0x0500+ now. */
+    CHECK_EQ(shmem_u16_le(&sm, OFF_STOCK_VRMS_CHIP),  23000);
+    CHECK_EQ(shmem_u16_le(&sm, OFF_STOCK_VRMS_DECI),    160);
+    CHECK_EQ(shmem_u32_le(&sm, OFF_STOCK_POWER_CHIP), 3680u);
+    CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP),     0x00000008u);
 
     /* out-of-range offset returns 0 defensively, never crashes */
     CHECK_EQ(shmem_u8(&sm, SHMEM_SIZE + 100), 0);
@@ -41,8 +43,8 @@ int main(void)
     CHECK_EQ(shmem_write_u32_le(&sm, OFF_ALARM_BITMAP, 0u), 0);
     CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP), 0u);
 
-    CHECK_EQ(shmem_write_u16_le(&sm, OFF_VRMS_MEAS, 0xBEEF), 0);
-    CHECK_EQ(shmem_u16_le(&sm, OFF_VRMS_MEAS), 0xBEEF);
+    CHECK_EQ(shmem_write_u16_le(&sm, OFF_STOCK_VRMS_CHIP, 0xBEEF), 0);
+    CHECK_EQ(shmem_u16_le(&sm, OFF_STOCK_VRMS_CHIP), 0xBEEF);
 
     /* OOB writes return -1, don't crash, don't touch out-of-bounds memory */
     CHECK_EQ(shmem_write_u8(&sm, SHMEM_SIZE + 5, 0xAA), -1);
@@ -52,7 +54,7 @@ int main(void)
     /* RO mapping (simulated by flipping writable=0) refuses all writes */
     sm.writable = 0;
     CHECK_EQ(shmem_write_u8(&sm, OFF_RATED_AMPS, 5), -1);
-    CHECK_EQ(shmem_write_u16_le(&sm, OFF_VRMS_MEAS, 0), -1);
+    CHECK_EQ(shmem_write_u16_le(&sm, OFF_STOCK_VRMS_CHIP, 0), -1);
     CHECK_EQ(shmem_write_u32_le(&sm, OFF_ALARM_BITMAP, 0), -1);
     /* and the segment is unchanged */
     CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS), 20);
