@@ -30,7 +30,7 @@ where `r3 = MeterSMPtr + 0x0a24`. The complete writer inventory is:
 | Binary | Site | Function | When it runs |
 |---|---|---|---|
 | `main` | 0x0000c618 | `StoreFlash` | Copies live shmem→flash-staging buffer. **READS shmem[0x0a24], doesn't mutate it.** |
-| `main` | 0x0000ddf4 | `GetConfig` | USB-stick config-import (`/UsbFlash/DeltaEVSEConfig`). Only runs when `access("/dev/sda1", R_OK) == 0`. |
+| `main` | 0x0000ddf4 | `GetConfig` | USB-stick config-import (`/UsbFlash/DeltaEVSEConfig`). Polled (see docs/23). |
 | `main` | 0x0000de28 | `GetConfig` | USB clamp: if imported value > 30 → store 30. Same USB trigger. |
 | `main` | 0x000159cc | `main` boot init | Unconditional `shmem[0x0a24] = 30` between `FlashToShrMem()` and the poll loop. **Runs once per boot.** |
 | `main` | 0x00015c20 | `main` boot init | Unconditional `shmem[0x0a24] = 30` if value < 5 or == 0xff or > 30. **Runs once per boot.** |
