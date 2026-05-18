@@ -97,8 +97,12 @@ boot via a one-shot script — rollback is `cp /Storage/stk/<name> /root/<name>;
     └── LED_control
 ```
 
-The first-boot script is idempotent — runs on every boot, no-ops once
-`/Storage/delta-bridge.conf` and `/Storage/stk/*` exist.
+The first-boot script is idempotent — runs on every boot, no-ops on
+the "seed default conf" and "pre-stage stk binaries" paths once their
+targets exist. The USB-config-import path (docs/23 §5) runs whenever
+`/UsbFlash/delta-bridge.conf` is present *and* byte-different from the
+on-disk copy, so a stick left in won't re-apply; a stick with an edited
+file will.
 
 ## Wrapper template
 
@@ -208,15 +212,22 @@ modifications.
 
 # M12 install (after pipeline validation):
 # 1. cp build/m12/DcoFImage /UsbFlash/DcoFImage
+#    (optionally: also drop /UsbFlash/delta-bridge.conf with your broker
+#     creds + web_pass — first-boot.sh imports it; see docs/23 §5)
 # 2. Insert USB stick; reboot.
 # 3. New rootfs boots; /etc/funs runs first-boot.sh which:
 #      - mkdir /Storage/delta-bridge (for the bridge log)
 #      - mkdir /Storage/stk          (for stock-binary backups)
 #      - cp default conf -> /Storage/delta-bridge.conf if missing
+#      - if /UsbFlash/delta-bridge.conf present + byte-different:
+#          atomically copy it over /Storage/delta-bridge.conf
+#      - if /UsbFlash/stk/<name> present for any wrapper-replaced binary:
+#          copy into /Storage/stk/ for hot rollback
 # 4. /root/main forks the daemons; the four wrappers exec delta-bridge
 #    with their respective personalities.
-# 5. Web UI at http://<bench-ip>:8080/ — admin / changeme.
-#    Change password via Config tab on first login.
+# 5. Web UI at http://<bench-ip>:8080/ — admin / changeme (or whatever
+#    you set in /UsbFlash/delta-bridge.conf). Change password via Config
+#    tab on first login if you haven't.
 ```
 
 Rollback (anytime):
@@ -238,7 +249,7 @@ cp /Storage/stk/<name> /root/<name>; sync; reboot
   ```
   Out of caution we may want to ship this shim from the start; deferred until first boot tells us whether log-spam is a real problem.
 
-- **First-boot `/Storage/stk/` backups are empty by default.** Operator-supplied stock binaries at `/UsbFlash/stk/<name>` get copied in by `first-boot.sh`. Without those, individual-binary rollback (`cp /Storage/stk/X /root/X`) won't work — the supported rollback is `cp DcoFImage-stock-restore /UsbFlash/DcoFImage; reboot`.
+- **First-boot `/Storage/stk/` backups are empty by default.** Operator-supplied stock binaries at `/UsbFlash/stk/<name>` get copied in by `first-boot.sh` (mounts USB itself before `main` starts). Without those, individual-binary rollback (`cp /Storage/stk/X /root/X`) won't work — the supported rollback is `cp DcoFImage-stock-restore /UsbFlash/DcoFImage; reboot`.
 
 - **`/etc/funs` patches** are line-based — if a future stock-rootfs extract has different line endings or a CRLF in line 1, the `head -n 1; echo; tail -n +2` injection point shifts. We re-extract from the bench's actual mtdblock5, so this is currently fine; flag it if we ever pull rootfs from a different source.
 

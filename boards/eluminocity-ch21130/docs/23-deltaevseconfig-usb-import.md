@@ -180,18 +180,42 @@ These persist independently and are *not* exposed via DeltaEVSEConfig:
 
 ---
 
-## 5. Companion implication for M12
+## 5. Companion mirror: `/UsbFlash/delta-bridge.conf`
 
 `/root/main` stays stock in M12, so DeltaEVSEConfig provisioning **works out of the box** on a flashed unit — operators can ship a USB stick with Wi-Fi + OCPP creds and the charger applies them on first boot.
 
-What's **missing** is a parallel hook for our `delta-bridge.conf` (MQTT broker, RFID topic, web auth, meter scale). Today the operator has to scp/TFTP-edit `/Storage/delta-bridge.conf` by hand after flash.
+Our companion bridge follows the same pattern via `first-boot.sh` (shipped in M12.1 — see this section). Drop a `delta-bridge.conf` on the same USB stick alongside `DeltaEVSEConfig` and both halves of the unit get provisioned in one shot.
 
-Symmetric design (deferred, not in M12 baseline):
-- `first-boot.sh` (or a new `usb-config.sh` invoked from `/etc/funs`) checks for `/UsbFlash/delta-bridge.conf` and atomically copies it to `/Storage/delta-bridge.conf` if newer.
-- Same one-shot semantics as Delta: don't delete the source file; rely on operator unplug.
-- Optional matching dump-out path (`/UsbFlash/delta-bridge-snapshot.conf`) for symmetry with `/Storage/DownloadConfiguration`.
+### How it works
 
-Tracked separately; not blocking M12.
+`/etc/delta-bridge/first-boot.sh` runs from `/etc/funs` *before* `/root/main` forks, giving it exclusive USB access. Logic:
+
+1. Mount `/dev/sda` (or `/dev/sda1` fallback) at `/UsbFlash` if a stick is plugged in.
+2. If `/UsbFlash/delta-bridge.conf` exists and is byte-different from `/Storage/delta-bridge.conf` (via `cmp -s`), atomically copy it (`.new` + `mv`).
+3. Unmount `/UsbFlash` so stock's polled mount logic in `main` works normally.
+
+Source file is **never deleted** from the stick — same as Delta's DeltaEVSEConfig handling. Operator unplugs when done.
+
+### Semantics differences from DeltaEVSEConfig
+
+| Property | DeltaEVSEConfig (stock) | delta-bridge.conf (companion) |
+|---|---|---|
+| Trigger | Polled every ~1 s by `main` loop | One-shot on cold boot (early `/etc/funs`) |
+| Hotplug support | Yes — insert after boot is fine | No — insert *before* power-on |
+| Re-apply policy | Every loop tick (no-op if unchanged) | Only if byte-different from on-disk copy |
+| Source cleanup | Never | Never |
+| Atomic write | No (key-by-key `strcpy` into shmem) | Yes (`.new` then `mv`) |
+| Audit log | `/Storage/EncodeLogMessage` delta entries | `first-boot:` line on kernel console |
+
+The one-shot semantics are a deliberate scope trade-off: a polled `delta-bridge.conf` daemon would add a long-running process; `first-boot.sh` covers the 90 % case (cold-boot provisioning).
+
+### What the import covers
+
+The full set of keys is documented in [`docs/22-m12-stripped-dcofimage.md`](22-m12-stripped-dcofimage.md) — broker host/port/credentials, web UI auth, RFID port, meter scaling, log path, etc. The default file shipped at `/etc/delta-bridge.conf.default` is the reference template.
+
+### Bidirectional? Not yet.
+
+Stock writes `Configuration_<serial>_*` snapshots to USB on insert (see §6). We don't currently mirror that for delta-bridge. If field debugging warrants it, the obvious place is `first-boot.sh` writing `/UsbFlash/delta-bridge-snapshot.conf` when a stick is mounted.
 
 ---
 

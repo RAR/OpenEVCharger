@@ -190,6 +190,25 @@ def check_image(image_path, expected_sha256=None):
                 fail(f"stk-manifest.txt missing entries: {sorted(missing)}")
                 ok = False
 
+        # first-boot.sh contains the USB-import + USB-mount logic (docs/23 §5).
+        # Tokens chosen to survive cosmetic edits but catch regressions where
+        # someone reverts the mount/import block to the original boot-only seed.
+        fb = extract / "etc" / "delta-bridge" / "first-boot.sh"
+        if fb.is_file():
+            body = fb.read_text()
+            required_tokens = [
+                "/UsbFlash/delta-bridge.conf",  # USB import source
+                "cmp -s",                       # byte-difference check
+                "/dev/sda",                     # USB mount attempt
+                "mounted_by_us",                # cleanup flag
+                "umount",                       # release USB for main
+            ]
+            for tok in required_tokens:
+                if tok not in body:
+                    fail(f"first-boot.sh missing token {tok!r} "
+                         f"(USB-config-import logic regressed?)")
+                    ok = False
+
         if ok:
             kept = sum(1 for n in KEPT_STOCK if (root / n).exists())
             print(f"OK: {image_path} — {len(EXPECTED_WRAPPERS)} wrappers, "
