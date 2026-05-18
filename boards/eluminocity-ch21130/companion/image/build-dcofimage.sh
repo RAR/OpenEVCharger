@@ -16,9 +16,15 @@
 #   build-dcofimage.sh <stock-rootfs-dir> <delta-bridge-binary> <output-dir>
 #
 # Requires: mkfs.jffs2 (mtd-utils), python3.
-# mtd5 geometry — MUST match the unit (validated by flashing
-# DcoFImage-stock-restore first and confirming a clean boot):
-#   erase block size 128 KiB, little-endian, 16 MiB total.
+# mtd5 geometry — MUST match the unit (verified against /proc/mtd +
+# U-Boot flinfo + a fresh DcoFImage-stock-restore reflash that booted
+# cleanly through /sbin/init on 2026-05-19):
+#   erase block size 64 KiB (0x10000), little-endian, 16 MiB total.
+# The earlier value 0x20000 (128 KiB) was wrong and caused stock's flash
+# routine to half-erase the upper half of mtd5 (alternating 64 KiB
+# sectors); the resulting Frankenstein JFFS2 mounted but panicked at
+# /sbin/init with a libc symbol mismatch (init from one image, libc from
+# the other). See docs/24.
 set -e
 
 if [ $# -lt 3 ]; then
@@ -46,7 +52,10 @@ fi
 # --squash-uids: builder runs unprivileged but the target unit's kernel
 # expects all rootfs files owned by root:root. Squash both stock and our
 # images so the byte-level layout matches a real on-device extract.
-JFFS2_OPTS="--little-endian --eraseblock=0x20000 --pad=0x1000000 --squash-uids"
+# --eraseblock=0x10000: see the geometry comment above — this MUST match
+# the hardware sector size or stock's flasher will produce a
+# half-erased mtd5 that bricks the bench.
+JFFS2_OPTS="--little-endian --eraseblock=0x10000 --pad=0x1000000 --squash-uids"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
