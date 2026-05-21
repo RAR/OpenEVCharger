@@ -40,7 +40,9 @@ struct web_server {
     const char   *web_user;           /* points into cfg; empty = no auth */
     const char   *web_pass;
     struct config *cfg;               /* read+write (POST /api/config) */
-    struct shmem  *shm;                /* may be NULL when write_enable=0 */
+    struct shmem  *shm;               /* live shmem (always set by main.c);
+                                       * reads work, writes gate on
+                                       * shm->writable inside cs_apply_* */
     char        **orig_argv;          /* for execv() on /api/restart */
     const char   *conf_path;          /* where POST /api/config writes */
     int           auth_disabled;      /* derived from web_user/pass empty */

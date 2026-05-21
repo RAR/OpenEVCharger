@@ -384,11 +384,11 @@ static size_t json_quote(char *out, size_t cap, size_t off, const char *s)
 
 static size_t build_state_json(struct web_server *ws, char *body, size_t cap)
 {
-    /* Snapshot the live shmem into a charger_state. If shm is NULL (no
-     * write_enable, no RW attach) we still want the page to function — we
-     * fall back to RO-attached numbers if available, but the bridge always
-     * has SOME shmem pointer at this point because main.c attaches before
-     * starting the web server. For belt-and-braces, gate on shm != NULL. */
+    /* Snapshot the live shmem into a charger_state. main.c always hands the
+     * web server &sm — a read-only attach when write_enable=false — so the
+     * status page reflects live data regardless of write_enable. The
+     * shm != NULL guard below is belt-and-braces for host tests that may
+     * construct a bare web_server. */
     struct charger_state cs;
     charger_state_init(&cs);
     int availability_online = 0;
