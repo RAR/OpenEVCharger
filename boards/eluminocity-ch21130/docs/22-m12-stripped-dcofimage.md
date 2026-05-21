@@ -138,31 +138,21 @@ Wrapping handled by `companion/image/wrap_dco.py` (already host-tested).
 ## Build invocation
 
 ```sh
-# 1. Cross-compile delta-bridge with the build identifiers exposed at /api/build
+# One command. `make dcofimage` cross-compiles delta-bridge fresh inside
+# the muslcc Docker image (the `cross` target), packs the DcoFImage, and
+# runs verify_dcofimage.py — all in sequence. There is no hand-built
+# binary that can go stale against src/.
 cd boards/eluminocity-ch21130/companion
-SHA=$(git rev-parse --short HEAD)
-DATE=$(date -u +%Y-%m-%dT%H:%MZ)
-docker run --rm -v "$(pwd)":/work -w /work -u "$(id -u):$(id -g)" \
-    muslcc/x86_64:armv5l-linux-musleabi cc -Wall -Wextra -std=c11 -O2 \
-    -Isrc -static \
-    -DDELTA_BRIDGE_VERSION='"m12"' \
-    -DDELTA_BRIDGE_BUILD_SHA="\"$SHA\"" \
-    -DDELTA_BRIDGE_BUILD_DATE="\"$DATE\"" \
-    -o delta-bridge.m12 \
-    src/shmem.c src/charger_state.c src/mqtt_codec.c src/mqtt_client.c \
-    src/mqtt_adapter.c src/commands.c src/config.c src/web.c src/rfid.c \
-    src/meter.c src/adc.c src/led.c src/main.c
-
-# 2. Build the image (uses the existing extracted stock rootfs)
 make dcofimage
-# or, explicit:
-#   image/build-dcofimage.sh <stock-rootfs-dir> delta-bridge.m12 <out-dir>
-
-# 3. Verify (also runs automatically as the second half of `make dcofimage`)
-image/verify_dcofimage.py --expected-sha256 \
-    "$(sha256sum delta-bridge.m12 | cut -d' ' -f1)" \
-    <out-dir>/DcoFImage
+# Outputs: build/m12/{DcoFImage, DcoFImage-stock-restore}
 ```
+
+> **Build identifiers (follow-up).** The previous hand-invocation passed
+> `-DDELTA_BRIDGE_BUILD_SHA` / `-DDELTA_BRIDGE_BUILD_DATE` so `/api/build`
+> reported the git sha + date. The Makefile `cross` target does not yet
+> pass these, so `/api/build` currently reports `(unknown)`. Follow-up:
+> thread `git rev-parse --short HEAD` + a UTC date into the `cross`
+> recipe's `-D` flags.
 
 ## Builder
 
@@ -284,8 +274,24 @@ F99B0000 E    F99C0000      F99D0000 E    F99E0000      F99F0000 E
 - ✓ Stock's USB-flash auto-detect path works (`/UsbFlash/DcoFImage` → "Update CSU File system by USB" log → erase+write+reboot)
 - ✓ The 16 MiB image fits and boots cleanly from mtd5
 
-**What it does NOT validate** (still pending operator):
-- The M12 image itself (replacements + trims) — only stock-restore tested so far. Both images use the same builder so the eraseblock fix carries over, but you'll want to verify M12 actually boots with the wrappers in place.
+**What it does NOT validate:** the M12 image itself — see the 2026-05-21 results below.
+
+## Bench-validation results (2026-05-21)
+
+The M12 image itself, flashed via the stock `/root/main` USB path. Three flash cycles (each ~11 min for the 16 MiB NOR write):
+
+**Flash 1 — M12 boots clean** through `/sbin/init` to BusyBox; delta-bridge `meter`/`adc`/`led` personalities + the main MQTT/web/RFID process all dispatched. The `--eraseblock=0x10000` fix held — no brick. One bug surfaced:
+- **Config seed broken** — `first-boot.sh` seeds from `/etc/delta-bridge/delta-bridge.conf.default`, but `build-dcofimage.sh` wrote the default one directory too high (`/etc/delta-bridge.conf.default`). delta-bridge fell back to compiled-in defaults (`web_enable=0`) → no web UI. Fixed in PR #28.
+
+**Flash 2 — config seed fixed**, web UI still didn't answer. Root-caused to two more bugs (PR #29):
+- **Bug #2** — `web_tick`/`rfid_tick` sat behind the MQTT-broker reconnect `continue`; with the broker unreachable the web UI was permanently starved (and the default broker `127.0.0.1` is *never* up — chicken-and-egg).
+- **Bug #3** — `/api/state` returned `charger_state_init()` zeros when `write_enable=false`, because `main.c` handed the web server a NULL shmem pointer.
+- Also found: **the stale-binary trap** — `make dcofimage` packed a hand-built `delta-bridge.m12` that no make rule rebuilt, so flashes 1–2 shipped a binary *without* the PR #29 fixes even after they were committed. Fixed: `make dcofimage` now cross-builds fresh every run (PR #29 Makefile commit).
+
+**Flash 3 — all fixes in the ARM binary.** `/api/state` confirmed **live** with `write_enable=false`: real voltage/current/pilot/faults, `availability:online`. End-to-end `meter → shmem → web` path validated.
+
+**Validated:** eraseblock fix, config-seed fix, web/`write_enable` decouple (bug #3), the build pipeline.
+**Not bench-spot-checked:** bug #2 (web survives broker-down) — in the binary and unit-tested (843/843), but the bench broker was up during validation. Spot-check by pointing the broker at a dead IP and confirming the web UI still answers.
 
 ## USB-stick prep — two different layouts needed
 
