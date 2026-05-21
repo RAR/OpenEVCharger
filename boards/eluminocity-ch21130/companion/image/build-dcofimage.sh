@@ -117,7 +117,7 @@ chmod 0755 "$ROOT/root/LED_control"
 # --- 2b. default config + first-boot script ---
 mkdir -p "$ROOT/etc/delta-bridge"
 
-cat > "$ROOT/etc/delta-bridge.conf.default" <<'EOF'
+cat > "$ROOT/etc/delta-bridge/delta-bridge.conf.default" <<'EOF'
 # delta-bridge default config — copied to /Storage/delta-bridge.conf on
 # first boot by /etc/delta-bridge/first-boot.sh. Edit via the web UI
 # (Config tab) or directly on /Storage/delta-bridge.conf.
@@ -196,8 +196,11 @@ rm -f "$CONF.new"
 
 # Seed config from default if missing (independent of USB).
 if [ ! -f "$CONF" ]; then
-    cp "$DBDIR/delta-bridge.conf.default" "$CONF"
-    echo "first-boot: seeded $CONF from default"
+    if cp "$DBDIR/delta-bridge.conf.default" "$CONF" 2>/dev/null; then
+        echo "first-boot: seeded $CONF from default"
+    else
+        echo "first-boot: WARNING — could not seed $CONF (default missing at $DBDIR/delta-bridge.conf.default)"
+    fi
 fi
 
 # Mount USB if a stick is present. /etc/rc runs `mdev -s` before us, so

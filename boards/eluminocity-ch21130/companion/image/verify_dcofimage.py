@@ -12,7 +12,7 @@ Asserts the image meets the docs/22 spec:
   - Kept-stock binaries present (main, Pri_Comm, Charging_Standard_RFID,
     FlashLog, RTC, ErrorHandle, snmpd, snmptrap, mini_httpd, wpa_supplicant)
   - /etc/funs invokes first-boot.sh before any daemon
-  - /etc/delta-bridge/{first-boot.sh, stk-manifest.txt} + /etc/delta-bridge.conf.default present
+  - /etc/delta-bridge/{first-boot.sh, stk-manifest.txt, delta-bridge.conf.default} present
 
 Usage:
     verify_dcofimage.py <DcoFImage> [--expected-sha256 <hex>]
@@ -172,9 +172,12 @@ def check_image(image_path, expected_sha256=None):
                 ok = False
 
         # Support files
+        # delta-bridge.conf.default MUST live under etc/delta-bridge/ — that's
+        # the path first-boot.sh's $DBDIR seed step reads. A bare etc/ copy
+        # silently breaks the first-boot seed (bench-caught 2026-05-21).
         for sub in ("delta-bridge/first-boot.sh",
                     "delta-bridge/stk-manifest.txt",
-                    "delta-bridge.conf.default"):
+                    "delta-bridge/delta-bridge.conf.default"):
             p = extract / "etc" / sub
             if not p.is_file():
                 fail(f"/etc/{sub} missing")
