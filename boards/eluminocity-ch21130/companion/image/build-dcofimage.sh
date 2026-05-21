@@ -16,9 +16,15 @@
 #   build-dcofimage.sh <stock-rootfs-dir> <delta-bridge-binary> <output-dir>
 #
 # Requires: mkfs.jffs2 (mtd-utils), python3.
-# mtd5 geometry — MUST match the unit (validated by flashing
-# DcoFImage-stock-restore first and confirming a clean boot):
-#   erase block size 128 KiB, little-endian, 16 MiB total.
+# mtd5 geometry — MUST match the unit (verified against /proc/mtd +
+# U-Boot flinfo + a fresh DcoFImage-stock-restore reflash that booted
+# cleanly through /sbin/init on 2026-05-19):
+#   erase block size 64 KiB (0x10000), little-endian, 16 MiB total.
+# The earlier value 0x20000 (128 KiB) was wrong and caused stock's flash
+# routine to half-erase the upper half of mtd5 (alternating 64 KiB
+# sectors); the resulting Frankenstein JFFS2 mounted but panicked at
+# /sbin/init with a libc symbol mismatch (init from one image, libc from
+# the other). See docs/24.
 set -e
 
 if [ $# -lt 3 ]; then
@@ -46,7 +52,10 @@ fi
 # --squash-uids: builder runs unprivileged but the target unit's kernel
 # expects all rootfs files owned by root:root. Squash both stock and our
 # images so the byte-level layout matches a real on-device extract.
-JFFS2_OPTS="--little-endian --eraseblock=0x20000 --pad=0x1000000 --squash-uids"
+# --eraseblock=0x10000: see the geometry comment above — this MUST match
+# the hardware sector size or stock's flasher will produce a
+# half-erased mtd5 that bricks the bench.
+JFFS2_OPTS="--little-endian --eraseblock=0x10000 --pad=0x1000000 --squash-uids"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -152,38 +161,85 @@ EOF
 cat > "$ROOT/etc/delta-bridge/first-boot.sh" <<'EOF'
 #!/bin/ash
 # first-boot.sh — idempotent, runs on every boot from /etc/funs.
+# Runs BEFORE /root/main starts, so we have exclusive USB access.
 #
 # Responsibilities:
 #   1. Ensure /Storage/delta-bridge/ exists for the bridge's stderr log.
 #   2. Seed /Storage/delta-bridge.conf from the shipped default if missing.
-#   3. Back up the stock binaries our wrappers replaced into /Storage/stk/
-#      (pulled from /UsbFlash/stk/ when operator pre-stages them; otherwise
-#      the supported rollback is a full DcoFImage-stock-restore reflash).
+#   3. Mount USB if a stick is present, then:
+#       a. Import /UsbFlash/delta-bridge.conf if byte-different from the
+#          on-disk copy (mirrors stock's DeltaEVSEConfig pattern, see
+#          docs/23). Source left in place; operator unplugs when done.
+#       b. Pre-stage stock binaries from /UsbFlash/stk/ into /Storage/stk/
+#          for in-place per-binary rollback. (Full rollback is always
+#          available via DcoFImage-stock-restore reflash.)
+#      Unmount USB on the way out so main's polled mount logic takes over.
 #
-# All steps no-op once their target exists.
+# Caveat: USB must be inserted BEFORE power-on for first-boot.sh to fire
+# on that boot — this script is one-shot, not polled. (Stock's
+# DeltaEVSEConfig handler in /root/main is polled and handles hotplug.)
+#
+# All steps no-op once their target exists. Output goes to /etc/funs's
+# stdout (kernel console / boot log).
 
 DBDIR=/etc/delta-bridge
 STK=/Storage/stk
 CONF=/Storage/delta-bridge.conf
 LOGDIR=/Storage/delta-bridge
+UF=/UsbFlash
+USB_SRC=$UF/delta-bridge.conf
 
-mkdir -p "$LOGDIR"
-mkdir -p "$STK"
+mkdir -p "$LOGDIR" "$STK" "$UF"
 
+# Reap any partial .new from an interrupted prior import.
+rm -f "$CONF.new"
+
+# Seed config from default if missing (independent of USB).
 if [ ! -f "$CONF" ]; then
     cp "$DBDIR/delta-bridge.conf.default" "$CONF"
     echo "first-boot: seeded $CONF from default"
 fi
 
-while read -r name; do
-    [ -z "$name" ] && continue
-    [ -f "$STK/$name" ] && continue
-    if [ -f "/UsbFlash/stk/$name" ]; then
-        cp "/UsbFlash/stk/$name" "$STK/$name"
-        chmod +x "$STK/$name"
-        echo "first-boot: backed up /UsbFlash/stk/$name -> $STK/$name"
+# Mount USB if a stick is present. /etc/rc runs `mdev -s` before us, so
+# /dev/sda{,1} block-device nodes exist iff the kernel sees the stick.
+mounted_by_us=0
+if ! grep -q " $UF " /proc/mounts 2>/dev/null; then
+    for dev in /dev/sda /dev/sda1; do
+        if [ -b "$dev" ] && mount "$dev" "$UF" 2>/dev/null; then
+            mounted_by_us=1
+            break
+        fi
+    done
+fi
+
+# Import operator-supplied config from USB if byte-different. Atomic via
+# .new+mv; nothing else writes $CONF at this point in boot.
+if [ -f "$USB_SRC" ]; then
+    if ! cmp -s "$USB_SRC" "$CONF"; then
+        if cp "$USB_SRC" "$CONF.new"; then
+            mv "$CONF.new" "$CONF"
+            echo "first-boot: imported $USB_SRC -> $CONF"
+        fi
     fi
-done < "$DBDIR/stk-manifest.txt"
+fi
+
+# Pre-stage stock binaries for in-place rollback. No-op once $STK is full.
+if [ -f "$DBDIR/stk-manifest.txt" ]; then
+    while read -r name; do
+        [ -z "$name" ] && continue
+        [ -f "$STK/$name" ] && continue
+        if [ -f "$UF/stk/$name" ]; then
+            cp "$UF/stk/$name" "$STK/$name"
+            chmod +x "$STK/$name"
+            echo "first-boot: backed up $UF/stk/$name -> $STK/$name"
+        fi
+    done < "$DBDIR/stk-manifest.txt"
+fi
+
+# Release USB so main's polled mount logic can take over.
+if [ "$mounted_by_us" = "1" ]; then
+    umount "$UF" 2>/dev/null || true
+fi
 EOF
 chmod 0755 "$ROOT/etc/delta-bridge/first-boot.sh"
 
