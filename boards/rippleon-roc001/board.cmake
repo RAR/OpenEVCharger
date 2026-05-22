@@ -46,6 +46,7 @@
     set(APP_SRCS
         src/main.c
         src/core/fault.c
+        src/core/gfci_policy.c
         src/core/j1772.c
         src/core/over_temp.c
         src/core/rfid.c

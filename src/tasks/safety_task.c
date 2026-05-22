@@ -13,6 +13,7 @@
 #include "../core/fault.h"
 #include "../core/evse_state.h"
 #include "../core/over_temp.h"
+#include "../core/gfci_policy.h"
 #include "../core/rfid.h"
 #include "pin_map.h"
 #include "../persist/crash_state.h"
@@ -208,12 +209,8 @@ static void publish_rfid_config(void);
  * different scenarios where 1.2 s of evidence is enough. */
 #define BL0939_HOC_PERSIST_POLLS     13U
 
-/* GFCI fault sense (PE2 LOW) sustained for this many ticks before
- * raising. 3 ticks @ 20 ms = 60 ms — well under UL2231's 25 ms +
- * upstream contactor-open budget for the trip path, but long enough
- * to ride out coupling glitches like the one we saw on PD6 during
- * the bench wiggle. */
-#define GFCI_PERSIST_TICKS  3U
+/* GFCI_PERSIST_TICKS, the GFCI_POL_* values, and the debounce /
+ * WARN-edge-latch decision live in core/gfci_policy.h. */
 
 /* PE continuity sense (PC5, ADC_RANK_PE). When the protective-earth
  * wire is intact the divider pulls PC5 to ~0 V (bench: raw 0..3 with
@@ -1386,64 +1383,53 @@ static void check_adc_runtime(fault_state_t *fs, evse_state_t *es,
     }
 }
 
-/* GFCI fault detector. Reads PE2 (active-low: module pulls LOW on
- * fault, idle HIGH). Debounces GFCI_PERSIST_TICKS consecutive LOW
- * reads, then acts per the persisted GFCI policy
- * (boot_config_gfci_fault_policy(), GFCI_POLICY_*):
+/* gfci_policy.h's GFCI_POL_* must mirror proto/commands.h's
+ * GFCI_POLICY_* — the persisted boot_config byte is fed straight from
+ * one namespace to the other. This TU sees both headers, so lock them. */
+_Static_assert(GFCI_POL_FAULT == GFCI_POLICY_FAULT &&
+               GFCI_POL_WARN  == GFCI_POLICY_WARN,
+               "core/gfci_policy.h GFCI_POL_* must mirror "
+               "proto/commands.h GFCI_POLICY_*");
+
+/* GFCI fault detector. Samples PE2 (the GFCI module's active-low fault
+ * line) and the persisted policy, runs the pure decision in
+ * core/gfci_policy.h (gfci_policy_step — debounce, WARN edge-latch,
+ * fail-safe-to-FAULT), and carries out the I/O for the action returned:
  *
- *   FAULT  (default) — raise FAULT_GFCI, force EVSE_FAULT, contactor
- *                      latched open. Power-cycle-only clear per UL2231
- *                      (fault.c::fault_clear() refuses GFCI by id).
- *   WARN             — log + emit EVT_FAULT_RAISED so HA records it,
- *                      but do NOT raise into fault_state and do NOT
- *                      open the contactor — charging continues.
+ *   GFCI_ACT_NONE        — nothing this tick.
+ *   GFCI_ACT_WARN_EMIT   — emit one fault event (event_log entry +
+ *                          EVT_FAULT_RAISED, so HA records the trip)
+ *                          WITHOUT touching fault_state or the
+ *                          contactor — charging continues.
+ *   GFCI_ACT_RAISE_FAULT — raise FAULT_GFCI and force EVSE_FAULT. The
+ *                          evse_transition(EVSE_FAULT) force-open
+ *                          latches the contactor open even if the PE12
+ *                          driver were stuck. Power-cycle-only clear
+ *                          per UL2231 (fault.c::fault_clear() refuses
+ *                          GFCI by id).
  *
- * Any policy value other than WARN is treated as FAULT — an unknown
- * or stale byte fails safe to the UL2231 interlock.
- *
- * WARN is a bench/diagnostic escape for a known external
- * wiring/leakage fault — it suppresses a real safety interlock. The
- * *gfci_warned edge-latch makes WARN emit exactly once per PE2-LOW
- * episode (re-armed when PE2 returns HIGH) rather than every tick.
- *
- * In FAULT mode, once raised the fault_is_active() guard skips the
- * raise path; the streak still accumulates harmlessly. The redundant
- * force-open latch fired by evse_transition(EVSE_FAULT) ensures the
- * contactor is mechanically latched open even if PE12 driver were
- * stuck. */
+ * The debounce window, the WARN-once-per-episode latch, and the policy
+ * constants all live in core/gfci_policy.h. */
 static void check_gfci(fault_state_t *fs, evse_state_t *es,
                        j1772_state_t js, int32_t cp_mv,
-                       int *gfci_streak, int *gfci_warned)
+                       gfci_policy_ctx_t *gctx)
 {
-    if (gfci_fault_active()) {
-        if (*gfci_streak < (int)GFCI_PERSIST_TICKS) ++(*gfci_streak);
-    } else {
-        *gfci_streak = 0;
-        *gfci_warned = 0;   /* PE2 released — re-arm the WARN edge */
-    }
+    switch (gfci_policy_step(gctx, gfci_fault_active(),
+                             boot_config_gfci_fault_policy())) {
+    case GFCI_ACT_NONE:
+        break;
 
-    if (*gfci_streak < (int)GFCI_PERSIST_TICKS)
-        return;
+    case GFCI_ACT_WARN_EMIT:
+        printk("fault: %s WARN — GFCI policy=WARN, charging continues "
+               "(PE2 LOW >=%u ticks)\n",
+               fault_name(FAULT_GFCI), (unsigned)GFCI_PERSIST_TICKS);
+        /* Surface to HA exactly like a real raise (event_log entry +
+         * EVT_FAULT_RAISED for any HA-side alert automation) without
+         * touching fault_state or the contactor. */
+        post_fault_event(FAULT_GFCI, js, *es, cp_mv);
+        break;
 
-    uint8_t policy = boot_config_gfci_fault_policy();
-
-    if (policy == GFCI_POLICY_WARN) {
-        if (!*gfci_warned) {
-            *gfci_warned = 1;
-            printk("fault: %s WARN — GFCI policy=WARN, charging continues "
-                   "(PE2 LOW >=%u ticks)\n",
-                   fault_name(FAULT_GFCI), (unsigned)GFCI_PERSIST_TICKS);
-            /* Surface to HA exactly like a real raise (event_log entry
-             * + EVT_FAULT_RAISED for any HA-side alert automation)
-             * without touching fault_state or the contactor. */
-            post_fault_event(FAULT_GFCI, js, *es, cp_mv);
-        }
-        return;
-    }
-
-    /* GFCI_POLICY_FAULT (default) — and any non-WARN value — UL2231
-     * behaviour. */
-    if (!fault_is_active(fs, FAULT_GFCI)) {
+    case GFCI_ACT_RAISE_FAULT:
         if (fault_raise(fs, FAULT_GFCI) == 1) {
             printk("fault: raised %s (PE2=LOW for >=%u ticks)\n",
                    fault_name(FAULT_GFCI),
@@ -1451,6 +1437,7 @@ static void check_gfci(fault_state_t *fs, evse_state_t *es,
             post_fault_event(FAULT_GFCI, js, *es, cp_mv);
         }
         evse_transition(es, EVSE_FAULT);
+        break;
     }
 }
 
@@ -1828,8 +1815,8 @@ static void safety_task_run(void *arg)
     int last_logged_sense = -1;     /* force initial print */
     int cp_e_streak = 0;
     int evse_c_streak = 0;
-    int gfci_streak = 0;
-    int gfci_warned = 0;
+    gfci_policy_ctx_t gfci_ctx = { .trip_streak = 0, .warned = 0,
+                                   .fault_active = 0 };
     int pe_streak = 0;
     int adc_runtime_streak = 0;
     int cc_streak = 0;
@@ -1985,7 +1972,7 @@ static void safety_task_run(void *arg)
         (void)weld_streak; (void)stuck_open_streak; (void)last_logged_sense;
         (void)check_relay_weld; (void)check_relay_stuck_open;
 #endif
-        check_gfci(&fs, &es, s, cp_mv, &gfci_streak, &gfci_warned);
+        check_gfci(&fs, &es, s, cp_mv, &gfci_ctx);
         check_pe_continuity(&fs, &es, s, cp_mv, &pe_streak);
         check_adc_runtime(&fs, &es, s, cp_mv, &adc_runtime_streak);
         check_cc_out_of_range(&fs, &es, s, cp_mv, &cc_streak);

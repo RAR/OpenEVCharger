@@ -101,4 +101,43 @@ void suite_boot_config(void)
     rc = boot_config_load();
     CHECK_EQ_INT(rc, 0);
     CHECK_EQ_INT(boot_config_advertised_amps(), 0);
+
+    TEST_CASE("gfci policy: blank flash defaults to FAULT (0)");
+    w25q_mock_reset(); w25q_init();
+    boot_config_load();
+    CHECK_EQ_INT(boot_config_gfci_fault_policy(), 0);
+
+    TEST_CASE("gfci policy: set WARN (1) round-trips through reload");
+    w25q_mock_reset(); w25q_init();
+    boot_config_load();
+    rc = boot_config_set_gfci_fault_policy(1);
+    CHECK_EQ_INT(rc, 0);
+    CHECK_EQ_INT(boot_config_gfci_fault_policy(), 1);
+    rc = boot_config_load();
+    CHECK_EQ_INT(rc, 0);
+    CHECK_EQ_INT(boot_config_gfci_fault_policy(), 1);
+
+    TEST_CASE("gfci policy: validator rejects values above WARN");
+    w25q_mock_reset(); w25q_init();
+    boot_config_load();
+    CHECK_EQ_INT(boot_config_set_gfci_fault_policy(2), -1);
+    CHECK_EQ_INT(boot_config_set_gfci_fault_policy(0xFFu), -1);
+    /* a rejected write must not move the live value off the default */
+    CHECK_EQ_INT(boot_config_gfci_fault_policy(), 0);
+
+    TEST_CASE("gfci policy: set FAULT (0) round-trips after a WARN write");
+    w25q_mock_reset(); w25q_init();
+    boot_config_load();
+    boot_config_set_gfci_fault_policy(1);          /* move off default */
+    rc = boot_config_set_gfci_fault_policy(0);
+    CHECK_EQ_INT(rc, 0);
+    rc = boot_config_load();
+    CHECK_EQ_INT(rc, 0);
+    CHECK_EQ_INT(boot_config_gfci_fault_policy(), 0);
+
+    TEST_CASE("gfci policy: set is idempotent for the unchanged value");
+    w25q_mock_reset(); w25q_init();
+    boot_config_load();
+    rc = boot_config_set_gfci_fault_policy(0);     /* already 0 */
+    CHECK_EQ_INT(rc, 0);
 }

@@ -22,7 +22,7 @@ cmake_minimum_required(VERSION 3.20)
 # Suites:
 #   crc16, crc32, j1772, fault, tlv          — pure logic
 #   pingpong, boot_config                    — persist/ on w25q mock
-#   over_temp                                — core/ pure detector
+#   over_temp, gfci_policy                   — core/ pure detectors
 
 project(openevcharger_host_tests C)
 
@@ -46,6 +46,7 @@ add_library(openevcharger_pure STATIC
     ${SRC_DIR}/core/j1772.c
     ${SRC_DIR}/core/fault.c
     ${SRC_DIR}/core/over_temp.c
+    ${SRC_DIR}/core/gfci_policy.c
     ${SRC_DIR}/core/system_time.c
     ${SRC_DIR}/persist/crc16.c
     ${SRC_DIR}/persist/crc.c
@@ -86,6 +87,7 @@ add_executable(openevcharger_tests
     test_pingpong.c
     test_boot_config.c
     test_over_temp.c
+    test_gfci_policy.c
     test_ota_stage.c
     test_system_time.c
 )

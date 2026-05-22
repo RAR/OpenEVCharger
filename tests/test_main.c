@@ -7,6 +7,7 @@ const char *g_current_case = NULL;
 extern void suite_pingpong(void);
 extern void suite_boot_config(void);
 extern void suite_over_temp(void);
+extern void suite_gfci_policy(void);
 extern void suite_ota_stage(void);
 extern void suite_system_time(void);
 
@@ -20,6 +21,7 @@ int main(void)
     suite_pingpong();
     suite_boot_config();
     suite_over_temp();
+    suite_gfci_policy();
     suite_ota_stage();
     suite_system_time();
 
