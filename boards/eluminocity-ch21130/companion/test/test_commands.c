@@ -77,6 +77,14 @@ static void test_rated_amps(void)
     /* NULL shmem -> -2 */
     CHECK_EQ(cs_apply_rated_amps_write(NULL, (const unsigned char *)"15", 2,
                                        &out, err, sizeof(err)), -2);
+
+    /* Read-only shmem (write_enable=false) -> -2 "write disabled", no mutation */
+    sm.writable = 0;
+    err[0] = '\0';
+    CHECK_EQ(cs_apply_rated_amps_write(&sm, (const unsigned char *)"15", 2,
+                                       &out, err, sizeof(err)), -2);
+    CHECK(strstr(err, "write disabled") != NULL);
+    CHECK_EQ(shmem_u8(&sm, OFF_RATED_AMPS), 16);   /* unchanged */
 }
 
 static void test_authorize(void)
@@ -117,6 +125,14 @@ static void test_authorize(void)
     /* NULL shmem */
     CHECK_EQ(cs_apply_authorize_write(NULL, (const unsigned char *)"ON", 2,
                                       &on, err, sizeof(err)), -2);
+
+    /* Read-only shmem (write_enable=false) -> -2 "write disabled", no mutation */
+    sm.writable = 0;
+    err[0] = '\0';
+    CHECK_EQ(cs_apply_authorize_write(&sm, (const unsigned char *)"ON", 2,
+                                      &on, err, sizeof(err)), -2);
+    CHECK(strstr(err, "write disabled") != NULL);
+    CHECK_EQ(shmem_u8(&sm, OFF_USER_STATE), 0x55);   /* unchanged */
 }
 
 static void test_clear_faults(void)
@@ -139,6 +155,14 @@ static void test_clear_faults(void)
 
     /* NULL shmem */
     CHECK_EQ(cs_apply_clear_faults_write(NULL, err, sizeof(err)), -2);
+
+    /* Read-only shmem (write_enable=false) -> -2 "write disabled", bitmap untouched */
+    shmem_write_u32_le(&sm, OFF_ALARM_BITMAP, 0xCAFEu);   /* seed while writable */
+    sm.writable = 0;
+    err[0] = '\0';
+    CHECK_EQ(cs_apply_clear_faults_write(&sm, err, sizeof(err)), -2);
+    CHECK(strstr(err, "write disabled") != NULL);
+    CHECK_EQ(shmem_u32_le(&sm, OFF_ALARM_BITMAP), 0xCAFEu);   /* unchanged */
 }
 
 int main(void)

@@ -43,6 +43,7 @@ Confirmed by disassembly of `main` (`0x149e8 .. 0x17108`). The end of `main` is 
 - A USB stick inserted at *any time* (not just boot) gets picked up on the next loop iteration.
 - The DeltaEVSEConfig file is **not removed** after import — leaving the stick in means the values are re-applied every loop tick. The EncodeLogMessage diff log only grows when something actually changes, so re-applying identical values is silent.
 - For one-shot provisioning, the operator must unplug the stick after the first apply (or write the file once and rely on the no-op re-apply).
+- **`GetConfig()` is a full replace, not a merge** (bench-confirmed 2026-05-21 — see §7). A `DeltaEVSEConfig` that omits keys does **not** leave them alone: absent keys are reset to firmware defaults. Any file handed to it must carry **all 36 keys**.
 
 ---
 
@@ -233,6 +234,38 @@ Stock writes `Configuration_<serial>_*` snapshots to USB on insert (see §6). We
 | `/UsbFlash/Configuration_<serial>_<date>_V<ver>` | write | Current config snapshot on USB insert |
 
 The auto-dump-on-insert behavior is independent of DeltaEVSEConfig — every USB insert pulls a log/config snapshot off to the stick, even when no DeltaEVSEConfig is present. Convenient for field diagnostics.
+
+---
+
+## 7. Driving GetConfig without a USB stick (bench, 2026-05-21)
+
+For the companion web UI to edit stock config (planned milestone — see the `stock-config-web-ui` project memory), delta-bridge must invoke `GetConfig()` programmatically. Bench-tested 2026-05-21:
+
+### 7.1 The `/dev/sda` gate + the `mknod` workaround
+
+A plain on-disk `/UsbFlash/DeltaEVSEConfig` is **not** read — per §1, `GetConfig()` only runs if `access("/dev/sda")` or `access("/dev/sda1")` succeeds, and stock `mount`s `/dev/sda` over `/UsbFlash` first (which would shadow an on-disk file with a real stick's fs).
+
+**Workaround (bench-confirmed working):** create a fake block node so the `access()` gate passes —
+
+```sh
+mknod /dev/sda b 8 0      # access("/dev/sda") now succeeds
+# stock runs `mount /dev/sda /UsbFlash` -> FAILS (no backing device),
+# but falls through to GetConfig() anyway, which reads the on-disk
+# /UsbFlash/DeltaEVSEConfig we wrote.
+rm /dev/sda               # clean up afterwards
+```
+
+A loopback-backed device (`losetup` a FAT image, point `/dev/sda` at it) would be more robust — the mount *succeeds* — if the fall-through-on-mount-failure behavior ever proves fragile. Test 1 (plain file, no `/dev/sda`) was confirmed a no-op; Test 2 (with the fake node) confirmed `GetConfig()` ran.
+
+### 7.2 Full-replace — supply ALL 36 keys
+
+`GetConfig()` rewrites the **entire** config struct. A file with a subset of keys resets every absent key to its firmware default — bench-confirmed: a one-key file (`SNMP Trap Receiver:` only) left the unit with a full set of default values. **Programmatic writes must be a read-modify-write of the whole 36-key set:** read current values from shmem (the live source of truth), apply the edit(s), write the complete file.
+
+Restore source if a config is clobbered: stock auto-dumps `/UsbFlash/Configuration_<serial>_<date>_V<ver>` to any inserted USB stick (§6) — a full key set; rename to `DeltaEVSEConfig` and re-import.
+
+### 7.3 SNMP trap path (related finding)
+
+`/root/ErrorHandle` (kept stock in M12) attaches shmem and, on every fault/event, `system()`s `/root/snmptrap -v 2c -c <community> <host> "" .1.3.6.1.4.1.6785.1.8.3.<N> … i <val>` — one OID leaf per event code (~23 of them). Host + community come from the `SNMP Trap Receiver:` config key. Observed: the host's first octet wanders (`88.` / `23.` / `224.168.100.1`); `224.168.100.1` is the firmware default (a multicast placeholder), and ErrorHandle appears to read the host with an octet-0 bug. Net effect on an unconfigured unit: fault telemetry sprayed at a semi-random public IP. Set `SNMP Trap Receiver:` to a sane/blank value to silence it.
 
 ---
 

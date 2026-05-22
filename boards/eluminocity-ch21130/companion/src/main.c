@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 static volatile sig_atomic_t g_stop = 0;
@@ -198,10 +199,16 @@ int main(int argc, char **argv)
     }
 
     /* v0.4 embedded web server — opt-in via web_enable. State reads always
-     * work; control writes only succeed when write_enable=true (the helpers
-     * return -2/503 if shm is NULL). bring_up is best-effort: a port
-     * collision logs and skips the server but does NOT bring down the MQTT
-     * bridge. */
+     * work; control writes only succeed when write_enable=true. bring_up is
+     * best-effort: a port collision logs and skips the server but does NOT
+     * bring down the MQTT bridge.
+     *
+     * ws.shm is ALWAYS &sm — the web server needs it for read-only state
+     * (/api/state). When write_enable=false, sm is a read-only attach
+     * (sm.writable=0) and the cs_apply_* write helpers reject writes with a
+     * "write disabled" 503. Handing the web server NULL here would instead
+     * blank out the whole status page (it'd render charger_state_init()
+     * defaults), so reads MUST get the pointer regardless of write_enable. */
     struct web_server ws;
     memset(&ws, 0, sizeof(ws));
     ws.listen_fd = -1;
@@ -211,7 +218,7 @@ int main(int argc, char **argv)
         ws.web_user  = cfg.web_user;
         ws.web_pass  = cfg.web_pass;
         ws.cfg       = &cfg;
-        ws.shm       = cfg.write_enable ? &sm : NULL;
+        ws.shm       = &sm;
         ws.orig_argv = argv;
         ws.conf_path = conf_path;
         if (web_server_start(&ws) == 0)
@@ -223,10 +230,18 @@ int main(int argc, char **argv)
     int adapter_up = 0;
     int period_us  = 1000000 / cfg.poll_hz;
     bo = 0;
+    /* When the broker is unreachable we retry on a backoff schedule, but the
+     * loop must NOT block on it: web_tick()/rfid_reader_tick() below have to
+     * keep running so the web UI stays reachable (it's the only way to fix a
+     * bad broker setting) and RFID keeps polling. So instead of sleeping the
+     * backoff, we gate the next reconnect attempt on a wall-clock deadline
+     * and let the loop run at its normal period_us cadence throughout. */
+    time_t next_broker_retry = 0;   /* 0 => attempt on the first iteration */
 
     while (!g_stop) {
-        /* 2. ensure the adapter is up */
-        if (!adapter_up) {
+        /* 2. (re)connect the MQTT adapter — rate-limited by backoff, never
+         *    blocking. Steps 5/6 must run regardless of broker reachability. */
+        if (!adapter_up && time(NULL) >= next_broker_retry) {
             if (nb.init(&nb) == 0) {
                 adapter_up = 1;
                 bo = 0;
@@ -234,34 +249,37 @@ int main(int argc, char **argv)
             } else {
                 bo = backoff_next(bo);
                 fprintf(stderr, "delta-bridge: broker down, retry in %ds\n", bo);
-                interruptible_sleep(bo);
-                continue;
+                next_broker_retry = time(NULL) + bo;
             }
         }
 
-        /* 3. read + publish */
-        charger_state_read(&cur, &sm);
-        unsigned int dirty = charger_state_diff(&prev, &cur);
-        int full = (prev.pilot_state == PILOT_UNKNOWN &&
-                    prev.voltage_v == 0.0f && prev.current_a == 0.0f);
-        if (full || dirty) {
-            if (nb.publish_state(&nb, &cur, dirty, full) != 0) {
-                adapter_up = 0;             /* link down -> reconnect + full */
-                continue;
+        /* 3. read + publish — only meaningful while the adapter is up. */
+        if (adapter_up) {
+            charger_state_read(&cur, &sm);
+            unsigned int dirty = charger_state_diff(&prev, &cur);
+            int full = (prev.pilot_state == PILOT_UNKNOWN &&
+                        prev.voltage_v == 0.0f && prev.current_a == 0.0f);
+            if (full || dirty) {
+                if (nb.publish_state(&nb, &cur, dirty, full) != 0)
+                    adapter_up = 0;         /* link down -> reconnect + full */
+            }
+            /* 4. housekeeping; tick() reporting down also forces reconnect.
+             *    Skip if publish already dropped the link this iteration. */
+            if (adapter_up) {
+                prev = cur;
+                if (nb.tick(&nb) != 0)
+                    adapter_up = 0;
             }
         }
-        prev = cur;
 
-        /* 4. housekeeping; tick() reporting down also forces reconnect */
-        if (nb.tick(&nb) != 0)
-            adapter_up = 0;
-
-        /* 5. web tick — drain any pending HTTP requests. Best-effort: a
-         * failure here doesn't impact the MQTT loop. */
+        /* 5. web tick — drain pending HTTP requests. Runs every iteration,
+         * independent of broker reachability: a broker outage must not take
+         * down the web UI. */
         if (web_up)
             web_tick(&ws);
 
-        /* 6. rfid tick — non-blocking; cheap when no card is in field. */
+        /* 6. rfid tick — non-blocking; cheap when no card is in field. Also
+         * independent of the broker. */
         if (rdr)
             rfid_reader_tick(rdr);
 

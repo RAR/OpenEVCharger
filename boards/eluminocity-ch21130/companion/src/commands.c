@@ -64,10 +64,11 @@ int cs_apply_rated_amps_write(struct shmem *sm,
                 "(want int 6..30), ignored\n");
         return -1;
     }
-    if (!sm) {
-        set_err(err, errcap, "shmem not attached");
+    if (!sm || !sm->writable) {
+        set_err(err, errcap, "write disabled (write_enable=false)");
         fprintf(stderr,
-                "delta-bridge: rated_amps: write requested but shmem is NULL\n");
+                "delta-bridge: rated_amps: write requested but write is "
+                "disabled (write_enable=false)\n");
         return -2;
     }
     if (shmem_write_u8(sm, OFF_RATED_AMPS, (uint8_t)v) != 0) {
@@ -99,10 +100,11 @@ int cs_apply_authorize_write(struct shmem *sm,
                 "ignored\n");
         return -1;
     }
-    if (!sm) {
-        set_err(err, errcap, "shmem not attached");
+    if (!sm || !sm->writable) {
+        set_err(err, errcap, "write disabled (write_enable=false)");
         fprintf(stderr,
-                "delta-bridge: authorize: write requested but shmem is NULL\n");
+                "delta-bridge: authorize: write requested but write is "
+                "disabled (write_enable=false)\n");
         return -2;
     }
     if (shmem_write_u8(sm, OFF_USER_STATE, v) != 0) {
@@ -119,10 +121,11 @@ int cs_apply_authorize_write(struct shmem *sm,
 int cs_apply_clear_faults_write(struct shmem *sm,
                                 char *err, size_t errcap)
 {
-    if (!sm) {
-        set_err(err, errcap, "shmem not attached");
+    if (!sm || !sm->writable) {
+        set_err(err, errcap, "write disabled (write_enable=false)");
         fprintf(stderr,
-                "delta-bridge: clear_faults: write requested but shmem is NULL\n");
+                "delta-bridge: clear_faults: write requested but write is "
+                "disabled (write_enable=false)\n");
         return -2;
     }
     if (shmem_write_u32_le(sm, OFF_ALARM_BITMAP, 0u) != 0) {

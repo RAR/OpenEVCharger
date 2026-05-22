@@ -1,10 +1,17 @@
 # delta-bridge — companion MQTT bridge for the Eluminocity CH-21130 / Delta EVMU30.
 #
 #   make            cross-compile the static armv5te binary (delta-bridge)
+#                   — needs the musl toolchain prefix on PATH
+#   make cross      cross-compile via the muslcc Docker image (no local
+#                   toolchain install needed)
+#   make dcofimage  cross-build (via `cross`) + pack the M12 DcoFImage
 #   make test       build + run all host unit tests
 #   make clean
 #
 # CROSS must point at the musl armv5te toolchain prefix (see ../README.md).
+# The build artifact is always plain `delta-bridge` — no version suffix.
+# Git history is the version record; `make dcofimage` rebuilds it fresh so
+# it can never go stale against src/.
 
 CROSS  ?= armv5l-linux-musleabi-
 CC     ?= cc
@@ -24,7 +31,7 @@ TESTS := test/test_smoke test/test_shmem test/test_charger_state test/test_mqtt_
          test/test_mqtt_adapter test/test_config test/test_backoff test/test_commands \
          test/test_web test/test_rfid test/test_meter test/test_adc test/test_led
 
-.PHONY: all test test-image clean dcofimage
+.PHONY: all test test-image clean dcofimage cross
 
 all: delta-bridge
 
@@ -38,19 +45,30 @@ test: $(TESTS) test-image
 test-image:
 	@cd image && python3 test_wrap_dco.py
 
+# --- cross-compile via Docker ---
+# Builds `delta-bridge` (ARMv5TE, musl, static) inside the muslcc Docker Hub
+# image — musl.cc itself blocks CI/cloud IPs, Docker Hub stays reachable.
+# The image ships an unprefixed toolchain, so we pass CROSS="". This is the
+# same invocation CI uses (.github/workflows/eluminocity-companion.yml).
+cross:
+	docker run --rm -v "$(CURDIR):/work" -w /work \
+	  muslcc/x86_64:armv5l-linux-musleabi \
+	  sh -c 'apk add --no-cache make >/dev/null && make clean && make CROSS=""'
+
 # --- DcoFImage build (M12, see docs/22) ---
-# Inputs:
+# `dcofimage` depends on `cross`, so the binary is ALWAYS recompiled fresh
+# before packing — no hand-built artifact, nothing to go stale. Inputs:
 #   STOCK_ROOTFS — path to extracted stock rootfs
-#   BRIDGE_BIN   — cross-compiled delta-bridge binary
+#   BRIDGE_BIN   — cross-compiled delta-bridge binary (built by `cross`)
 #   OUT_DIR      — where to write DcoFImage / DcoFImage-stock-restore
 # Defaults match this repo's layout; override on the command line.
 STOCK_ROOTFS ?= ../../../../../testcharger/delta/dump/rootfs-unpacked
-BRIDGE_BIN   ?= delta-bridge.m12
+BRIDGE_BIN   ?= delta-bridge
 OUT_DIR      ?= ../../../../../../build/m12
 
-dcofimage:
+dcofimage: cross
 	@if [ ! -f "$(BRIDGE_BIN)" ]; then \
-		echo "error: $(BRIDGE_BIN) missing — see docs/22 for the docker-cc invocation"; \
+		echo "error: $(BRIDGE_BIN) missing — 'make cross' should have built it"; \
 		exit 1; \
 	fi
 	image/build-dcofimage.sh "$(STOCK_ROOTFS)" "$(BRIDGE_BIN)" "$(OUT_DIR)"
