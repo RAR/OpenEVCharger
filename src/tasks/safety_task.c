@@ -37,6 +37,7 @@ typedef enum {
     SAFETY_REQ_PUBLISH_RFID_CONFIG,
     SAFETY_REQ_SIMULATE_REPLUG,
     SAFETY_REQ_RUN_GFCI_CAL_TEST,
+    SAFETY_REQ_PUBLISH_GFCI_POLICY,
 } safety_req_type_t;
 
 /* Simulate-replug window: CP held at state F (-12 V) and the
@@ -891,6 +892,11 @@ int safety_request_run_gfci_cal_test(void)
     return post_safety_req(SAFETY_REQ_RUN_GFCI_CAL_TEST, 0, 0);
 }
 
+int safety_request_publish_gfci_policy(void)
+{
+    return post_safety_req(SAFETY_REQ_PUBLISH_GFCI_POLICY, 0, 0);
+}
+
 static void publish_rfid_config(void)
 {
     struct __attribute__((packed)) {
@@ -901,6 +907,12 @@ static void publish_rfid_config(void)
         .session_authorized = s_session_authorized,
     };
     (void)comms_publish_event(EVT_RFID_CONFIG, &cfg, sizeof cfg);
+}
+
+static void publish_gfci_policy(void)
+{
+    uint8_t policy = boot_config_gfci_fault_policy();
+    (void)comms_publish_event(EVT_GFCI_POLICY, &policy, sizeof policy);
 }
 
 /* Apply one inbox entry. Returns the (possibly updated) EVSE state by
@@ -999,6 +1011,9 @@ static void process_request(struct safety_req *r,
         break;
     case SAFETY_REQ_PUBLISH_RFID_CONFIG:
         publish_rfid_config();
+        break;
+    case SAFETY_REQ_PUBLISH_GFCI_POLICY:
+        publish_gfci_policy();
         break;
     case SAFETY_REQ_SIMULATE_REPLUG:
         /* Refuse if there's no plug (J1772 committed=A or INVALID).
@@ -1373,27 +1388,71 @@ static void check_adc_runtime(fault_state_t *fs, evse_state_t *es,
 
 /* GFCI fault detector. Reads PE2 (active-low: module pulls LOW on
  * fault, idle HIGH). Debounces GFCI_PERSIST_TICKS consecutive LOW
- * reads before raising. FAULT_GFCI is latched + power-cycle-only
- * clear per UL2231 (fault.c::fault_clear() refuses GFCI by id).
+ * reads, then acts per the persisted GFCI policy
+ * (boot_config_gfci_fault_policy(), GFCI_POLICY_*):
  *
- * Once raised, a GFCI fault keeps the EVSE in FAULT until
- * power-cycle. We don't re-trigger on subsequent LOW reads — the
- * fault_is_active() guard skips the raise path; the streak still
- * accumulates harmlessly. The redundant force-open latch fired by
- * evse_transition(EVSE_FAULT) ensures the contactor is mechanically
- * latched open even if PE12 driver were stuck. */
+ *   FAULT  (default) — raise FAULT_GFCI, force EVSE_FAULT, contactor
+ *                      latched open. Power-cycle-only clear per UL2231
+ *                      (fault.c::fault_clear() refuses GFCI by id).
+ *   WARN             — log + emit EVT_FAULT_RAISED so HA records it,
+ *                      but do NOT raise into fault_state and do NOT
+ *                      open the contactor — charging continues.
+ *   IGNORE           — detector still runs (streak observed) but takes
+ *                      no action beyond a single trace log.
+ *
+ * WARN/IGNORE are bench/diagnostic escapes for a known external
+ * wiring/leakage fault — they suppress a real safety interlock. The
+ * *gfci_warned edge-latch makes WARN/IGNORE emit exactly once per
+ * PE2-LOW episode (re-armed when PE2 returns HIGH) rather than every
+ * tick.
+ *
+ * In FAULT mode, once raised the fault_is_active() guard skips the
+ * raise path; the streak still accumulates harmlessly. The redundant
+ * force-open latch fired by evse_transition(EVSE_FAULT) ensures the
+ * contactor is mechanically latched open even if PE12 driver were
+ * stuck. */
 static void check_gfci(fault_state_t *fs, evse_state_t *es,
                        j1772_state_t js, int32_t cp_mv,
-                       int *gfci_streak)
+                       int *gfci_streak, int *gfci_warned)
 {
     if (gfci_fault_active()) {
         if (*gfci_streak < (int)GFCI_PERSIST_TICKS) ++(*gfci_streak);
     } else {
         *gfci_streak = 0;
+        *gfci_warned = 0;   /* PE2 released — re-arm the WARN/IGNORE edge */
     }
 
-    if (*gfci_streak >= (int)GFCI_PERSIST_TICKS &&
-        !fault_is_active(fs, FAULT_GFCI)) {
+    if (*gfci_streak < (int)GFCI_PERSIST_TICKS)
+        return;
+
+    uint8_t policy = boot_config_gfci_fault_policy();
+
+    if (policy == GFCI_POLICY_IGNORE) {
+        if (!*gfci_warned) {
+            *gfci_warned = 1;
+            printk("fault: %s asserted but GFCI policy=IGNORE — no action "
+                   "(PE2 LOW >=%u ticks)\n",
+                   fault_name(FAULT_GFCI), (unsigned)GFCI_PERSIST_TICKS);
+        }
+        return;
+    }
+
+    if (policy == GFCI_POLICY_WARN) {
+        if (!*gfci_warned) {
+            *gfci_warned = 1;
+            printk("fault: %s WARN — GFCI policy=WARN, charging continues "
+                   "(PE2 LOW >=%u ticks)\n",
+                   fault_name(FAULT_GFCI), (unsigned)GFCI_PERSIST_TICKS);
+            /* Surface to HA exactly like a real raise (event_log entry
+             * + EVT_FAULT_RAISED for any HA-side alert automation)
+             * without touching fault_state or the contactor. */
+            post_fault_event(FAULT_GFCI, js, *es, cp_mv);
+        }
+        return;
+    }
+
+    /* GFCI_POLICY_FAULT (default) — UL2231 behaviour. */
+    if (!fault_is_active(fs, FAULT_GFCI)) {
         if (fault_raise(fs, FAULT_GFCI) == 1) {
             printk("fault: raised %s (PE2=LOW for >=%u ticks)\n",
                    fault_name(FAULT_GFCI),
@@ -1779,6 +1838,7 @@ static void safety_task_run(void *arg)
     int cp_e_streak = 0;
     int evse_c_streak = 0;
     int gfci_streak = 0;
+    int gfci_warned = 0;
     int pe_streak = 0;
     int adc_runtime_streak = 0;
     int cc_streak = 0;
@@ -1846,6 +1906,21 @@ static void safety_task_run(void *arg)
      * on this PCB: PB12 is the UL2231 force-open latch, not a closed-
      * feedback sense — see relay.h. Runtime BL0939 WELD/STUCK_OPEN
      * detectors cover the same fault modes during real sessions. */
+
+    /* Announce the GFCI fault-handling policy at boot. A non-FAULT
+     * policy suppresses the UL2231 ground-fault interlock — log it
+     * loudly so a forgotten WARN/IGNORE is obvious in the boot trace. */
+    {
+        uint8_t gp = boot_config_gfci_fault_policy();
+        if (gp == GFCI_POLICY_FAULT) {
+            printk("safety: GFCI policy = FAULT (UL2231 interlock active)\n");
+        } else {
+            printk("safety: *** WARNING *** GFCI policy = %s — ground-fault "
+                   "interlock SUPPRESSED (bench/diagnostic)\n",
+                   gp == GFCI_POLICY_WARN ? "WARN (charging continues)"
+                                          : "IGNORE (no action)");
+        }
+    }
 
     check_safe_fail(&fs, &es, js0, cp_mv0);
     if (es != EVSE_FAULT) {
@@ -1920,7 +1995,7 @@ static void safety_task_run(void *arg)
         (void)weld_streak; (void)stuck_open_streak; (void)last_logged_sense;
         (void)check_relay_weld; (void)check_relay_stuck_open;
 #endif
-        check_gfci(&fs, &es, s, cp_mv, &gfci_streak);
+        check_gfci(&fs, &es, s, cp_mv, &gfci_streak, &gfci_warned);
         check_pe_continuity(&fs, &es, s, cp_mv, &pe_streak);
         check_adc_runtime(&fs, &es, s, cp_mv, &adc_runtime_streak);
         check_cc_out_of_range(&fs, &es, s, cp_mv, &cc_streak);

@@ -43,6 +43,11 @@ int persist_post_boot_config_amps(uint8_t amps);
  * sees the live state. */
 int persist_post_require_rfid_auth(uint8_t enable);
 
+/* Set the GFCI fault-handling policy (GFCI_POLICY_*) and persist. Once
+ * stored, persist_task asks safety_task to publish EVT_GFCI_POLICY so
+ * HA sees the live value. */
+int persist_post_gfci_policy(uint8_t policy);
+
 /* Persist new CP calibration values. Same single-owner rationale. */
 int persist_post_calibration(int16_t anchor_raw,
                              int16_t slope_num,

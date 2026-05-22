@@ -59,10 +59,11 @@ static int store(const char *what)
         return rc;
     }
     printk("boot_config: stored -> slot %c (counter=%u, "
-           "advertised_amps=%u, require_rfid_auth=%u) [%s]\n",
+           "advertised_amps=%u, require_rfid_auth=%u, gfci_policy=%u) [%s]\n",
            'A' + slot, (unsigned)counter,
            (unsigned)s_cfg.fc41d_advertised_amps,
-           (unsigned)s_cfg.require_rfid_auth, what);
+           (unsigned)s_cfg.require_rfid_auth,
+           (unsigned)s_cfg.gfci_fault_policy, what);
     return 0;
 }
 
@@ -84,6 +85,22 @@ int boot_config_set_require_rfid_auth(uint8_t enable)
     if (s_cfg.require_rfid_auth == enable) return 0;
     s_cfg.require_rfid_auth = enable;
     return store("require_rfid_auth");
+}
+
+uint8_t boot_config_gfci_fault_policy(void)
+{
+    return s_cfg.gfci_fault_policy;
+}
+
+int boot_config_set_gfci_fault_policy(uint8_t policy)
+{
+    /* 2u == GFCI_POLICY_IGNORE (proto/commands.h) — the highest valid
+     * policy. Reject anything above it rather than clamping; a bad
+     * value must not quietly land as a weaker safety posture. */
+    if (policy > 2u) return -1;
+    if (s_cfg.gfci_fault_policy == policy) return 0;
+    s_cfg.gfci_fault_policy = policy;
+    return store("gfci_fault_policy");
 }
 
 uint8_t boot_config_pending_ota_flag(void)

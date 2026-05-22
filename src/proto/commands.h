@@ -90,6 +90,18 @@
  * 0x1D is reserved (do not reuse). */
 #define CMD_RUN_GFCI_CAL_TEST      0x1Eu
 
+/* GFCI fault-handling policy. CMD_SET_GFCI_POLICY payload (1 B): u8
+ * policy (GFCI_POLICY_* below). Persisted in boot_config — survives
+ * power cycles. The current value is published via EVT_GFCI_POLICY on
+ * change and as the response to CMD_GET_GFCI_POLICY.
+ *
+ * SAFETY: FAULT_GFCI is a UL2231 ground-fault interlock. WARN and
+ * IGNORE suppress the contactor-open response and are intended for
+ * bench / diagnostic use while an external wiring fault is resolved.
+ * Default — and every fresh boot_config — is GFCI_POLICY_FAULT. */
+#define CMD_SET_GFCI_POLICY        0x1Fu   /* payload (1 B): u8 policy */
+#define CMD_GET_GFCI_POLICY        0x20u   /* no payload */
+
 /* MCU → FC41D events / responses (bit 7 set) */
 #define EVT_PING_ACK              0x81u   /* response to PING */
 #define EVT_STATE_REPORT          0x82u   /* response to GET_STATE / spontaneous */
@@ -157,6 +169,19 @@
  * if the payload is bumped on both sides.
  *   payload (5 B): u16 pe_adc_raw LE, u8 j1772_state, u8 evse_state, u8 ac_present */
 #define EVT_DIAG_ADC              0x98u
+
+/* GFCI fault-handling policy state. Payload (1 B): u8 policy
+ * (GFCI_POLICY_* below). Emitted on change and as the response to
+ * CMD_GET_GFCI_POLICY. */
+#define EVT_GFCI_POLICY           0x99u
+
+/* GFCI fault-handling policy — carried in CMD_SET_GFCI_POLICY and
+ * EVT_GFCI_POLICY, persisted in boot_config.gfci_fault_policy. See
+ * CMD_SET_GFCI_POLICY for the safety note. */
+#define GFCI_POLICY_FAULT              0u   /* latch FAULT_GFCI, force-open contactor, power-cycle to clear */
+#define GFCI_POLICY_WARN               1u   /* log + EVT_FAULT_RAISED only; charging continues */
+#define GFCI_POLICY_IGNORE             2u   /* detector runs but takes no action */
+#define GFCI_POLICY_MAX                GFCI_POLICY_IGNORE
 
 /* Result codes carried in EVT_RFID_AUTH_RESULT.result. */
 #define RFID_AUTH_RESULT_LEARNED       0u   /* UID added to list */
