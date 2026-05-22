@@ -534,11 +534,17 @@ static void evse_transition(evse_state_t *cur, evse_state_t next)
          * forces the contactor open via the hardware latch. */
         relay_main_open();
         relay_force_open_latch();
-    } else if (*cur != next && relay_force_open_active()) {
-        /* Leaving FAULT (typically via CLEAR_FAULT → READY): drop the
-         * force-open assert so future close commands aren't latched
-         * out. PE12 is currently LOW so the latch is already disarmed
-         * mechanically; this just cleans up the GPIO state. */
+    } else if (relay_force_open_active()) {
+        /* Leaving FAULT (every non-FAULT transition lands here; the
+         * early-return above guarantees this is a real state change):
+         * drop the force-open assert so future close commands aren't
+         * latched out. Without this the PB12 latch, once armed on a
+         * FAULT, is never released and the contactor stays
+         * hardware-latched open for the rest of the boot.
+         *
+         * NB: the previous guard tested `*cur != next`, but `*cur` is
+         * assigned `next` above — so it was always false and this
+         * release never ran. */
         relay_force_open_release();
     }
 }
