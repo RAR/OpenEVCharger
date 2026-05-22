@@ -61,6 +61,7 @@ void OpenevchargerTlv::setup() {
   send_get_lifetime_kwh();
   send_rfid_get_list();
   send_get_rfid_config();
+  send_get_gfci_policy();
 }
 
 void OpenevchargerTlv::loop() {
@@ -483,6 +484,25 @@ void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
 #endif
 #ifdef USE_BINARY_SENSOR
       if (session_authorized_bsensor_) session_authorized_bsensor_->publish_state(sa);
+#endif
+      break;
+    }
+
+    case EVT_GFCI_POLICY: {
+      // Payload: u8 policy (GFCI_POLICY_*).
+      if (plen < 1) break;
+      gfci_policy_ = p[0];
+      const char *name = (p[0] == GFCI_POLICY_FAULT) ? "fault"
+                       : (p[0] == GFCI_POLICY_WARN)  ? "warn"
+                       :                               "?";
+      if (p[0] == GFCI_POLICY_FAULT) {
+        ESP_LOGI(TAG, "gfci_policy: %s", name);
+      } else {
+        ESP_LOGW(TAG, "gfci_policy: %s — ground-fault interlock suppressed",
+                 name);
+      }
+#ifdef USE_SELECT
+      if (gfci_policy_select_) gfci_policy_select_->publish_from_mcu(p[0]);
 #endif
       break;
     }
@@ -974,6 +994,19 @@ uint8_t OpenevchargerTlv::send_set_require_rfid_auth(bool enable) {
 uint8_t OpenevchargerTlv::send_get_rfid_config() {
   uint8_t s = next_seq_();
   send_frame_(CMD_GET_RFID_CONFIG, s, nullptr, 0);
+  return s;
+}
+
+uint8_t OpenevchargerTlv::send_set_gfci_policy(uint8_t policy) {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_SET_GFCI_POLICY, s, &policy, 1);
+  // MCU will publish a fresh EVT_GFCI_POLICY once persisted.
+  return s;
+}
+
+uint8_t OpenevchargerTlv::send_get_gfci_policy() {
+  uint8_t s = next_seq_();
+  send_frame_(CMD_GET_GFCI_POLICY, s, nullptr, 0);
   return s;
 }
 

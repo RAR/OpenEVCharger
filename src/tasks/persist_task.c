@@ -32,6 +32,7 @@ typedef enum {
     PERSIST_REQ_RFID_AUTHLIST_CLEAR,
     PERSIST_REQ_RFID_AUTHLIST_GET_LIST,
     PERSIST_REQ_REQUIRE_RFID_AUTH,
+    PERSIST_REQ_GFCI_POLICY,
     PERSIST_REQ_OTA_BEGIN,
     PERSIST_REQ_OTA_CHUNK,
     PERSIST_REQ_OTA_COMMIT,
@@ -173,6 +174,14 @@ int persist_post_require_rfid_auth(uint8_t enable)
     struct persist_req req;
     req.type = PERSIST_REQ_REQUIRE_RFID_AUTH;
     req.payload.amps = enable ? 1u : 0u;   /* re-use the u8 slot */
+    return post(&req);
+}
+
+int persist_post_gfci_policy(uint8_t policy)
+{
+    struct persist_req req;
+    req.type = PERSIST_REQ_GFCI_POLICY;
+    req.payload.amps = policy;   /* re-use the u8 slot */
     return post(&req);
 }
 
@@ -637,6 +646,16 @@ static void persist_task_run(void *arg)
                      * whether the persist write was a no-op. */
                     (void)safety_request_publish_rfid_config();
                 }
+                break;
+            }
+            case PERSIST_REQ_GFCI_POLICY: {
+                int rc = boot_config_set_gfci_fault_policy(req.payload.amps);
+                if (rc < 0) {
+                    printk("persist: gfci_policy store FAIL rc=%d\n", rc);
+                }
+                /* Publish the live policy regardless — on a rejected
+                 * value HA still gets the unchanged truth. */
+                (void)safety_request_publish_gfci_policy();
                 break;
             }
             case PERSIST_REQ_OTA_BEGIN:

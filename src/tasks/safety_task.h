@@ -55,4 +55,9 @@ int safety_request_publish_rfid_config(void);
  * Result is printk-only — bench operator reads the log. */
 int safety_request_run_gfci_cal_test(void);
 
+/* Ask safety_task to publish a fresh EVT_GFCI_POLICY. Used by comms
+ * after CMD_GET_GFCI_POLICY and by persist_task after a
+ * CMD_SET_GFCI_POLICY write lands. */
+int safety_request_publish_gfci_policy(void);
+
 #endif

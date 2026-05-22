@@ -133,7 +133,7 @@
 
     set(PROD_APP_SRCS
         src/main.c
-        src/core/fault.c  src/core/j1772.c  src/core/over_temp.c
+        src/core/fault.c  src/core/gfci_policy.c  src/core/j1772.c  src/core/over_temp.c
         src/core/rfid.c   src/core/system_state.c  src/core/system_time.c
         src/persist/crc.c  src/persist/boot_count.c  src/persist/pingpong.c
         src/persist/boot_config.c  src/persist/calibration.c  src/persist/crc16.c

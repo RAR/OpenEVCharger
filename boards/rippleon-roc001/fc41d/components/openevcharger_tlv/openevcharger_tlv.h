@@ -27,6 +27,9 @@
 #ifdef USE_SWITCH
 #include "esphome/components/switch/switch.h"
 #endif
+#ifdef USE_SELECT
+#include "esphome/components/select/select.h"
+#endif
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
@@ -71,6 +74,8 @@ static constexpr uint8_t CMD_GET_TIME   = 0x1A;
 static constexpr uint8_t CMD_RESTART    = 0x1B;
 static constexpr uint8_t CMD_SIMULATE_REPLUG = 0x1C;
 static constexpr uint8_t CMD_RUN_GFCI_CAL_TEST = 0x1E;  // 0x1D reserved (was relay actuate, now N/A)
+static constexpr uint8_t CMD_SET_GFCI_POLICY = 0x1F;
+static constexpr uint8_t CMD_GET_GFCI_POLICY = 0x20;
 
 // MCU → FC41D events / responses (bit 7 set)
 static constexpr uint8_t EVT_STATE_CHANGED = 0x80;
@@ -97,6 +102,13 @@ static constexpr uint8_t EVT_OTA_COMMITTED = 0x95;
 static constexpr uint8_t EVT_OTA_ABORTED   = 0x96;
 static constexpr uint8_t EVT_TIME          = 0x97;
 static constexpr uint8_t EVT_DIAG_ADC      = 0x98;
+static constexpr uint8_t EVT_GFCI_POLICY   = 0x99;
+
+// GFCI fault-handling policy values (CMD_SET_GFCI_POLICY / EVT_GFCI_POLICY,
+// mirror src/proto/commands.h). Index order matches the HA select options
+// in select.py, so the select index is the wire value.
+static constexpr uint8_t GFCI_POLICY_FAULT  = 0;
+static constexpr uint8_t GFCI_POLICY_WARN   = 1;
 
 // OTA status codes (mirror src/proto/commands.h).
 static constexpr uint8_t OTA_STATUS_OK              = 0;
@@ -210,6 +222,8 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
   uint8_t send_rfid_remove_uid(uint32_t uid);
   uint8_t send_set_require_rfid_auth(bool enable);
   uint8_t send_get_rfid_config();
+  uint8_t send_set_gfci_policy(uint8_t policy);
+  uint8_t send_get_gfci_policy();
 
   // Push the current HA wall-clock to the MCU. Caller must check the
   // time component's is_valid() before calling — sending 0 is allowed
@@ -362,6 +376,11 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
 #ifdef USE_SWITCH
   void set_require_rfid_auth_switch(class OpenevchargerTlvSwitch *s) { require_rfid_auth_switch_ = s; }
 #endif
+#ifdef USE_SELECT
+  void set_gfci_policy_select(class OpenevchargerTlvSelect *s) { gfci_policy_select_ = s; }
+#endif
+  // Last GFCI fault-handling policy reported by the MCU (GFCI_POLICY_*).
+  uint8_t gfci_policy() const { return gfci_policy_; }
 
   static const char *evse_state_name(uint8_t s);
   static const char *j1772_state_name(uint8_t s);
@@ -469,6 +488,10 @@ class OpenevchargerTlv : public Component, public uart::UARTDevice {
 #ifdef USE_SWITCH
   class OpenevchargerTlvSwitch *require_rfid_auth_switch_{nullptr};
 #endif
+#ifdef USE_SELECT
+  class OpenevchargerTlvSelect *gfci_policy_select_{nullptr};
+#endif
+  uint8_t gfci_policy_{GFCI_POLICY_FAULT};
 
   // --- OTA push state machine ----------------------------------------
   // Driven by loop() — fires next CMD_OTA_CHUNK on every CHUNK_ACK with
@@ -593,6 +616,37 @@ class OpenevchargerTlvSwitch : public switch_::Switch, public Component {
     if (parent_) parent_->send_set_require_rfid_auth(state);
     // Optimistic — confirmed by next EVT_RFID_CONFIG.
     this->publish_state(state);
+  }
+  OpenevchargerTlv *parent_{nullptr};
+};
+#endif
+
+#ifdef USE_SELECT
+// HA dropdown for the MCU's GFCI fault-handling policy. Option order
+// ("fault","warn" — see select.py) matches GFCI_POLICY_*, so the
+// select index is the wire value sent to the MCU.
+class OpenevchargerTlvSelect : public select::Select, public Component {
+ public:
+  void set_parent(OpenevchargerTlv *p) { parent_ = p; }
+  void setup() override {}
+  float get_setup_priority() const override { return setup_priority::DATA; }
+  // Pushed by EVT_GFCI_POLICY dispatch — confirmed-from-MCU value,
+  // applied without echoing back over UART via control().
+  void publish_from_mcu(uint8_t policy) {
+    auto opt = this->at(policy);
+    if (opt.has_value() && this->state != opt.value())
+      this->publish_state(opt.value());
+  }
+
+ protected:
+  void control(const std::string &value) override {
+    auto idx = this->index_of(value);
+    if (!idx.has_value())
+      return;
+    if (parent_)
+      parent_->send_set_gfci_policy(static_cast<uint8_t>(idx.value()));
+    // Optimistic — confirmed by next EVT_GFCI_POLICY.
+    this->publish_state(value);
   }
   OpenevchargerTlv *parent_{nullptr};
 };

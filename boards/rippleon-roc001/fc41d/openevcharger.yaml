@@ -490,6 +490,18 @@ switch:
       name: "Require RFID for Charging"
       entity_category: config
 
+# GFCI fault-handling policy. "fault" (default) latches a UL2231
+# ground-fault trip — power-cycle to clear. "warn" logs the trip and
+# raises it in HA but lets charging continue. "warn" is a
+# bench/diagnostic setting — it suppresses a real safety interlock.
+# Persisted in W25Q boot_config; default "fault".
+select:
+  - platform: openevcharger_tlv
+    gfci_fault_policy:
+      id: gfci_fault_policy_select
+      name: "GFCI Fault Policy"
+      entity_category: config
+
 button:
   - platform: openevcharger_tlv
     request_stop:

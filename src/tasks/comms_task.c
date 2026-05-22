@@ -456,6 +456,25 @@ static void handle_run_gfci_cal_test(uint8_t seq)
     (void)safety_request_run_gfci_cal_test();
 }
 
+static void handle_set_gfci_policy(const uint8_t *p, size_t plen)
+{
+    if (plen < 1) return;
+    int rc = persist_post_gfci_policy(p[0]);
+    if (rc != 0) {
+        printk("comms: SET_GFCI_POLICY persist post FAIL rc=%d\n", rc);
+    } else {
+        printk("comms: SET_GFCI_POLICY=%u (queued)\n", (unsigned)p[0]);
+    }
+}
+
+static void handle_get_gfci_policy(void)
+{
+    int rc = safety_request_publish_gfci_policy();
+    if (rc != 0) {
+        printk("comms: GET_GFCI_POLICY inbox post FAIL rc=%d\n", rc);
+    }
+}
+
 static void dispatch(uint8_t cmd, uint8_t seq,
                      const uint8_t *payload, size_t plen)
 {
@@ -489,6 +508,8 @@ static void dispatch(uint8_t cmd, uint8_t seq,
     case CMD_RESTART:               handle_restart(seq); break;
     case CMD_SIMULATE_REPLUG:       handle_simulate_replug(seq); break;
     case CMD_RUN_GFCI_CAL_TEST:      handle_run_gfci_cal_test(seq); break;
+    case CMD_SET_GFCI_POLICY:        handle_set_gfci_policy(payload, plen); break;
+    case CMD_GET_GFCI_POLICY:        handle_get_gfci_policy(); break;
     default:
         printk("comms: unhandled cmd 0x%02x seq=%u plen=%u\n",
                cmd, (unsigned)seq, (unsigned)plen);
