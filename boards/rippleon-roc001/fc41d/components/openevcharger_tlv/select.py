@@ -7,10 +7,10 @@ from . import openevcharger_tlv_ns, OpenevchargerTlv
 CONF_OPENEVCHARGER_TLV_ID = "openevcharger_tlv_id"
 CONF_GFCI_FAULT_POLICY = "gfci_fault_policy"
 
-# Option order IS the wire value: index 0 = FAULT, 1 = WARN, 2 = IGNORE.
+# Option order IS the wire value: index 0 = FAULT, 1 = WARN.
 # Must stay in sync with GFCI_POLICY_* in openevcharger_tlv.h and
 # proto/commands.h.
-GFCI_POLICY_OPTIONS = ["fault", "warn", "ignore"]
+GFCI_POLICY_OPTIONS = ["fault", "warn"]
 
 OpenevchargerTlvSelect = openevcharger_tlv_ns.class_(
     "OpenevchargerTlvSelect", select.Select, cg.Component

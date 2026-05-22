@@ -492,9 +492,9 @@ switch:
 
 # GFCI fault-handling policy. "fault" (default) latches a UL2231
 # ground-fault trip — power-cycle to clear. "warn" logs the trip and
-# raises it in HA but lets charging continue. "ignore" suppresses it
-# entirely. warn/ignore are bench/diagnostic settings — they suppress a
-# real safety interlock. Persisted in W25Q boot_config; default "fault".
+# raises it in HA but lets charging continue. "warn" is a
+# bench/diagnostic setting — it suppresses a real safety interlock.
+# Persisted in W25Q boot_config; default "fault".
 select:
   - platform: openevcharger_tlv
     gfci_fault_policy:

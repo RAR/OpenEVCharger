@@ -94,10 +94,10 @@ uint8_t boot_config_gfci_fault_policy(void)
 
 int boot_config_set_gfci_fault_policy(uint8_t policy)
 {
-    /* 2u == GFCI_POLICY_IGNORE (proto/commands.h) — the highest valid
+    /* 1u == GFCI_POLICY_WARN (proto/commands.h) — the highest valid
      * policy. Reject anything above it rather than clamping; a bad
      * value must not quietly land as a weaker safety posture. */
-    if (policy > 2u) return -1;
+    if (policy > 1u) return -1;
     if (s_cfg.gfci_fault_policy == policy) return 0;
     s_cfg.gfci_fault_policy = policy;
     return store("gfci_fault_policy");

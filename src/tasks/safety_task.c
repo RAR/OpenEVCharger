@@ -1397,14 +1397,14 @@ static void check_adc_runtime(fault_state_t *fs, evse_state_t *es,
  *   WARN             — log + emit EVT_FAULT_RAISED so HA records it,
  *                      but do NOT raise into fault_state and do NOT
  *                      open the contactor — charging continues.
- *   IGNORE           — detector still runs (streak observed) but takes
- *                      no action beyond a single trace log.
  *
- * WARN/IGNORE are bench/diagnostic escapes for a known external
- * wiring/leakage fault — they suppress a real safety interlock. The
- * *gfci_warned edge-latch makes WARN/IGNORE emit exactly once per
- * PE2-LOW episode (re-armed when PE2 returns HIGH) rather than every
- * tick.
+ * Any policy value other than WARN is treated as FAULT — an unknown
+ * or stale byte fails safe to the UL2231 interlock.
+ *
+ * WARN is a bench/diagnostic escape for a known external
+ * wiring/leakage fault — it suppresses a real safety interlock. The
+ * *gfci_warned edge-latch makes WARN emit exactly once per PE2-LOW
+ * episode (re-armed when PE2 returns HIGH) rather than every tick.
  *
  * In FAULT mode, once raised the fault_is_active() guard skips the
  * raise path; the streak still accumulates harmlessly. The redundant
@@ -1419,23 +1419,13 @@ static void check_gfci(fault_state_t *fs, evse_state_t *es,
         if (*gfci_streak < (int)GFCI_PERSIST_TICKS) ++(*gfci_streak);
     } else {
         *gfci_streak = 0;
-        *gfci_warned = 0;   /* PE2 released — re-arm the WARN/IGNORE edge */
+        *gfci_warned = 0;   /* PE2 released — re-arm the WARN edge */
     }
 
     if (*gfci_streak < (int)GFCI_PERSIST_TICKS)
         return;
 
     uint8_t policy = boot_config_gfci_fault_policy();
-
-    if (policy == GFCI_POLICY_IGNORE) {
-        if (!*gfci_warned) {
-            *gfci_warned = 1;
-            printk("fault: %s asserted but GFCI policy=IGNORE — no action "
-                   "(PE2 LOW >=%u ticks)\n",
-                   fault_name(FAULT_GFCI), (unsigned)GFCI_PERSIST_TICKS);
-        }
-        return;
-    }
 
     if (policy == GFCI_POLICY_WARN) {
         if (!*gfci_warned) {
@@ -1451,7 +1441,8 @@ static void check_gfci(fault_state_t *fs, evse_state_t *es,
         return;
     }
 
-    /* GFCI_POLICY_FAULT (default) — UL2231 behaviour. */
+    /* GFCI_POLICY_FAULT (default) — and any non-WARN value — UL2231
+     * behaviour. */
     if (!fault_is_active(fs, FAULT_GFCI)) {
         if (fault_raise(fs, FAULT_GFCI) == 1) {
             printk("fault: raised %s (PE2=LOW for >=%u ticks)\n",
@@ -1907,18 +1898,17 @@ static void safety_task_run(void *arg)
      * feedback sense — see relay.h. Runtime BL0939 WELD/STUCK_OPEN
      * detectors cover the same fault modes during real sessions. */
 
-    /* Announce the GFCI fault-handling policy at boot. A non-FAULT
-     * policy suppresses the UL2231 ground-fault interlock — log it
-     * loudly so a forgotten WARN/IGNORE is obvious in the boot trace. */
+    /* Announce the GFCI fault-handling policy at boot. WARN suppresses
+     * the UL2231 ground-fault interlock — log it loudly so a forgotten
+     * WARN is obvious in the boot trace. */
     {
         uint8_t gp = boot_config_gfci_fault_policy();
-        if (gp == GFCI_POLICY_FAULT) {
-            printk("safety: GFCI policy = FAULT (UL2231 interlock active)\n");
+        if (gp == GFCI_POLICY_WARN) {
+            printk("safety: *** WARNING *** GFCI policy = WARN "
+                   "(charging continues) — ground-fault interlock "
+                   "SUPPRESSED (bench/diagnostic)\n");
         } else {
-            printk("safety: *** WARNING *** GFCI policy = %s — ground-fault "
-                   "interlock SUPPRESSED (bench/diagnostic)\n",
-                   gp == GFCI_POLICY_WARN ? "WARN (charging continues)"
-                                          : "IGNORE (no action)");
+            printk("safety: GFCI policy = FAULT (UL2231 interlock active)\n");
         }
     }
 

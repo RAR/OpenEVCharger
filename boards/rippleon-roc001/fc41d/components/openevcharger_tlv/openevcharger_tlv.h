@@ -109,7 +109,6 @@ static constexpr uint8_t EVT_GFCI_POLICY   = 0x99;
 // in select.py, so the select index is the wire value.
 static constexpr uint8_t GFCI_POLICY_FAULT  = 0;
 static constexpr uint8_t GFCI_POLICY_WARN   = 1;
-static constexpr uint8_t GFCI_POLICY_IGNORE = 2;
 
 // OTA status codes (mirror src/proto/commands.h).
 static constexpr uint8_t OTA_STATUS_OK              = 0;
@@ -624,8 +623,8 @@ class OpenevchargerTlvSwitch : public switch_::Switch, public Component {
 
 #ifdef USE_SELECT
 // HA dropdown for the MCU's GFCI fault-handling policy. Option order
-// ("fault","warn","ignore" — see select.py) matches GFCI_POLICY_*, so
-// the select index is the wire value sent to the MCU.
+// ("fault","warn" — see select.py) matches GFCI_POLICY_*, so the
+// select index is the wire value sent to the MCU.
 class OpenevchargerTlvSelect : public select::Select, public Component {
  public:
   void set_parent(OpenevchargerTlv *p) { parent_ = p; }

@@ -492,10 +492,9 @@ void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       // Payload: u8 policy (GFCI_POLICY_*).
       if (plen < 1) break;
       gfci_policy_ = p[0];
-      const char *name = (p[0] == GFCI_POLICY_FAULT)  ? "fault"
-                       : (p[0] == GFCI_POLICY_WARN)   ? "warn"
-                       : (p[0] == GFCI_POLICY_IGNORE) ? "ignore"
-                       :                                "?";
+      const char *name = (p[0] == GFCI_POLICY_FAULT) ? "fault"
+                       : (p[0] == GFCI_POLICY_WARN)  ? "warn"
+                       :                               "?";
       if (p[0] == GFCI_POLICY_FAULT) {
         ESP_LOGI(TAG, "gfci_policy: %s", name);
       } else {

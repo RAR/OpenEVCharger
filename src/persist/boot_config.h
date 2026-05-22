@@ -27,10 +27,10 @@ struct __attribute__((packed)) boot_config {
     uint32_t staged_image_crc32;        /* CRC32 of the staged image */
     uint8_t  gfci_fault_policy;         /* GFCI_POLICY_* (proto/commands.h):
                                          * 0 = FAULT (default, UL2231 latch),
-                                         * 1 = WARN, 2 = IGNORE. Carved from
-                                         * reserved[8]; a 0 byte in any
-                                         * pre-existing record reads as the
-                                         * safe FAULT default. */
+                                         * 1 = WARN. Carved from reserved[8];
+                                         * a 0 byte in any pre-existing
+                                         * record reads as the safe FAULT
+                                         * default. */
     uint8_t  reserved[7];
     uint32_t crc32;                     /* helper-managed */
 };
@@ -58,7 +58,7 @@ int boot_config_set_require_rfid_auth(uint8_t enable);
  * Returns 0 (= GFCI_POLICY_FAULT) until boot_config_load() runs. */
 uint8_t boot_config_gfci_fault_policy(void);
 
-/* Set the GFCI policy and persist. Values above GFCI_POLICY_IGNORE are
+/* Set the GFCI policy and persist. Values above GFCI_POLICY_WARN are
  * rejected (returns <0) so a bad value can't land as a weaker safety
  * posture. Idempotent if unchanged. */
 int boot_config_set_gfci_fault_policy(uint8_t policy);
