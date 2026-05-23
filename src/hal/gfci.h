@@ -63,4 +63,16 @@ _Static_assert(sizeof(gfci_cal_diag_t) == 8, "gfci_cal_diag_t must be 8 B");
  * scheduler starts. Bench-use only. */
 int  gfci_self_test(gfci_cal_diag_t *diag);
 
+/* Same test, but with PE3 pre-driven to the OPPOSITE of init_outputs_safe_low's
+ * default before sampling idle. The test code samples whatever PE3 currently
+ * reads and drives the opposite for the pulse — so pre-driving HIGH effectively
+ * runs the test "in the other polarity". Use when the primary polarity returns
+ * rc=-1 (chip never saw the pulse) to decide whether the wiring polarity is
+ * inverted (rc=0 in inverted means "yes, inverted") or the path is genuinely
+ * dead (rc=-1 in inverted too means "neither direction provokes the chip").
+ *
+ * Restores PE3 to init_outputs_safe_low's default (LOW) on return so the
+ * rest of the firmware sees the expected idle state. */
+int  gfci_self_test_inverted(gfci_cal_diag_t *diag);
+
 #endif /* OPENEVCHARGER_HAL_GFCI_H */

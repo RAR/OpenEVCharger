@@ -1148,6 +1148,36 @@ static void process_request(struct safety_req *r,
              * For now the on-demand handler emits unsolicited — HA
              * tags it on receive timestamp. */
             (void)comms_publish_event(EVT_GFCI_CAL_RESULT, &diag, sizeof(diag));
+
+            /* If the primary polarity didn't see any PE2 edge, try the
+             * other polarity. Helps decide whether the wiring polarity
+             * is inverted (rc=0 here → "yes, inverted, fix the boot
+             * path") or the path is genuinely dead (rc=-1 here too →
+             * "neither direction works, it's a hardware fault"). The
+             * helper pre-drives PE3 HIGH + settles + runs + restores.
+             * Cooperative yield inside gfci_self_test keeps the TLV
+             * link alive across the additional ~5.5 s. */
+            if (rc != 0) {
+                printk("safety: GFCI CAL primary rc=%d — "
+                       "retrying with inverted polarity\n", rc);
+                gfci_cal_diag_t diag_inv;
+                int rc_inv = gfci_self_test_inverted(&diag_inv);
+                if (rc_inv == 0) {
+                    printk("self-test: GFCI CAL INVERTED PASS "
+                           "(pe3_idle=%u first_edge=%ums release_edge=%ums) "
+                           "→ wiring polarity is inverted from current "
+                           "init_outputs_safe_low default\n",
+                           (unsigned)diag_inv.pe3_idle_level,
+                           (unsigned)diag_inv.first_edge_ms,
+                           (unsigned)diag_inv.release_edge_ms);
+                } else {
+                    printk("self-test: GFCI CAL INVERTED also FAIL "
+                           "(rc=%d) — neither polarity provokes the chip\n",
+                           rc_inv);
+                }
+                (void)comms_publish_event(EVT_GFCI_CAL_RESULT,
+                                          &diag_inv, sizeof(diag_inv));
+            }
         }
         break;
     default:

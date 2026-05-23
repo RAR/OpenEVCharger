@@ -3,6 +3,8 @@
 #include "hal/uart.h"
 #include "hal/wdg.h"
 #include "gd32f20x.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* PE2 is configured as input pull-up by gpio_init_all() (it appeared
  * in the legacy strap-list under `PIN_STRAP_PE2_*`; the role-rename
@@ -67,15 +69,11 @@ int gfci_fault_active(void)
 #define GFCI_CAL_RECOVER_MS      5000U
 #endif
 
-static void busy_wait_us(uint32_t us)
-{
-    /* Coarse busy-wait sized for boot-time use only. The system
-     * runs at 120 MHz with REAL_PLL; a NOP is ~8 ns so 125 NOPs ≈ 1 µs.
-     * Self-test runs once at boot before the scheduler so a tight
-     * loop here is acceptable. */
-    volatile uint32_t loops = us * 15U;
-    while (loops--) __asm__ volatile ("nop");
-}
+/* Note: the prior busy_wait_us() helper was removed when the per-poll
+ * delay switched to vTaskDelay (2026-05-23). The scheduler is running
+ * by the time safety_task executes the self-test, so a cooperative
+ * delay is both safe and necessary — a 5.5 s tight busy-wait starved
+ * comms_task long enough for the FC41D's TLV link to time out. */
 
 /* Helper: zero-init the diag struct so partial-fill paths leave a clean
  * record. Callers may pass NULL (on-demand bench validation does this);
@@ -126,7 +124,13 @@ int gfci_self_test(gfci_cal_diag_t *diag)
     int saw_assert_during_pulse = 0;
     for (uint32_t t = 0; t < GFCI_CAL_PULSE_MS;
          t += GFCI_CAL_POLL_INTERVAL_MS) {
-        busy_wait_us(GFCI_CAL_POLL_INTERVAL_MS * 1000U);
+        /* Cooperative wait — vTaskDelay yields to other tasks (comms,
+         * persist, io) so the FC41D's TLV link doesn't time out from
+         * keepalive starvation while we sit in this 1.5-5.5 s loop.
+         * Scheduler is running by the time safety_task executes, so
+         * this is safe at both boot and on-demand call sites. wdg_kick
+         * still runs per-poll. */
+        vTaskDelay(pdMS_TO_TICKS(GFCI_CAL_POLL_INTERVAL_MS));
         wdg_kick();   /* total test ~1500 ms now exceeds the 1 s IWDG */
         int pe2 = gfci_fault_active();
         if (pe2 != last_pe2) {
@@ -164,7 +168,13 @@ int gfci_self_test(gfci_cal_diag_t *diag)
     int saw_release = 0;
     for (uint32_t t = 0; t < GFCI_CAL_RECOVER_MS;
          t += GFCI_CAL_POLL_INTERVAL_MS) {
-        busy_wait_us(GFCI_CAL_POLL_INTERVAL_MS * 1000U);
+        /* Cooperative wait — vTaskDelay yields to other tasks (comms,
+         * persist, io) so the FC41D's TLV link doesn't time out from
+         * keepalive starvation while we sit in this 1.5-5.5 s loop.
+         * Scheduler is running by the time safety_task executes, so
+         * this is safe at both boot and on-demand call sites. wdg_kick
+         * still runs per-poll. */
+        vTaskDelay(pdMS_TO_TICKS(GFCI_CAL_POLL_INTERVAL_MS));
         wdg_kick();
         int pe2 = gfci_fault_active();
         if (pe2 != last_pe2) {
@@ -202,4 +212,28 @@ int gfci_self_test(gfci_cal_diag_t *diag)
     }
     /* PASS */
     return 0;
+}
+
+int gfci_self_test_inverted(gfci_cal_diag_t *diag)
+{
+    /* Pre-drive PE3 to HIGH (opposite of init_outputs_safe_low's LOW
+     * default) and let the chip settle. The internal test then samples
+     * PE3 = HIGH as "idle" and drives LOW for the pulse — i.e. the
+     * other polarity. */
+    gpio_bit_set(PIN_GFCI_CAL_PORT, PIN_GFCI_CAL_PIN);
+    /* 500 ms settle. CCID chips with slow integrators can take 100s of
+     * ms to release a prior CAL state; wdg_kick per-poll keeps IWDG happy.
+     * vTaskDelay (not busy_wait) so comms doesn't starve here either. */
+    for (uint32_t i = 0; i < 50U; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        wdg_kick();
+    }
+
+    int rc = gfci_self_test(diag);
+
+    /* gfci_self_test restored PE3 to whatever it sampled as idle (= HIGH
+     * in this path). Force back to LOW so the rest of the firmware sees
+     * init_outputs_safe_low's default state. */
+    gpio_bit_reset(PIN_GFCI_CAL_PORT, PIN_GFCI_CAL_PIN);
+    return rc;
 }

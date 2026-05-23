@@ -21,3 +21,12 @@ int  gfci_self_test(gfci_cal_diag_t *diag)
     }
     return 0;
 }
+
+int  gfci_self_test_inverted(gfci_cal_diag_t *diag)
+{
+    /* Same shape as the primary stub — Nexcyber's GFCI subsystem uses a
+     * different topology (CT + module IC + heartbeat) and the inverted-
+     * polarity probe will need its own implementation when that HAL
+     * gets wired through. */
+    return gfci_self_test(diag);
+}
