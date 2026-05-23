@@ -634,7 +634,12 @@ class OpenevchargerTlvSelect : public select::Select, public Component {
   // applied without echoing back over UART via control().
   void publish_from_mcu(uint8_t policy) {
     auto opt = this->at(policy);
-    if (opt.has_value() && this->state != opt.value())
+    // current_option() returns optional<string>; at() returns optional<string>;
+    // optional!=optional compares "unset vs unset" + value-when-both-set,
+    // which is the exact "would publishing this be a change?" test.
+    // (Migrated off the deprecated Select::state in ESPHome 2026.5.0,
+    // removal scheduled for 2026.7.0.)
+    if (opt.has_value() && this->current_option() != opt)
       this->publish_state(opt.value());
   }
 
