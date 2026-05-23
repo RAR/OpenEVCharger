@@ -41,6 +41,14 @@ typedef struct {
     uint16_t release_edge_ms;      /* 0 = never; ms-since-pulse-start of release */
 } gfci_cal_diag_t;
 
+/* Wire-size lock: this struct is memcpy'd into event_record.reserved[] on
+ * persisted GFCI_SELF_TEST fault entries (so the FC41D-side "Dump Fault
+ * Log" survives the FC41D being power-cycled with the MCU) AND embedded
+ * after the legacy 8 bytes of the EVT_BOOT_COMPLETE payload. Both
+ * decoders parse it field-by-field at fixed offsets, so any change here
+ * is a wire-protocol change. Keep it 8 bytes. */
+_Static_assert(sizeof(gfci_cal_diag_t) == 8, "gfci_cal_diag_t must be 8 B");
+
 /* Polarity-agnostic CAL self-test pulse. Drives PE3 to the inverse
  * of its idle level for ~500 ms, polls PE2 for an assertion edge, then
  * restores PE3 and waits up to ~1000 ms for PE2 to release.

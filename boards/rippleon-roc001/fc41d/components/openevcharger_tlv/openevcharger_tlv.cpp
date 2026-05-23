@@ -423,8 +423,36 @@ void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
                       (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
         uint16_t bc = uint16_t(p[4]) | (uint16_t(p[5]) << 8);
         uint16_t fid = uint16_t(p[6]) | (uint16_t(p[7]) << 8);
-        ESP_LOGD(TAG, "fault_log[ts=%u boot=%u fid=%u (%s)]",
-                 (unsigned) ts, (unsigned) bc, (unsigned) fid, fault_name(fid));
+        // event_record is 32 B total; reserved[10] starts at byte 20 (after
+        // ts4 + bc2 + fid2 + j1772_state1 + evse_state1 + cp_mv2 + cc_amps2
+        // + ntc1_dC2 + ntc2_dC2 + active_amps_x10_2 = 20 B of structured
+        // fields). FAULT_GFCI_SELF_TEST (id=8) stuffs an 8-byte
+        // gfci_cal_diag_t into reserved[0..7] — unpack & format.
+        if (fid == 8u && plen >= 28u) {
+          int8_t   gfci_rc       = static_cast<int8_t>(p[20]);
+          uint8_t  pe3_idle      = p[21];
+          uint8_t  saw_assert    = p[22];
+          uint8_t  saw_release   = p[23];
+          uint16_t first_edge_ms = uint16_t(p[24]) | (uint16_t(p[25]) << 8);
+          uint16_t release_ms    = uint16_t(p[26]) | (uint16_t(p[27]) << 8);
+          const char *rc_name =
+              (gfci_rc == 0)  ? "PASS"
+            : (gfci_rc == -1) ? "FAIL(-1, no PE2 edge during CAL pulse)"
+            : (gfci_rc == -2) ? "FAIL(-2, PE2 stuck-low after CAL release)"
+            : (gfci_rc == -3) ? "FAIL(-3, PE2 already asserted at start)"
+            :                   "FAIL(unknown)";
+          ESP_LOGI(TAG,
+                   "fault_log[ts=%u boot=%u fid=%u (%s)] "
+                   "gfci_cal=%s pe3_idle=%u saw_assert=%u saw_release=%u "
+                   "first_edge=%ums release_edge=%ums",
+                   (unsigned) ts, (unsigned) bc, (unsigned) fid, fault_name(fid),
+                   rc_name, unsigned(pe3_idle), unsigned(saw_assert),
+                   unsigned(saw_release),
+                   unsigned(first_edge_ms), unsigned(release_ms));
+        } else {
+          ESP_LOGD(TAG, "fault_log[ts=%u boot=%u fid=%u (%s)]",
+                   (unsigned) ts, (unsigned) bc, (unsigned) fid, fault_name(fid));
+        }
       }
       break;
 

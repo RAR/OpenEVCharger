@@ -1,4 +1,5 @@
 #include "safety_task.h"
+#include <string.h>   /* memcpy for the GFCI CAL diag → event_record.reserved[] hop */
 #include "../hal/wdg.h"
 #include "../hal/uart.h"
 #include "../hal/adc_inject.h"
@@ -552,9 +553,16 @@ static void evse_transition(evse_state_t *cur, evse_state_t next)
 /* Post a fault-raise event to the W25Q event_log via persist_task.
  * Non-blocking; drops if persist queue is full (logged in
  * persist_task itself). Caller has just confirmed fault_raise()==1
- * (i.e., this is a true edge, not a re-raise). */
-static void post_fault_event(fault_id_t fid, j1772_state_t js,
-                             evse_state_t es, int32_t cp_mv)
+ * (i.e., this is a true edge, not a re-raise).
+ *
+ * The `detail` blob (optional; pass NULL/0 if not applicable) is
+ * memcpy'd into `event_record.reserved[]`. Today only the boot GFCI
+ * CAL self-test uses it — it stuffs a packed gfci_cal_diag_t in so
+ * the "Dump Fault Log" button can recover the per-edge diagnostic
+ * even if the FC41D was power-cycled after the event landed. */
+static void post_fault_event_full(fault_id_t fid, j1772_state_t js,
+                                  evse_state_t es, int32_t cp_mv,
+                                  const void *detail, size_t detail_len)
 {
     struct event_record rec = {
         .timestamp       = (uint32_t)xTaskGetTickCount(),
@@ -567,6 +575,11 @@ static void post_fault_event(fault_id_t fid, j1772_state_t js,
         .ntc2_dC         = 0,
         .active_amps_x10 = 0,
     };
+    if (detail != NULL && detail_len > 0u) {
+        size_t n = (detail_len > sizeof(rec.reserved))
+                       ? sizeof(rec.reserved) : detail_len;
+        memcpy(rec.reserved, detail, n);
+    }
     int rc = persist_post_event(&rec);
     if (rc != 0) {
         printk("safety: persist_post_event(%s) FAIL rc=%d\n",
@@ -590,6 +603,15 @@ static void post_fault_event(fault_id_t fid, j1772_state_t js,
         .cp_mv       = (int16_t)cp_mv,
     };
     (void)comms_publish_event(EVT_FAULT_RAISED, &evt, sizeof(evt));
+}
+
+/* Thin wrapper kept so the 16 other fault-raise call sites don't need
+ * to spell out NULL/0 every time. New callers that have detail bytes
+ * to persist alongside the record use post_fault_event_full() directly. */
+static inline void post_fault_event(fault_id_t fid, j1772_state_t js,
+                                    evse_state_t es, int32_t cp_mv)
+{
+    post_fault_event_full(fid, js, es, cp_mv, NULL, 0u);
 }
 
 static void check_safe_fail(fault_state_t *fs, evse_state_t *es,
@@ -1918,7 +1940,13 @@ static void safety_task_run(void *arg)
         if (fault_raise(&fs, FAULT_GFCI_SELF_TEST) == 1) {
             printk("fault: raised %s (CAL pulse did not provoke sense)\n",
                    fault_name(FAULT_GFCI_SELF_TEST));
-            post_fault_event(FAULT_GFCI_SELF_TEST, js0, es, cp_mv0);
+            /* Stash the 8-byte CAL diagnostic into event_record.reserved[]
+             * so "Dump Fault Log" can recover it long after BOOT_COMPLETE
+             * scrolled off (or the FC41D got power-cycled). The FC41D
+             * decoder special-cases FAULT_GFCI_SELF_TEST entries to
+             * unpack these bytes — see openevcharger_tlv.cpp. */
+            post_fault_event_full(FAULT_GFCI_SELF_TEST, js0, es, cp_mv0,
+                                  &gfci_diag, sizeof(gfci_diag));
         }
         evse_transition(&es, EVSE_FAULT);
     }
