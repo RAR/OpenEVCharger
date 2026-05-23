@@ -56,7 +56,15 @@ int gfci_fault_active(void)
 #define GFCI_CAL_POLL_INTERVAL_MS  10U
 #endif
 #ifndef GFCI_CAL_RECOVER_MS
-#define GFCI_CAL_RECOVER_MS      1000U
+/* 2026-05-23: extended from 1000 → 5000 ms. The iter-3 bench measurement
+ * on 2026-05-06 saw PE2 latch ~370 ms post-CAL-release (~870 ms after
+ * pulse start), giving only ~630 ms of headroom. After the garage swap
+ * we get rc=-1 every boot with saw_assert=0, consistent with the
+ * chip's integrator drifting slower — still works, just past the old
+ * window. 5500 ms total test gives 4500+ ms of margin past the prior
+ * latch time so a slower-but-functional chip still PASSes. wdg_kick()
+ * runs per-poll so the longer busy-wait does not bite IWDG. */
+#define GFCI_CAL_RECOVER_MS      5000U
 #endif
 
 static void busy_wait_us(uint32_t us)

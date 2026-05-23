@@ -1103,14 +1103,20 @@ static void process_request(struct safety_req *r,
         /* On-demand F3 bench validation. Calls gfci_self_test()
          * directly (bypassing self_test_gfci_cal's build-flag gate)
          * since the whole point is to validate the path before the
-         * flag flips. Refused unless EVSE_READY — running this in
-         * CHARGING would race the live GFCI detector. J1772 state
-         * doesn't matter (no contactor involvement). */
-        if (*es != EVSE_READY) {
-            printk("safety: RUN_GFCI_CAL_TEST ignored (state=%s, need READY)\n",
-                   evse_state_name(*es));
+         * flag flips. Only refused while CHARGING — running it then
+         * would race the live GFCI detector (CAL pulse flips PE2
+         * LOW for ~500 ms; check_gfci would read it as a real trip).
+         * FAULT/BOOT/SELF_TEST/COOLING_DOWN/USER_PAUSED are all OK
+         * (no contactor involvement); a stuck-in-FAULT unit needs
+         * this exact knob to diagnose without rebooting. Publishes
+         * EVT_GFCI_CAL_RESULT regardless of outcome so HA can show
+         * the diag without depending on the semihost printk channel. */
+        if (*es == EVSE_CHARGING) {
+            printk("safety: RUN_GFCI_CAL_TEST refused (state=CHARGING — "
+                   "would race live detector)\n");
         } else {
-            printk("safety: RUN_GFCI_CAL_TEST starting\n");
+            printk("safety: RUN_GFCI_CAL_TEST starting (state=%s)\n",
+                   evse_state_name(*es));
             gfci_cal_diag_t diag;
             int rc = gfci_self_test(&diag);
             if (rc == 0) {
@@ -1134,6 +1140,14 @@ static void process_request(struct safety_req *r,
                        (unsigned)diag.first_edge_ms,
                        (unsigned)diag.release_edge_ms);
             }
+            /* Surface the full diag over TLV (8-byte gfci_cal_diag_t
+             * wire layout, same as BOOT_COMPLETE tail + event_record
+             * reserved[]). FC41D logs it human-readably; sequence
+             * matches the originating request via comms_publish_event_seq
+             * once handle_get_fault_log-style seq plumbing exists.
+             * For now the on-demand handler emits unsolicited — HA
+             * tags it on receive timestamp. */
+            (void)comms_publish_event(EVT_GFCI_CAL_RESULT, &diag, sizeof(diag));
         }
         break;
     default:

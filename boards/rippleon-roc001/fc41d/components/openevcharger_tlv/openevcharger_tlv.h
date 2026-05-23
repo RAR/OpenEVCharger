@@ -103,6 +103,7 @@ static constexpr uint8_t EVT_OTA_ABORTED   = 0x96;
 static constexpr uint8_t EVT_TIME          = 0x97;
 static constexpr uint8_t EVT_DIAG_ADC      = 0x98;
 static constexpr uint8_t EVT_GFCI_POLICY   = 0x99;
+static constexpr uint8_t EVT_GFCI_CAL_RESULT = 0x9A;
 
 // GFCI fault-handling policy values (CMD_SET_GFCI_POLICY / EVT_GFCI_POLICY,
 // mirror src/proto/commands.h). Index order matches the HA select options

@@ -175,6 +175,19 @@
  * CMD_GET_GFCI_POLICY. */
 #define EVT_GFCI_POLICY           0x99u
 
+/* On-demand GFCI CAL self-test result (response to CMD_RUN_GFCI_CAL_TEST).
+ * Wraps the same 8-byte gfci_cal_diag_t the boot path stuffs into the
+ * tail of EVT_BOOT_COMPLETE and into event_record.reserved[] on a
+ * persisted FAULT_GFCI_SELF_TEST entry, so the FC41D decoder can
+ * format all three with the same code path. Payload (8 B):
+ *   i8 rc (0 PASS, -1/-2/-3 fail modes — see hal/gfci.h)
+ *   u8 pe3_idle_level
+ *   u8 saw_assert       — PE2 went LOW anywhere in pulse+recover
+ *   u8 saw_release      — PE2 returned HIGH after asserting
+ *   u16 first_edge_ms   — ms-from-pulse-start of first assert (0 = never)
+ *   u16 release_edge_ms — ms-from-pulse-start of release (0 = never) */
+#define EVT_GFCI_CAL_RESULT       0x9Au
+
 /* GFCI fault-handling policy — carried in CMD_SET_GFCI_POLICY and
  * EVT_GFCI_POLICY, persisted in boot_config.gfci_fault_policy. See
  * CMD_SET_GFCI_POLICY for the safety note. */

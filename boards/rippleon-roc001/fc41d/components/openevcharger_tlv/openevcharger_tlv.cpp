@@ -561,6 +561,34 @@ void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
       break;
     }
 
+    case EVT_GFCI_CAL_RESULT: {
+      // Payload (8 B): same gfci_cal_diag_t layout as BOOT_COMPLETE tail
+      // and event_record.reserved[]. Unsolicited response to
+      // CMD_RUN_GFCI_CAL_TEST. Format human-readably so the HA log shows
+      // exactly what BOOT_COMPLETE / Dump Fault Log would show — same
+      // rc names, same field names.
+      if (plen < 8) break;
+      int8_t   gfci_rc       = static_cast<int8_t>(p[0]);
+      uint8_t  pe3_idle      = p[1];
+      uint8_t  saw_assert    = p[2];
+      uint8_t  saw_release   = p[3];
+      uint16_t first_edge_ms = uint16_t(p[4]) | (uint16_t(p[5]) << 8);
+      uint16_t release_ms    = uint16_t(p[6]) | (uint16_t(p[7]) << 8);
+      const char *rc_name =
+          (gfci_rc == 0)  ? "PASS"
+        : (gfci_rc == -1) ? "FAIL(-1, no PE2 edge during CAL pulse)"
+        : (gfci_rc == -2) ? "FAIL(-2, PE2 stuck-low after CAL release)"
+        : (gfci_rc == -3) ? "FAIL(-3, PE2 already asserted at start)"
+        :                   "FAIL(unknown)";
+      ESP_LOGI(TAG,
+               "on-demand GFCI CAL: %s pe3_idle=%u saw_assert=%u "
+               "saw_release=%u first_edge=%ums release_edge=%ums",
+               rc_name, unsigned(pe3_idle), unsigned(saw_assert),
+               unsigned(saw_release),
+               unsigned(first_edge_ms), unsigned(release_ms));
+      break;
+    }
+
     case EVT_RFID_LIST_END: {
       if (plen >= 1) {
         rfid_authlist_count_ = p[0];
