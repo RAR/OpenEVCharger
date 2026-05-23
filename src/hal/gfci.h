@@ -28,16 +28,31 @@ void gfci_init(void);
  * 0 if PE2 reads HIGH (= idle / no fault). Active-low. */
 int  gfci_fault_active(void);
 
+/* Diagnostic capture from a single CAL self-test run. All fields are
+ * populated before gfci_self_test() returns; pass NULL to skip capture.
+ * Time fields are ms-from-CAL-pulse-start (so first_edge_ms == 1 means
+ * PE2 went LOW on the first 10 ms poll after pulse assert). */
+typedef struct {
+    int8_t   rc;                   /* mirrors return: 0 PASS, -1/-2/-3 fail */
+    uint8_t  pe3_idle_level;       /* 0 LOW, 1 HIGH — captured at start */
+    uint8_t  saw_assert;           /* 1 if PE2 went LOW anywhere in pulse+recover */
+    uint8_t  saw_release;          /* 1 if PE2 returned HIGH after asserting */
+    uint16_t first_edge_ms;        /* 0 = never; ms-since-pulse-start of first assert */
+    uint16_t release_edge_ms;      /* 0 = never; ms-since-pulse-start of release */
+} gfci_cal_diag_t;
+
 /* Polarity-agnostic CAL self-test pulse. Drives PE3 to the inverse
- * of its idle level for ~60 ms, polls PE2 for an assertion edge, then
- * restores PE3 and waits for PE2 to release.
+ * of its idle level for ~500 ms, polls PE2 for an assertion edge, then
+ * restores PE3 and waits up to ~1000 ms for PE2 to release.
  *   0  = PASS
  *  -1  = no sense edge during CAL pulse
  *  -2  = sense stuck-low after CAL release
  *  -3  = sense already asserted at start (live fault?)
- * Note: contains ~160 ms of busy-wait. Acceptable inside safety_task's
- * 20 ms tick because the IWDG window is 1 s, but no other detector
- * runs during the call. Bench-use only. */
-int  gfci_self_test(void);
+ * `diag` may be NULL; when non-NULL its fields are populated regardless
+ * of pass/fail so the boot path can report what was actually observed.
+ * Note: contains ~1500 ms of busy-wait (pulse + recover). Acceptable
+ * because wdg_kick() runs per-poll; runs once at boot before the
+ * scheduler starts. Bench-use only. */
+int  gfci_self_test(gfci_cal_diag_t *diag);
 
 #endif /* OPENEVCHARGER_HAL_GFCI_H */

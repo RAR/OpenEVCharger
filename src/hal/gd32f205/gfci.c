@@ -69,12 +69,33 @@ static void busy_wait_us(uint32_t us)
     while (loops--) __asm__ volatile ("nop");
 }
 
-int gfci_self_test(void)
+/* Helper: zero-init the diag struct so partial-fill paths leave a clean
+ * record. Callers may pass NULL (on-demand bench validation does this);
+ * the diag_set_* helpers tolerate NULL too. */
+static void diag_zero(gfci_cal_diag_t *d)
 {
+    if (!d) return;
+    d->rc = 0;
+    d->pe3_idle_level = 0;
+    d->saw_assert = 0;
+    d->saw_release = 0;
+    d->first_edge_ms = 0;
+    d->release_edge_ms = 0;
+}
+
+int gfci_self_test(gfci_cal_diag_t *diag)
+{
+    diag_zero(diag);
+
     /* If PE2 is already asserted before we touch CAL the module is
      * either tripped from a prior cycle or wired wrong — bail before
      * compounding the situation. */
     if (gfci_fault_active()) {
+        if (diag) {
+            diag->rc = -3;
+            diag->saw_assert = 1;       /* it's asserted right now */
+            diag->first_edge_ms = 0;
+        }
         return -3;
     }
 
@@ -82,6 +103,7 @@ int gfci_self_test(void)
      * pulse window. */
     int idle_level = (gpio_input_bit_get(PIN_GFCI_CAL_PORT,
                                          PIN_GFCI_CAL_PIN) == SET) ? 1 : 0;
+    if (diag) diag->pe3_idle_level = (uint8_t)idle_level;
     printk("gfci-cal: PE3 idle=%d, asserting opposite for %u ms\n",
            idle_level, (unsigned)GFCI_CAL_PULSE_MS);
     if (idle_level) {
@@ -100,12 +122,19 @@ int gfci_self_test(void)
         wdg_kick();   /* total test ~1500 ms now exceeds the 1 s IWDG */
         int pe2 = gfci_fault_active();
         if (pe2 != last_pe2) {
+            uint32_t edge_ms = t + GFCI_CAL_POLL_INTERVAL_MS;
             printk("gfci-cal: t=%u ms PE2 %d -> %d (during pulse)\n",
-                   (unsigned)(t + GFCI_CAL_POLL_INTERVAL_MS),
-                   last_pe2, pe2);
+                   (unsigned)edge_ms, last_pe2, pe2);
+            /* Capture the first 0->1 (assert) edge. */
+            if (diag && pe2 && !diag->saw_assert) {
+                diag->first_edge_ms = (uint16_t)edge_ms;
+            }
             last_pe2 = pe2;
         }
-        if (pe2) saw_assert_during_pulse = 1;
+        if (pe2) {
+            saw_assert_during_pulse = 1;
+            if (diag) diag->saw_assert = 1;
+        }
     }
 
     /* Restore CAL to idle. */
@@ -131,20 +160,38 @@ int gfci_self_test(void)
         wdg_kick();
         int pe2 = gfci_fault_active();
         if (pe2 != last_pe2) {
+            uint32_t edge_ms = GFCI_CAL_PULSE_MS + t + GFCI_CAL_POLL_INTERVAL_MS;
             printk("gfci-cal: t=%u ms PE2 %d -> %d (recover)\n",
-                   (unsigned)(GFCI_CAL_PULSE_MS + t + GFCI_CAL_POLL_INTERVAL_MS),
-                   last_pe2, pe2);
+                   (unsigned)edge_ms, last_pe2, pe2);
+            if (diag) {
+                /* First assert (if it didn't fire during the pulse). */
+                if (pe2 && !diag->saw_assert) {
+                    diag->first_edge_ms = (uint16_t)edge_ms;
+                }
+                /* First release (1->0) after we ever saw an assert. */
+                if (!pe2 && diag->saw_assert && !diag->saw_release) {
+                    diag->release_edge_ms = (uint16_t)edge_ms;
+                }
+            }
             last_pe2 = pe2;
         }
-        if (pe2) saw_assert_post = 1;
-        else if (saw_assert_during_pulse || saw_assert_post) saw_release = 1;
+        if (pe2) {
+            saw_assert_post = 1;
+            if (diag) diag->saw_assert = 1;
+        } else if (saw_assert_during_pulse || saw_assert_post) {
+            saw_release = 1;
+            if (diag) diag->saw_release = 1;
+        }
     }
 
     if (!saw_assert_during_pulse && !saw_assert_post) {
+        if (diag) diag->rc = -1;
         return -1;
     }
     if ((saw_assert_during_pulse || saw_assert_post) && !saw_release) {
+        if (diag) diag->rc = -2;
         return -2;
     }
+    /* PASS */
     return 0;
 }

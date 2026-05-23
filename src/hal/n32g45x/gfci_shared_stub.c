@@ -8,4 +8,16 @@
 
 void gfci_init(void)          { OEVC_HAL_STUB(); }
 int  gfci_fault_active(void)  { OEVC_HAL_STUB(); return 0; }
-int  gfci_self_test(void)     { OEVC_HAL_STUB(); return 0; }
+int  gfci_self_test(gfci_cal_diag_t *diag)
+{
+    OEVC_HAL_STUB();
+    if (diag) {
+        diag->rc = 0;
+        diag->pe3_idle_level = 0;
+        diag->saw_assert = 0;
+        diag->saw_release = 0;
+        diag->first_edge_ms = 0;
+        diag->release_edge_ms = 0;
+    }
+    return 0;
+}

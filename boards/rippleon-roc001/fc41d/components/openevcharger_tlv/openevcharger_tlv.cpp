@@ -340,7 +340,33 @@ void OpenevchargerTlv::dispatch_frame_(uint8_t cmd, uint8_t seq,
     }
 
     case EVT_BOOT_COMPLETE: {
-      if (plen >= 8) {
+      if (plen >= 16) {
+        // v2: legacy 8 bytes + GFCI CAL diagnostic (8 bytes).
+        bool pass = p[0] != 0;
+        uint32_t lf = uint32_t(p[4]) | (uint32_t(p[5]) << 8) |
+                      (uint32_t(p[6]) << 16) | (uint32_t(p[7]) << 24);
+        int8_t   gfci_rc       = static_cast<int8_t>(p[8]);
+        uint8_t  pe3_idle      = p[9];
+        uint8_t  saw_assert    = p[10];
+        uint8_t  saw_release   = p[11];
+        uint16_t first_edge_ms = uint16_t(p[12]) | (uint16_t(p[13]) << 8);
+        uint16_t release_ms    = uint16_t(p[14]) | (uint16_t(p[15]) << 8);
+        const char *rc_name =
+            (gfci_rc == 0)  ? "PASS"
+          : (gfci_rc == -1) ? "FAIL(-1, no PE2 edge during CAL pulse)"
+          : (gfci_rc == -2) ? "FAIL(-2, PE2 stuck-low after CAL release)"
+          : (gfci_rc == -3) ? "FAIL(-3, PE2 already asserted at start)"
+          :                   "FAIL(unknown)";
+        ESP_LOGI(TAG,
+                 "MCU boot complete: self_test=%s last_fault=%s | "
+                 "gfci_cal=%s pe3_idle=%u saw_assert=%u saw_release=%u "
+                 "first_edge=%ums release_edge=%ums",
+                 pass ? "PASS" : "FAIL", fault_name(lf), rc_name,
+                 unsigned(pe3_idle), unsigned(saw_assert),
+                 unsigned(saw_release),
+                 unsigned(first_edge_ms), unsigned(release_ms));
+      } else if (plen >= 8) {
+        // v1 (legacy MCU firmware): no GFCI CAL diag in payload.
         bool pass = p[0] != 0;
         uint32_t lf = uint32_t(p[4]) | (uint32_t(p[5]) << 8) |
                       (uint32_t(p[6]) << 16) | (uint32_t(p[7]) << 24);

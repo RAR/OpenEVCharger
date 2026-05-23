@@ -723,21 +723,42 @@ static int run_boot_self_test(int32_t cp_mv)
  * behind OPENEVCHARGER_GFCI_CAL_SELF_TEST default 0 — the PE3 polarity is
  * contradicted in pin_map.h and the CAL-→-sense path hasn't been
  * bench-validated. */
-static int self_test_gfci_cal(void)
+static int self_test_gfci_cal(gfci_cal_diag_t *out)
 {
 #if OPENEVCHARGER_GFCI_CAL_SELF_TEST
-    int rc = gfci_self_test();
+    gfci_cal_diag_t local;
+    gfci_cal_diag_t *diag = out ? out : &local;
+    int rc = gfci_self_test(diag);
     if (rc == 0) {
-        printk("self-test: GFCI CAL PASS\n");
+        printk("self-test: GFCI CAL PASS (pe3_idle=%u first_edge=%ums "
+               "release_edge=%ums)\n",
+               (unsigned)diag->pe3_idle_level,
+               (unsigned)diag->first_edge_ms,
+               (unsigned)diag->release_edge_ms);
         return 0;
     }
     const char *why = (rc == -1) ? "no sense edge during CAL pulse"
                     : (rc == -2) ? "sense stuck-low after CAL release"
                     : (rc == -3) ? "sense already asserted at start"
                     :              "unknown rc";
-    printk("self-test: GFCI CAL FAIL (rc=%d, %s)\n", rc, why);
+    printk("self-test: GFCI CAL FAIL (rc=%d, %s) "
+           "pe3_idle=%u assert=%u release=%u first_edge=%ums release_edge=%ums\n",
+           rc, why,
+           (unsigned)diag->pe3_idle_level,
+           (unsigned)diag->saw_assert,
+           (unsigned)diag->saw_release,
+           (unsigned)diag->first_edge_ms,
+           (unsigned)diag->release_edge_ms);
     return 1;
 #else
+    if (out) {
+        out->rc = 0;
+        out->pe3_idle_level = 0;
+        out->saw_assert = 0;
+        out->saw_release = 0;
+        out->first_edge_ms = 0;
+        out->release_edge_ms = 0;
+    }
     printk("self-test: GFCI CAL DISABLED at build time "
            "(OPENEVCHARGER_GFCI_CAL_SELF_TEST=0; bench carve-out)\n");
     return 0;
@@ -1068,15 +1089,28 @@ static void process_request(struct safety_req *r,
                    evse_state_name(*es));
         } else {
             printk("safety: RUN_GFCI_CAL_TEST starting\n");
-            int rc = gfci_self_test();
+            gfci_cal_diag_t diag;
+            int rc = gfci_self_test(&diag);
             if (rc == 0) {
-                printk("self-test: GFCI CAL PASS\n");
+                printk("self-test: GFCI CAL PASS (pe3_idle=%u "
+                       "first_edge=%ums release_edge=%ums)\n",
+                       (unsigned)diag.pe3_idle_level,
+                       (unsigned)diag.first_edge_ms,
+                       (unsigned)diag.release_edge_ms);
             } else {
                 const char *why = (rc == -1) ? "no sense edge during CAL pulse"
                                 : (rc == -2) ? "sense stuck-low after CAL release"
                                 : (rc == -3) ? "sense already asserted at start"
                                 :              "unknown rc";
-                printk("self-test: GFCI CAL FAIL (rc=%d, %s)\n", rc, why);
+                printk("self-test: GFCI CAL FAIL (rc=%d, %s) "
+                       "pe3_idle=%u assert=%u release=%u "
+                       "first_edge=%ums release_edge=%ums\n",
+                       rc, why,
+                       (unsigned)diag.pe3_idle_level,
+                       (unsigned)diag.saw_assert,
+                       (unsigned)diag.saw_release,
+                       (unsigned)diag.first_edge_ms,
+                       (unsigned)diag.release_edge_ms);
             }
         }
         break;
@@ -1875,8 +1909,11 @@ static void safety_task_run(void *arg)
     /* GFCI CAL self-test runs separately from run_boot_self_test
      * because its 50 ms CAL pulse actively flips PE2 LOW — the live
      * check_gfci detector would race it once the safety loop starts.
-     * Has to fire BEFORE the for(;;) tick loop. Build-flag gated. */
-    if (self_test_gfci_cal() != 0 &&
+     * Has to fire BEFORE the for(;;) tick loop. Build-flag gated.
+     * Capture the per-edge diagnostic so the BOOT_COMPLETE event can
+     * surface it via TLV instead of being trapped in printk. */
+    gfci_cal_diag_t gfci_diag;
+    if (self_test_gfci_cal(&gfci_diag) != 0 &&
         !fault_is_active(&fs, FAULT_GFCI_SELF_TEST)) {
         if (fault_raise(&fs, FAULT_GFCI_SELF_TEST) == 1) {
             printk("fault: raised %s (CAL pulse did not provoke sense)\n",
@@ -1910,15 +1947,36 @@ static void safety_task_run(void *arg)
         evse_transition(&es, EVSE_READY);
     }
 
-    /* BOOT_COMPLETE event: u8 self_test_passed + u32 last_fault_id. */
+    /* BOOT_COMPLETE event.
+     *   v1 (legacy):  u8 self_test_passed + u8[3] pad + u32 last_fault_id
+     *                 (8 bytes total)
+     *   v2 (current): + i8 gfci_cal_rc, u8 pe3_idle, u8 saw_assert,
+     *                   u8 saw_release, u16 first_edge_ms, u16 release_edge_ms
+     *                   (16 bytes total)
+     * Wire-compatible: the FC41D decoder gates on `plen >= 8` then
+     * upgrades to v2 fields on `plen >= 16`, so older Wi-Fi modules
+     * still parse the leading 8 bytes correctly. */
     {
         struct __attribute__((packed)) {
             uint8_t  self_test_passed;
             uint8_t  pad[3];
             uint32_t last_fault_id;
+            /* v2 — GFCI CAL diagnostic: */
+            int8_t   gfci_cal_rc;
+            uint8_t  gfci_cal_pe3_idle;
+            uint8_t  gfci_cal_saw_assert;
+            uint8_t  gfci_cal_saw_release;
+            uint16_t gfci_cal_first_edge_ms;
+            uint16_t gfci_cal_release_edge_ms;
         } boot = {
-            .self_test_passed = (st_fails == 0) ? 1u : 0u,
-            .last_fault_id    = (uint32_t)fs.first_raised,
+            .self_test_passed         = (st_fails == 0) ? 1u : 0u,
+            .last_fault_id            = (uint32_t)fs.first_raised,
+            .gfci_cal_rc              = gfci_diag.rc,
+            .gfci_cal_pe3_idle        = gfci_diag.pe3_idle_level,
+            .gfci_cal_saw_assert      = gfci_diag.saw_assert,
+            .gfci_cal_saw_release     = gfci_diag.saw_release,
+            .gfci_cal_first_edge_ms   = gfci_diag.first_edge_ms,
+            .gfci_cal_release_edge_ms = gfci_diag.release_edge_ms,
         };
         (void)comms_publish_event(EVT_BOOT_COMPLETE, &boot, sizeof(boot));
     }
