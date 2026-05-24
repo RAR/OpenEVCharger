@@ -32,20 +32,31 @@ if [[ $# -ge 1 ]]; then
         exit 1
     fi
     case "$TARGET" in
-        *.elf)
+        *.elf|*.bin|*.hex)
             echo "Flashing $TARGET ..."
+            # OpenOCD's high-level `program` command silently fails to
+            # write flash sector 0 (the vector table) on GD32F205 — the
+            # write algorithm gets confused and leaves garbage there
+            # while still reporting "Verified OK". Bench-confirmed
+            # 2026-05-24: after `program`, 0x08000000-0x0800003F reads
+            # back as the address-byte pattern (00 01 02 03 ...) and
+            # the chip hard-faults on reset.
+            #
+            # Workaround: manual unlock + mass erase via direct FLASH
+            # controller writes, then `flash write_image` (lower-level
+            # path that doesn't have the bug). Tested on rippleon ROC001.
             openocd -f "$CFG" \
                     -c "init" \
                     -c "reset halt" \
-                    -c "program $TARGET verify reset" \
-                    -c "shutdown"
-            ;;
-        *.bin|*.hex)
-            echo "Flashing raw $TARGET at 0x08000000 ..."
-            openocd -f "$CFG" \
-                    -c "init" \
+                    -c "mww 0x40022004 0x45670123" \
+                    -c "mww 0x40022004 0xCDEF89AB" \
+                    -c "mww 0x40022010 0x00000004" \
+                    -c "mww 0x40022010 0x00000044" \
+                    -c "sleep 2000" \
                     -c "reset halt" \
-                    -c "program $TARGET 0x08000000 verify reset" \
+                    -c "flash write_image $TARGET" \
+                    -c "verify_image $TARGET" \
+                    -c "reset run" \
                     -c "shutdown"
             ;;
         *)
@@ -53,6 +64,22 @@ if [[ $# -ge 1 ]]; then
             exit 1
             ;;
     esac
+    cat <<'POSTFLASH'
+
+==========================================================================
+  Heartbeat LED on PD4 should be blinking at 1 Hz.
+
+  NOTE: After SWD flash, the external GFCI/CCID chip is latched in
+  fail-safe state (MCU was halted for >6 s during flash, so the chip's
+  watchdog tripped). The boot self-test will FAIL until you power-cycle
+  the unit. After power cycle, the chip POSTs cleanly and the boot
+  self-test PASSes normally.
+
+  Skip the power cycle only if you're sure the chip wasn't ever in
+  fail-safe (e.g., you flashed and the unit was already in READY with
+  the refresh task running before the SWD halt — rare).
+==========================================================================
+POSTFLASH
 else
     BUILD_DIR="$REPO_ROOT/build"
     ELF="$BUILD_DIR/openevcharger.elf"
@@ -87,11 +114,32 @@ else
         cmake --build "$BUILD_DIR"
     fi
     echo "Flashing $ELF ..."
+    # See big comment above the explicit-path branch — `program` skips
+    # sector 0 silently on GD32F205.
     openocd -f "$CFG" \
             -c "init" \
             -c "reset halt" \
-            -c "program $ELF verify reset" \
+            -c "mww 0x40022004 0x45670123" \
+            -c "mww 0x40022004 0xCDEF89AB" \
+            -c "mww 0x40022010 0x00000004" \
+            -c "mww 0x40022010 0x00000044" \
+            -c "sleep 2000" \
+            -c "reset halt" \
+            -c "flash write_image $ELF" \
+            -c "verify_image $ELF" \
+            -c "reset run" \
             -c "shutdown"
 fi
 
-echo "Done. Heartbeat LED on PD4 should be blinking at 1 Hz."
+cat <<'POSTFLASH'
+
+==========================================================================
+  Heartbeat LED on PD4 should be blinking at 1 Hz.
+
+  NOTE: After SWD flash, the external GFCI/CCID chip is latched in
+  fail-safe state (MCU was halted for >6 s during flash, so the chip's
+  watchdog tripped). The boot self-test will FAIL until you power-cycle
+  the unit. After power cycle, the chip POSTs cleanly and the boot
+  self-test PASSes normally.
+==========================================================================
+POSTFLASH
