@@ -3,41 +3,64 @@
 
 #include <stdint.h>
 
-/* GFCI fault sense on PE2.
+/* GFCI fault sense on PE2 + continuous CAL refresh on PE3.
  *
- * Bench-confirmed 2026-05-04 (gpio_diff wiggle): the GFCI module's
- * fault output drives PE2 LOW when a leakage fault is detected; idle
- * HIGH (open-drain output with a pull-up — the MCU's internal pull-up
- * is enabled so the wire reads HIGH when the module isn't asserting).
+ * Architecture (bench-RE'd against stock V1.0.063, locked 2026-05-24):
+ *   The external GFCI/CCID module needs CONTINUOUS refresh on its
+ *   CAL input or it asserts permanent fault as a fail-safe. The
+ *   refresh cycle is ~6 s of armed-state + ~1 s of pulse, repeated
+ *   forever. During each refresh pulse the chip briefly pulls TRIP
+ *   LOW (~300 ms) as a "still alive + CT connected" handshake.
  *
- * Configuration is owned by `gpio_init_all()` (PE2 = input pull-up
- * via the legacy `PIN_STRAP_PE2_*` macros, which happen to give us
- * exactly the right config — see core/pin_map.h's GFCI block).
+ *   PE3 (CAL drive) goes through an inverting level shifter:
+ *     MCU PE3 LOW   → CAL HIGH at chip   (chip's armed-idle state)
+ *     MCU PE3 HIGH  → CAL LOW at chip    (refresh pulse)
+ *     MCU PE3 float → CAL slowly rises HIGH via RC
  *
- * The CAL line on PE3 is a separate output, currently configured as
- * output PP idle LOW (= CAL idle at GFCI side per the level-shift
- * inversion). Self-test cycle (drive PE3 + PE4, sample PE2 mid-pulse)
- * is not yet implemented — we only watch for runtime faults.
+ *   PE2 (fault sense) is active-LOW at the MCU side:
+ *     PE2 HIGH = chip idle, no fault
+ *     PE2 LOW  = chip asserting fault — either handshake OR real
+ *                leak. Distinguish via gfci_in_handshake_window().
+ *
+ * boot path:
+ *   1. gpio_init_all() configures PE3 as floating INPUT, PE2 as IPU
+ *   2. gfci_init() defensively re-asserts PE2 IPU
+ *   3. gfci_self_test() runs the boot init dance + cycles until the
+ *      first handshake is observed (PASS) or 4 cycles expire (FAIL)
+ *   4. After PASS, gfci_refresh_task is spawned to keep the cycle
+ *      running for the rest of the boot.
  *
  * Single-reader rule: only safety_task should call gfci_fault_active().
  * Other tasks observe the fault via system_state's fault_active_bits. */
 
 void gfci_init(void);
 
-/* Returns 1 if PE2 reads LOW (= GFCI module is asserting fault),
- * 0 if PE2 reads HIGH (= idle / no fault). Active-low. */
+/* Returns 1 if PE2 reads LOW (= chip asserting fault — either real
+ * leak OR the brief refresh-cycle handshake), 0 if PE2 reads HIGH
+ * (= idle / no fault). Caller (safety_task) must check
+ * gfci_in_handshake_window() to disambiguate. */
 int  gfci_fault_active(void);
 
-/* Polarity-agnostic CAL self-test pulse. Drives PE3 to the inverse
- * of its idle level for ~60 ms, polls PE2 for an assertion edge, then
- * restores PE3 and waits for PE2 to release.
- *   0  = PASS
- *  -1  = no sense edge during CAL pulse
- *  -2  = sense stuck-low after CAL release
- *  -3  = sense already asserted at start (live fault?)
- * Note: contains ~160 ms of busy-wait. Acceptable inside safety_task's
- * 20 ms tick because the IWDG window is 1 s, but no other detector
- * runs during the call. Bench-use only. */
+/* Returns non-zero while gfci_refresh_task is in the refresh-pulse
+ * window plus its tail (~1.5 s per cycle). safety_task masks any
+ * PE2 LOW that occurs during this window — it's the chip's expected
+ * handshake, not a real fault. */
+int  gfci_in_handshake_window(void);
+
+/* Boot init dance + first-handshake validation. Returns:
+ *    0   PASS — observed at least one chip handshake within 4 cycles
+ *   -1   FAIL — no handshake during the ~31 s boot test window
+ *   -3   sense already asserted at entry (live fault, can't test)
+ *
+ * Contains ~3 s of init dance + up to 4 × ~7.5 s refresh cycles.
+ * Per-poll wdg_kick keeps inside the 1 s IWDG. Drives PE3 actively
+ * via gpio_init mode changes; safe to call only before the refresh
+ * task starts. */
 int  gfci_self_test(void);
+
+/* Continuous-refresh task entry. Spawn ONCE after gfci_self_test
+ * returns PASS. Owns PE3 (drives the 6 s + 1 s cycle forever) and
+ * the s_handshake_window flag. Never returns. Stack: 256 words. */
+void gfci_refresh_task(void *arg);
 
 #endif /* OPENEVCHARGER_HAL_GFCI_H */

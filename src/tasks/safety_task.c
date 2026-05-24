@@ -729,10 +729,19 @@ static int self_test_gfci_cal(void)
     int rc = gfci_self_test();
     if (rc == 0) {
         printk("self-test: GFCI CAL PASS\n");
+        /* PASS → spawn the continuous-refresh task. The chip's
+         * fail-safe asserts permanent fault if MCU stops driving
+         * the cycle, so we have to keep it going. */
+        BaseType_t ok = xTaskCreate(gfci_refresh_task,
+                                    "gfci_ref", 256, NULL,
+                                    tskIDLE_PRIORITY + 1, NULL);
+        if (ok != pdPASS) {
+            printk("self-test: GFCI CAL — xTaskCreate(refresh) FAILED\n");
+            return 1;
+        }
         return 0;
     }
-    const char *why = (rc == -1) ? "no sense edge during CAL pulse"
-                    : (rc == -2) ? "sense stuck-low after CAL release"
+    const char *why = (rc == -1) ? "no chip handshake during boot cycles"
                     : (rc == -3) ? "sense already asserted at start"
                     :              "unknown rc";
     printk("self-test: GFCI CAL FAIL (rc=%d, %s)\n", rc, why);
@@ -1420,7 +1429,14 @@ static void check_gfci(fault_state_t *fs, evse_state_t *es,
                        j1772_state_t js, int32_t cp_mv,
                        gfci_policy_ctx_t *gctx)
 {
-    switch (gfci_policy_step(gctx, gfci_fault_active(),
+    /* Mask PE2 LOW while gfci_refresh_task is in its handshake
+     * window — the chip pulses TRIP LOW (~300 ms) as a "still alive"
+     * handshake during each refresh cycle, indistinguishable from a
+     * real fault except via this timing flag. Outside the window,
+     * any LOW is treated as a candidate fault per the normal
+     * debounce policy. */
+    int pe2 = gfci_in_handshake_window() ? 0 : gfci_fault_active();
+    switch (gfci_policy_step(gctx, pe2,
                              boot_config_gfci_fault_policy())) {
     case GFCI_ACT_NONE:
         break;
