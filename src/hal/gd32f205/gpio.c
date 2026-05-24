@@ -24,7 +24,13 @@ static void init_outputs_safe_low(void)
     gpio_bit_reset(PIN_RELAY_MAIN_PORT,       PIN_RELAY_MAIN_PIN);
     gpio_bit_reset(PIN_RELAY_AUX_PORT,        PIN_RELAY_AUX_PIN);
     gpio_bit_reset(PIN_RELAY_FORCE_OPEN_PORT, PIN_RELAY_FORCE_OPEN_PIN);
-    gpio_bit_reset(PIN_GFCI_CAL_PORT,         PIN_GFCI_CAL_PIN);
+    /* GFCI CAL: PE3 boots as FLOATING input (set further down in the
+     * gpio_init call). The ODR pre-set HIGH here is harmless for
+     * input mode but means the first switch to OUT_PP via pe3_drive
+     * starts at a consistent level. Stock V1.0.063 leaves PE3 high-
+     * impedance between refresh pulses; matching that gets the chip
+     * to handshake on the boot init dance. Bench-validated 2026-05-24. */
+    gpio_bit_set(PIN_GFCI_CAL_PORT,           PIN_GFCI_CAL_PIN);
     gpio_bit_reset(PIN_BUZZER_PORT,           PIN_BUZZER_PIN);
     gpio_bit_reset(PIN_U11_G0_PORT,           PIN_U11_G0_PIN);
     gpio_bit_reset(PIN_U11_G1_PORT,           PIN_U11_G1_PIN);
@@ -36,7 +42,7 @@ static void init_outputs_safe_low(void)
     gpio_init(PIN_RELAY_MAIN_PORT,       GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_MAIN_PIN);
     gpio_init(PIN_RELAY_AUX_PORT,        GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_AUX_PIN);
     gpio_init(PIN_RELAY_FORCE_OPEN_PORT, GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_RELAY_FORCE_OPEN_PIN);
-    gpio_init(PIN_GFCI_CAL_PORT,   GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_GFCI_CAL_PIN);
+    gpio_init(PIN_GFCI_CAL_PORT,   GPIO_MODE_IN_FLOATING, GPIO_OSPEED_2MHZ, PIN_GFCI_CAL_PIN);
     gpio_init(PIN_BUZZER_PORT,     GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_BUZZER_PIN);
     gpio_init(PIN_U11_G0_PORT,     GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_U11_G0_PIN);
     gpio_init(PIN_U11_G1_PORT,     GPIO_MODE_OUT_PP, GPIO_OSPEED_2MHZ, PIN_U11_G1_PIN);

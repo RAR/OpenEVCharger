@@ -6,6 +6,8 @@
 #include "hal/gfci.h"
 #include "oevc_hal_stub.h"
 
-void gfci_init(void)          { OEVC_HAL_STUB(); }
-int  gfci_fault_active(void)  { OEVC_HAL_STUB(); return 0; }
-int  gfci_self_test(void)     { OEVC_HAL_STUB(); return 0; }
+void gfci_init(void)               { OEVC_HAL_STUB(); }
+int  gfci_fault_active(void)       { OEVC_HAL_STUB(); return 0; }
+int  gfci_in_handshake_window(void){ OEVC_HAL_STUB(); return 0; }
+int  gfci_self_test(void)          { OEVC_HAL_STUB(); return 0; }
+void gfci_refresh_task(void *arg)  { (void)arg; OEVC_HAL_STUB(); }
